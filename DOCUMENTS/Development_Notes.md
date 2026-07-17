@@ -49,11 +49,13 @@
   NIWA/ESNZ bathymetry as a fallback.
 - Deferred direct G-code until the geometry, CNC machine, tooling, and CAM
   requirements are proven.
+- Added `Roadmap.md`, dividing development into thirteen gated stages from the
+  first interactive map through SVG/DXF fabrication and optional direct G-code.
+- Chose Mount Taranaki for the land-only proof and Banks Peninsula for the later
+  coastal/bathymetry proof.
 
 ## Next Steps
 
-1. Choose the first proof-of-concept location and physical map dimensions.
-2. Obtain a small elevation raster covering that location.
-3. Prototype arbitrary elevation bands and filled SVG layer export.
-4. Validate the generated layer geometry visually in QGIS and against a simple
-   physical test cut.
+1. Implement Roadmap Stage 1: local application shell and New Zealand map.
+2. Confirm the first test area and desired initial map interaction.
+3. Proceed through the roadmap only after each stage's acceptance test passes.

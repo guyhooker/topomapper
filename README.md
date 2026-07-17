@@ -15,3 +15,6 @@ Detailed requirements and the proposed technical foundation are in
 [`DOCUMENTS/Requirements.md`](DOCUMENTS/Requirements.md) and
 [`DOCUMENTS/Architecture.md`](DOCUMENTS/Architecture.md).
 
+Development is divided into visible, testable increments in
+[`DOCUMENTS/Roadmap.md`](DOCUMENTS/Roadmap.md).
+

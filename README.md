@@ -20,6 +20,18 @@ Development is divided into visible, testable increments in
 
 ## Local development
 
-The Stage 1 application uses TypeScript, React, MapLibre GL JS, and Vite. Project
-dependencies are pinned in `package.json` and `package-lock.json`.
+The application uses TypeScript, React, MapLibre GL JS, and Vite. Project
+dependencies are pinned in `package.json` and `pnpm-lock.yaml`.
 
+Install Node.js 24 LTS, then open this repository in Terminal and run:
+
+For the existing Mac checkout, run `npm run dev`. For a clean checkout, enable
+Corepack and run `pnpm install` once before `pnpm run dev`.
+
+Open `http://localhost:3000` and leave Terminal running while using the app.
+
+## Current prototype
+
+Stage 2 adds an editable rectangular model-area selection. It reports the
+latitude/longitude bounds, ground width, ground height, and area. A selection
+can be saved on the Mac and reopened with the same numerical bounds.

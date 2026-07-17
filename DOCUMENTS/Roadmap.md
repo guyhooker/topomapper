@@ -31,6 +31,8 @@ smooth navigation around New Zealand.
 
 ## Stage 2 — Area Selection
 
+**Status: Implementation complete — acceptance test pending**
+
 ### Adds
 
 - Rectangle selection tool.

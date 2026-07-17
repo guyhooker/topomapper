@@ -75,9 +75,32 @@
 - Development uses Codex's bundled runtime; no system-wide Node installation is
   currently required.
 
+### Stage 2 — Area Selection
+
+- Implemented 17 July 2026; awaiting Guy's acceptance test.
+- Added a rectangle drawing mode directly on the MapLibre map.
+- Added four draggable corner handles so the selected area can be refined after
+  drawing.
+- Added live north, south, east, and west latitude/longitude bounds using five
+  decimal places.
+- Added ground width, ground height, and spherical surface-area calculations in
+  metric units.
+- Added Clear and Reset Taranaki controls.
+- Added a fixed Mount Taranaki reference rectangle for repeatable testing.
+- Added Save example and Open saved controls using storage on the local Mac.
+- The current working selection is also restored automatically when Topomapper
+  is reopened.
+- Saved selections contain numerical bounds only; no account or cloud storage
+  is involved.
+- Updated the responsive interface from Stage 1 Explore to Stage 2 Select.
+- Production build passes successfully.
+- Stage 2 acceptance remains for Guy to confirm: draw and adjust an area around
+  Mount Taranaki, save it, reopen Topomapper, and confirm the bounds are
+  unchanged.
+
 ## Next Steps
 
-1. Let Guy exercise Stage 1 on the MacBook and record usability observations.
-2. Confirm Stage 1 acceptance or make small map/search refinements.
-3. Begin Roadmap Stage 2: editable rectangular area selection and ground
-   dimensions.
+1. Let Guy complete the Stage 2 acceptance test on the MacBook.
+2. Record any area-selection or measurement usability observations.
+3. Mark Stage 2 complete only after the saved bounds are recovered unchanged.
+4. Do not begin Stage 3 elevation processing until Stage 2 is accepted.

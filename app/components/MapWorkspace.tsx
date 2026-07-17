@@ -31,6 +31,38 @@ type SelectionBounds = {
 
 type SelectionCorner = "north-west" | "north-east" | "south-east" | "south-west";
 
+type ElevationPoint = {
+  elevation: number;
+  longitude: number;
+  latitude: number;
+};
+
+type ElevationAnalysis = {
+  selection: SelectionBounds;
+  preview_bounds: SelectionBounds;
+  preview_png: string;
+  minimum: ElevationPoint;
+  maximum: ElevationPoint;
+  coverage: {
+    dataset_overlap_percent: number;
+    valid_data_percent: number;
+    missing_data_percent: number;
+  };
+  dataset: {
+    filename: string;
+    crs: string;
+    width: number;
+    height: number;
+    resolution_x: number;
+    resolution_y: number;
+    nodata: number | null;
+    vertical_datum: string;
+    bounds: SelectionBounds;
+  };
+};
+
+type ProcessorStatus = "checking" | "ready" | "unavailable";
+
 const QUICK_PLACES: Place[] = [
   { name: "Mount Taranaki", subtitle: "First terrain proof", longitude: 174.0632, latitude: -39.2968, zoom: 10.2 },
   { name: "Banks Peninsula", subtitle: "Future coastal proof", longitude: 172.915, latitude: -43.75, zoom: 9.2 },
@@ -45,7 +77,10 @@ const TARANAKI_EXAMPLE: SelectionBounds = {
 };
 
 const SEARCH_ENDPOINT = "https://nominatim.openstreetmap.org/search";
+const PROCESSOR_ENDPOINT = "http://127.0.0.1:8765";
 const SELECTION_SOURCE = "topomapper-selection";
+const ELEVATION_SOURCE = "topomapper-elevation-preview";
+const ELEVATION_LAYER = "topomapper-elevation-preview";
 const LAST_SELECTION_KEY = "topomapper:selection:last";
 const SAVED_EXAMPLE_KEY = "topomapper:selection:example";
 const EARTH_RADIUS_METRES = 6_371_008.8;
@@ -126,13 +161,26 @@ function isSelectionBounds(value: unknown): value is SelectionBounds {
     && Number(candidate.south) < Number(candidate.north);
 }
 
+function sameBounds(left: SelectionBounds, right: SelectionBounds) {
+  return Math.abs(left.west - right.west) < 0.0000001
+    && Math.abs(left.south - right.south) < 0.0000001
+    && Math.abs(left.east - right.east) < 0.0000001
+    && Math.abs(left.north - right.north) < 0.0000001;
+}
+
+function formatElevation(value: number) {
+  return `${Math.round(value).toLocaleString("en-NZ")} m`;
+}
+
 export function MapWorkspace() {
   const mapNode = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const mapLibreRef = useRef<typeof import("maplibre-gl").default | null>(null);
   const markerRef = useRef<MapLibreMarker | null>(null);
   const selectionMarkersRef = useRef<Partial<Record<SelectionCorner, MapLibreMarker>>>({});
+  const elevationMarkersRef = useRef<MapLibreMarker[]>([]);
   const selectionRef = useRef<SelectionBounds | null>(null);
+  const analysisRef = useRef<ElevationAnalysis | null>(null);
   const drawingRef = useRef(false);
   const drawStartRef = useRef<{ longitude: number; latitude: number } | null>(null);
   const [query, setQuery] = useState("");
@@ -146,6 +194,11 @@ export function MapWorkspace() {
   const [drawing, setDrawing] = useState(false);
   const [hasSavedExample, setHasSavedExample] = useState(false);
   const [selectionStatus, setSelectionStatus] = useState("Find a place, then draw the area you want to model.");
+  const [processorStatus, setProcessorStatus] = useState<ProcessorStatus>("checking");
+  const [elevationFile, setElevationFile] = useState<File | null>(null);
+  const [analysing, setAnalysing] = useState(false);
+  const [analysis, setAnalysis] = useState<ElevationAnalysis | null>(null);
+  const [analysisStatus, setAnalysisStatus] = useState("Choose a LINZ elevation GeoTIFF for this area.");
 
   function cornerPosition(bounds: SelectionBounds, corner: SelectionCorner): [number, number] {
     switch (corner) {
@@ -199,7 +252,66 @@ export function MapWorkspace() {
     });
   }
 
+  function clearElevationOverlay() {
+    elevationMarkersRef.current.forEach((marker) => marker.remove());
+    elevationMarkersRef.current = [];
+    const map = mapRef.current;
+    if (!map) return;
+    if (map.getLayer(ELEVATION_LAYER)) map.removeLayer(ELEVATION_LAYER);
+    if (map.getSource(ELEVATION_SOURCE)) map.removeSource(ELEVATION_SOURCE);
+  }
+
+  function addElevationMarker(point: ElevationPoint, kind: "minimum" | "maximum") {
+    const map = mapRef.current;
+    const maplibregl = mapLibreRef.current;
+    if (!map || !maplibregl) return;
+    const element = document.createElement("button");
+    element.type = "button";
+    element.className = `elevation-marker ${kind}`;
+    element.textContent = kind === "minimum" ? "L" : "H";
+    element.setAttribute("aria-label", `${kind === "minimum" ? "Lowest" : "Highest"} point, ${formatElevation(point.elevation)}`);
+    const marker = new maplibregl.Marker({ element, anchor: "center" })
+      .setLngLat([point.longitude, point.latitude])
+      .setPopup(new maplibregl.Popup({ offset: 18 }).setHTML(
+        `<strong>${kind === "minimum" ? "Lowest" : "Highest"} point</strong><br>${formatElevation(point.elevation)}`,
+      ))
+      .addTo(map);
+    elevationMarkersRef.current.push(marker);
+  }
+
+  function showElevationOverlay(result: ElevationAnalysis) {
+    const map = mapRef.current;
+    if (!map || !map.isStyleLoaded()) return;
+    clearElevationOverlay();
+    const bounds = result.preview_bounds;
+    map.addSource(ELEVATION_SOURCE, {
+      type: "image",
+      url: result.preview_png,
+      coordinates: [
+        [bounds.west, bounds.north],
+        [bounds.east, bounds.north],
+        [bounds.east, bounds.south],
+        [bounds.west, bounds.south],
+      ],
+    });
+    map.addLayer({
+      id: ELEVATION_LAYER,
+      type: "raster",
+      source: ELEVATION_SOURCE,
+      paint: { "raster-opacity": 0.86, "raster-fade-duration": 0 },
+    }, "topomapper-selection-fill");
+    addElevationMarker(result.minimum, "minimum");
+    addElevationMarker(result.maximum, "maximum");
+  }
+
   function applySelection(bounds: SelectionBounds | null, persist = false) {
+    const currentAnalysis = analysisRef.current;
+    if (currentAnalysis && (!bounds || !sameBounds(bounds, currentAnalysis.selection))) {
+      clearElevationOverlay();
+      analysisRef.current = null;
+      setAnalysis(null);
+      setAnalysisStatus("The area changed. Analyse the GeoTIFF again for the new bounds.");
+    }
     selectionRef.current = bounds;
     setSelection(bounds);
     const source = mapRef.current?.getSource(SELECTION_SOURCE) as GeoJSONSource | undefined;
@@ -312,9 +424,35 @@ export function MapWorkspace() {
       cancelled = true;
       window.removeEventListener("keydown", cancelDrawing);
       Object.values(selectionMarkersRef.current).forEach((marker) => marker?.remove());
+      elevationMarkersRef.current.forEach((marker) => marker.remove());
       mapRef.current?.remove();
       mapRef.current = null;
       mapLibreRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let attempts = 0;
+
+    async function checkProcessor() {
+      attempts += 1;
+      try {
+        const response = await fetch(`${PROCESSOR_ENDPOINT}/health`);
+        if (!response.ok) throw new Error("Processor unavailable");
+        if (!cancelled) setProcessorStatus("ready");
+      } catch {
+        if (cancelled) return;
+        if (attempts < 4) retryTimer = setTimeout(checkProcessor, 1200);
+        else setProcessorStatus("unavailable");
+      }
+    }
+
+    void checkProcessor();
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
     };
   }, []);
 
@@ -440,6 +578,70 @@ export function MapWorkspace() {
     }
   }
 
+  function chooseElevationFile(file: File | null) {
+    setElevationFile(file);
+    if (!file) {
+      setAnalysisStatus("Choose a LINZ elevation GeoTIFF for this area.");
+      return;
+    }
+    if (analysisRef.current) {
+      clearElevationOverlay();
+      analysisRef.current = null;
+      setAnalysis(null);
+    }
+    setAnalysisStatus(`${file.name} is ready to analyse.`);
+  }
+
+  async function retryProcessor() {
+    setProcessorStatus("checking");
+    try {
+      const response = await fetch(`${PROCESSOR_ENDPOINT}/health`);
+      if (!response.ok) throw new Error("Processor unavailable");
+      setProcessorStatus("ready");
+      setAnalysisStatus(elevationFile ? `${elevationFile.name} is ready to analyse.` : "Choose a LINZ elevation GeoTIFF for this area.");
+    } catch {
+      setProcessorStatus("unavailable");
+      setAnalysisStatus("The elevation processor is not running. Restart Topomapper from Terminal.");
+    }
+  }
+
+  async function analyseElevation(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selection || !elevationFile || analysing) return;
+    setAnalysing(true);
+    setAnalysisStatus("Clipping the GeoTIFF and finding its highest and lowest points…");
+
+    const form = new FormData();
+    form.append("geotiff", elevationFile);
+    form.append("bounds", JSON.stringify(selection));
+
+    try {
+      const response = await fetch(`${PROCESSOR_ENDPOINT}/analyze`, { method: "POST", body: form });
+      const payload = await response.json() as ElevationAnalysis | { error?: string };
+      if (!response.ok || !("minimum" in payload)) {
+        throw new Error("error" in payload && payload.error ? payload.error : "The GeoTIFF could not be analysed.");
+      }
+      if (!selectionRef.current || !sameBounds(selectionRef.current, payload.selection)) {
+        throw new Error("The map area changed during analysis. Run the analysis again.");
+      }
+      analysisRef.current = payload;
+      setAnalysis(payload);
+      showElevationOverlay(payload);
+      const missing = payload.coverage.missing_data_percent;
+      setAnalysisStatus(missing > 0.5
+        ? `Analysis complete. ${missing.toFixed(1)}% of the selected area has no usable data.`
+        : "Analysis complete. The selected area has usable elevation coverage.");
+    } catch (error) {
+      setAnalysisStatus(error instanceof Error ? error.message : "The GeoTIFF could not be analysed.");
+    } finally {
+      setAnalysing(false);
+    }
+  }
+
+  function focusElevationPoint(point: ElevationPoint) {
+    mapRef.current?.flyTo({ center: [point.longitude, point.latitude], zoom: Math.max(zoom, 12), duration: 900, essential: true });
+  }
+
   const measurements = selection ? selectionMeasurements(selection) : null;
 
   return (
@@ -451,7 +653,7 @@ export function MapWorkspace() {
           <span className="brand-mark" aria-hidden="true"><i /><i /><i /></span>
           <span><strong>topo</strong>mapper</span>
         </button>
-        <div className="stage-pill"><span /> Stage 2 · Select</div>
+        <div className="stage-pill"><span /> Stage 3 · Elevation</div>
       </header>
 
       <section className="search-panel" aria-label="Place search">
@@ -499,7 +701,7 @@ export function MapWorkspace() {
         </div>
       </section>
 
-      <aside className="selection-panel" aria-label="Area selection">
+      <aside className="selection-panel" aria-label="Area selection and elevation analysis">
         <div className="selection-heading">
           <span className="section-label">MODEL AREA</span>
           <strong>{selection ? "Selection ready" : "Draw a rectangle"}</strong>
@@ -539,6 +741,78 @@ export function MapWorkspace() {
           <button onClick={clearSelection} disabled={!selection}>Clear</button>
           <button onClick={resetTaranakiExample}>Reset Taranaki</button>
         </div>
+
+        <section className="elevation-section" aria-labelledby="elevation-heading">
+          <div className="elevation-heading-row">
+            <div>
+              <span className="section-label">ELEVATION DATA</span>
+              <strong id="elevation-heading">Analyse GeoTIFF</strong>
+            </div>
+            <span className={`processor-state ${processorStatus}`}>
+              <i aria-hidden="true" />
+              {processorStatus === "ready" ? "Local ready" : processorStatus === "checking" ? "Checking" : "Offline"}
+            </span>
+          </div>
+
+          <form className="elevation-form" onSubmit={analyseElevation}>
+            <label className="file-picker">
+              <input
+                type="file"
+                accept=".tif,.tiff,image/tiff"
+                onChange={(event) => chooseElevationFile(event.target.files?.[0] ?? null)}
+              />
+              <span aria-hidden="true">＋</span>
+              <span><strong>{elevationFile ? "Change GeoTIFF" : "Choose GeoTIFF"}</strong><small>{elevationFile?.name ?? "LINZ bare-earth elevation raster"}</small></span>
+            </label>
+            {processorStatus === "unavailable" ? (
+              <button type="button" className="processor-retry" onClick={retryProcessor}>Check processor again</button>
+            ) : (
+              <button
+                type="submit"
+                className="analyse-button"
+                disabled={!selection || !elevationFile || analysing || processorStatus !== "ready"}
+              >
+                {analysing ? "Analysing…" : "Analyse selected area"}
+              </button>
+            )}
+          </form>
+          <p className={`analysis-status ${analysisStatus.includes("no usable") || analysisStatus.includes("not running") || analysisStatus.includes("could not") ? "warning" : ""}`} role="status">{analysisStatus}</p>
+          <a
+            className="linz-data-link"
+            href="https://www.linz.govt.nz/products-services/data/types-linz-data/elevation-data/access-elevation-data"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Open LINZ elevation downloads <span aria-hidden="true">↗</span>
+          </a>
+
+          {analysis && (
+            <div className="analysis-results">
+              <div className="extrema-grid">
+                <button onClick={() => focusElevationPoint(analysis.minimum)}>
+                  <span><i className="low" aria-hidden="true" /> Lowest</span>
+                  <strong>{formatElevation(analysis.minimum.elevation)}</strong>
+                  <small>{analysis.minimum.latitude.toFixed(5)}°, {analysis.minimum.longitude.toFixed(5)}°</small>
+                </button>
+                <button onClick={() => focusElevationPoint(analysis.maximum)}>
+                  <span><i className="high" aria-hidden="true" /> Highest</span>
+                  <strong>{formatElevation(analysis.maximum.elevation)}</strong>
+                  <small>{analysis.maximum.latitude.toFixed(5)}°, {analysis.maximum.longitude.toFixed(5)}°</small>
+                </button>
+              </div>
+              <div className="terrain-legend" aria-label="Elevation preview colour scale">
+                <span>Low</span><i /><span>High</span>
+              </div>
+              <dl className="dataset-summary">
+                <div><dt>Coverage</dt><dd>{analysis.coverage.valid_data_percent.toFixed(1)}%</dd></div>
+                <div><dt>Cell size</dt><dd>{analysis.dataset.resolution_x.toFixed(1)} × {analysis.dataset.resolution_y.toFixed(1)} m</dd></div>
+                <div><dt>Coordinates</dt><dd>{analysis.dataset.crs}</dd></div>
+                <div><dt>Vertical datum</dt><dd>{analysis.dataset.vertical_datum}</dd></div>
+              </dl>
+              <p className="dataset-name" title={analysis.dataset.filename}>{analysis.dataset.filename}</p>
+            </div>
+          )}
+        </section>
       </aside>
 
       <footer className="statusbar">

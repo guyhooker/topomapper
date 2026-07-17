@@ -4,6 +4,8 @@
 /.vinext
 /dist
 /.wrangler
+/.venv
+/fixtures/*.tif
 .DS_Store
 *.log
 .env*

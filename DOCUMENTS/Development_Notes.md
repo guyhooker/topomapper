@@ -77,7 +77,7 @@
 
 ### Stage 2 — Area Selection
 
-- Implemented 17 July 2026; awaiting Guy's acceptance test.
+- Completed and accepted 17 July 2026.
 - Added a rectangle drawing mode directly on the MapLibre map.
 - Added four draggable corner handles so the selected area can be refined after
   drawing.
@@ -94,13 +94,52 @@
   is involved.
 - Updated the responsive interface from Stage 1 Explore to Stage 2 Select.
 - Production build passes successfully.
-- Stage 2 acceptance remains for Guy to confirm: draw and adjust an area around
-  Mount Taranaki, save it, reopen Topomapper, and confirm the bounds are
-  unchanged.
+- Guy confirmed the area selection was clear and usable after a hotfix ensured
+  draggable handles receive coordinates before being attached to MapLibre.
+
+### Stage 3 — First Elevation Dataset and Analysis
+
+- Implemented 17 July 2026; awaiting acceptance with a real LINZ GeoTIFF.
+- Added an isolated Python processing environment under `.venv`; it is created
+  automatically on the first Stage 3 start and is excluded from Git.
+- Added a localhost-only elevation service using Rasterio and NumPy.
+- The normal `npm run dev` command now starts both the map and the local
+  elevation processor.
+- Added a GeoTIFF chooser to the Stage 3 panel. Browser-selected files are sent
+  only to the processor on the same Mac, copied to temporary storage for the
+  analysis, and deleted immediately afterward.
+- Added coordinate-system transformation from the map's WGS84 selection to the
+  source raster CRS, including NZTM2000 / EPSG:2193.
+- Clips processing to the selected area and scans large rasters in 1024-pixel
+  chunks rather than loading an entire high-resolution DEM into memory.
+- Reports minimum and maximum elevation with their map locations.
+- Distinguishes GeoTIFF NODATA values and uncovered selection area from valid
+  zero elevation, and reports usable coverage as a percentage.
+- Reports source filename, horizontal CRS, cell size, NODATA marker, and any
+  vertical datum recorded in the GeoTIFF. An unstated vertical datum remains
+  visibly labelled rather than guessed.
+- Generates a coloured, shaded PNG terrain preview and overlays it on MapLibre.
+- Adds labelled lowest and highest point markers; the result cards navigate to
+  those locations.
+- Added a reproducible synthetic Taranaki-shaped GeoTIFF fixture with a known
+  summit and explicit NODATA patch. It is clearly labelled as non-survey data
+  and cannot be confused with LINZ elevation data.
+- Linked the interface and documentation to LINZ's official elevation access
+  guidance.
+- Frontend production build and Python syntax checks pass successfully.
+- Full raster runtime verification requires Rasterio installation during the
+  first normal Terminal start because the protected Codex environment cannot
+  download Python packages.
 
 ## Next Steps
 
-1. Let Guy complete the Stage 2 acceptance test on the MacBook.
-2. Record any area-selection or measurement usability observations.
-3. Mark Stage 2 complete only after the saved bounds are recovered unchanged.
-4. Do not begin Stage 3 elevation processing until Stage 2 is accepted.
+1. Restart Topomapper so its private Rasterio environment is installed and the
+   local elevation service starts.
+2. Analyse the generated synthetic Taranaki fixture and confirm the preview,
+   high/low markers, and missing-data percentage appear.
+3. Download or crop one real LINZ bare-earth DEM GeoTIFF covering the selected
+   Mount Taranaki area.
+4. Confirm plausible minimum and maximum elevations and inspect the stated CRS,
+   resolution, vertical datum, and coverage.
+5. Mark Stage 3 complete only after the real LINZ acceptance test passes.
+6. Do not begin Stage 4 layer boundaries until Stage 3 is accepted.

@@ -31,7 +31,7 @@ smooth navigation around New Zealand.
 
 ## Stage 2 — Area Selection
 
-**Status: Implementation complete — acceptance test pending**
+**Status: Complete — accepted 17 July 2026**
 
 ### Adds
 
@@ -48,6 +48,8 @@ The user can select and adjust an area around Mount Taranaki and recover the
 same numerical bounds after reopening a saved example.
 
 ## Stage 3 — First Elevation Dataset and Analysis
+
+**Status: Implementation complete — real LINZ GeoTIFF acceptance test pending**
 
 ### Adds
 

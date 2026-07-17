@@ -25,13 +25,18 @@ dependencies are pinned in `package.json` and `pnpm-lock.yaml`.
 
 Install Node.js 24 LTS, then open this repository in Terminal and run:
 
-For the existing Mac checkout, run `npm run dev`. For a clean checkout, enable
-Corepack and run `pnpm install` once before `pnpm run dev`.
+For the existing Mac checkout, run `npm run dev`. The first Stage 3 start also
+creates a private Python environment and installs Rasterio; this can take a few
+minutes and requires an internet connection. Later starts reuse it. For a clean
+checkout, enable Corepack and run `pnpm install` once before `pnpm run dev`.
 
 Open `http://localhost:3000` and leave Terminal running while using the app.
 
 ## Current prototype
 
-Stage 2 adds an editable rectangular model-area selection. It reports the
-latitude/longitude bounds, ground width, ground height, and area. A selection
-can be saved on the Mac and reopened with the same numerical bounds.
+Stage 3 imports a local elevation GeoTIFF, clips it to the editable model-area
+selection, reports the lowest and highest elevations and their locations, and
+overlays a coloured terrain preview. Missing data is reported separately from
+real zero elevation. See
+[`DOCUMENTS/Elevation_Data.md`](DOCUMENTS/Elevation_Data.md) for suitable LINZ
+sources and the included synthetic test fixture.

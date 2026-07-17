@@ -36,6 +36,12 @@ Swift.
   registration geometry.
 - PyProj for coordinate-system transformations.
 
+Stage 3 implements the first local processor as a localhost-only Python HTTP
+service started by the same development command as the interface. Rasterio
+provides GDAL-backed GeoTIFF access, window clipping, raster masks, and CRS
+transformation. Large selected windows are scanned in bounded chunks. Uploaded
+browser files are temporary and are deleted after each request.
+
 ### Project and Export Formats
 
 - A readable JSON project file for settings and provenance.
@@ -124,4 +130,3 @@ expose a large GIS application to users who need a focused fabrication tool.
 Map interaction belongs in the browser, but multi-gigabyte raster access,
 coordinate transformations, contour polygon generation, and CNC export are more
 reliable in the local Python/GDAL engine.
-

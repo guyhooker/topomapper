@@ -15,6 +15,8 @@ bathymetry problems. Banks Peninsula is the later coast-and-seabed test case.
 
 ## Stage 1 — Application Shell and Map
 
+**Status: Complete — 17 July 2026**
+
 ### Adds
 
 - Local application launcher.
@@ -231,4 +233,3 @@ material before any project sheet is machined.
 - **Prototype E — Coastal model:** Stage 10.
 - **Version 1.0 — Proven Mac fabrication tool:** Stages 11–12.
 - **Optional CNC-native version:** Stage 13.
-

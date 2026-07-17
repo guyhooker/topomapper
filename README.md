@@ -18,3 +18,8 @@ Detailed requirements and the proposed technical foundation are in
 Development is divided into visible, testable increments in
 [`DOCUMENTS/Roadmap.md`](DOCUMENTS/Roadmap.md).
 
+## Local development
+
+The Stage 1 application uses TypeScript, React, MapLibre GL JS, and Vite. Project
+dependencies are pinned in `package.json` and `package-lock.json`.
+

@@ -1,0 +1,12 @@
+/node_modules
+/.pnpm-store
+/.next
+/.vinext
+/dist
+/.wrangler
+.DS_Store
+*.log
+.env*
+/outputs
+/work
+next-env.d.ts

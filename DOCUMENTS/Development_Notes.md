@@ -54,8 +54,30 @@
 - Chose Mount Taranaki for the land-only proof and Banks Peninsula for the later
   coastal/bathymetry proof.
 
+### Stage 1 — Application Shell and Map
+
+- Completed 17 July 2026.
+- Added the local TypeScript/React application structure using Vite/vinext.
+- Added a full-window MapLibre map centred on New Zealand.
+- Uses the OpenFreeMap Positron map style with visible OpenStreetMap attribution.
+- Added pan, zoom, metric scale, coordinates, zoom readout, and map-source
+  status.
+- Added submit-only New Zealand place search. Search results are cached locally
+  and no autocomplete/background queries are issued.
+- Added quick navigation to Mount Taranaki, Banks Peninsula, and Aoraki/Mount
+  Cook.
+- Added a responsive topomapper application shell and a visible indication that
+  area selection belongs to Stage 2.
+- Production build passes successfully.
+- Stage 1 acceptance target is met: the application opens locally, presents a
+  navigable New Zealand map, and can locate Mount Taranaki by name or quick
+  location.
+- Development uses Codex's bundled runtime; no system-wide Node installation is
+  currently required.
+
 ## Next Steps
 
-1. Implement Roadmap Stage 1: local application shell and New Zealand map.
-2. Confirm the first test area and desired initial map interaction.
-3. Proceed through the roadmap only after each stage's acceptance test passes.
+1. Let Guy exercise Stage 1 on the MacBook and record usability observations.
+2. Confirm Stage 1 acceptance or make small map/search refinements.
+3. Begin Roadmap Stage 2: editable rectangular area selection and ground
+   dimensions.

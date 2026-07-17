@@ -182,7 +182,9 @@ export function MapWorkspace() {
         handle.type = "button";
         handle.className = "selection-handle";
         handle.setAttribute("aria-label", `Adjust ${corner} corner`);
-        marker = new maplibregl.Marker({ element: handle, draggable: true, anchor: "center" }).addTo(map);
+        marker = new maplibregl.Marker({ element: handle, draggable: true, anchor: "center" })
+          .setLngLat(cornerPosition(bounds, corner))
+          .addTo(map);
         marker.on("drag", () => {
           const current = selectionRef.current;
           if (!current || !marker) return;

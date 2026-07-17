@@ -1,10 +1,17 @@
 # topomapper
 
-`topomapper` is a new mapping project started by Guy Hooker in July 2026.
+`topomapper` is a Mac application for turning real-world terrain and seabed
+elevation data into layered shapes suitable for CNC-cut wall maps.
 
-The project scope, target platform, data sources, and required outputs are still
-to be defined.
+The user selects an area on an interactive map, analyses its elevation range,
+chooses custom land and subsea layer boundaries, previews the resulting stacked
+model, and exports cut-ready geometry. Direct CNC G-code is a later goal after
+the geometry workflow is proven.
 
 Project decisions and progress are recorded in
 [`DOCUMENTS/Development_Notes.md`](DOCUMENTS/Development_Notes.md).
+
+Detailed requirements and the proposed technical foundation are in
+[`DOCUMENTS/Requirements.md`](DOCUMENTS/Requirements.md) and
+[`DOCUMENTS/Architecture.md`](DOCUMENTS/Architecture.md).
 

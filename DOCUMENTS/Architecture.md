@@ -1,0 +1,127 @@
+# topomapper Initial Architecture
+
+## Recommendation
+
+Build the first version as a local web application running entirely on the
+MacBook:
+
+- Browser interface for the map, selection tools, layer editor, and previews.
+- Local Python service for downloading, caching, analysing, and contouring
+  elevation rasters.
+- No cloud account and no upload of project data.
+- Package it as a normal Mac application after the workflow is proven.
+
+This approach provides modern interactive mapping without forcing geospatial
+processing into browser JavaScript or rebuilding mature raster tools in native
+Swift.
+
+## Proposed Components
+
+### Interface
+
+- TypeScript and a small web application framework.
+- MapLibre GL JS for the interactive map, hillshade, and terrain preview.
+- Terra Draw or an equivalent MapLibre control for rectangular and polygonal
+  area selection.
+- A layer-boundary editor with separate land and subsea lists.
+
+### Processing Engine
+
+- Python for the local service and workflow orchestration.
+- GDAL/Rasterio for reading, mosaicking, reprojecting, clipping, resampling, and
+  analysing elevation rasters.
+- NumPy for minimum/maximum and band calculations.
+- GDAL polygonal contour generation for arbitrary fixed layer levels.
+- Shapely for clipping, cleaning, simplification, minimum-feature checks, and
+  registration geometry.
+- PyProj for coordinate-system transformations.
+
+### Project and Export Formats
+
+- A readable JSON project file for settings and provenance.
+- GeoTIFF cache for clipped elevation data.
+- GeoPackage or GeoJSON for intermediate polygons.
+- SVG first and DXF second for CNC/CAM interchange.
+- G-code only through a later, explicitly configured CAM/postprocessor stage.
+
+## New Zealand Data Strategy
+
+Use a source hierarchy rather than assuming one dataset is adequate everywhere:
+
+1. LINZ National 1 m bare-earth DEM for land where available.
+2. LINZ coastal DEM products where they include compatible land and seafloor
+   elevations.
+3. Higher-resolution regional bathymetry where available.
+4. New Zealand 250 m bathymetry as a broad-area fallback, with a visible quality
+   warning.
+
+The system must inspect coverage and metadata before downloading large files.
+Cloud Optimised GeoTIFF sources should be read by spatial window where possible,
+so selecting Banks Peninsula does not require downloading a national raster.
+
+## Coordinate and Datum Handling
+
+- Perform New Zealand geometry and physical measurements in NZTM2000 rather
+  than latitude/longitude.
+- Retain each source's original vertical datum in metadata.
+- Require an explicit, documented transformation or user acknowledgement before
+  merging land elevation and seabed depth referenced to different zero levels.
+- Make the chosen physical zero/sea-level plane visible in the project settings.
+
+## Development Phases
+
+### Phase 1 — Geometry proof
+
+- Use a manually downloaded New Zealand DEM sample.
+- Select or enter a rectangular area.
+- Report minimum and maximum elevation.
+- Accept arbitrary elevation boundaries.
+- Generate and preview filled layer polygons.
+- Export SVG layers.
+
+### Phase 2 — Interactive map
+
+- Add searchable MapLibre map.
+- Draw and edit the selection.
+- Retrieve and cache the appropriate LINZ elevation window.
+- Add project save/open.
+
+### Phase 3 — Coast and bathymetry
+
+- Add high-resolution coastal data where available.
+- Add NIWA/ESNZ bathymetry fallback.
+- Add vertical-datum and resolution warnings.
+- Preview land, glass sea-level plane, and subsea stack.
+
+### Phase 4 — Fabrication preparation
+
+- Add map scale, sheet thickness, vertical exaggeration, kerf allowance,
+  simplification, minimum-piece checks, alignment holes, and layer labels.
+- Add DXF export and validate output in existing CAM software.
+
+### Phase 5 — CNC integration
+
+- Specify the CNC controller, cutter, stock, feeds, speeds, tabs, safe height,
+  origin, and postprocessor.
+- Decide whether direct G-code adds value over a proven CAM workflow.
+
+## Why Not the Alternatives Initially?
+
+### Native Swift
+
+Swift can produce an excellent Mac interface, but the elevation, projection,
+raster, and contour pipeline would still depend on specialist native libraries.
+It increases packaging effort before the product workflow is understood.
+
+### QGIS Plugin
+
+QGIS is excellent for validating datasets and generated geometry and should be
+used during development. A plugin could implement the workflow, but it would
+expose a large GIS application to users who need a focused fabrication tool.
+
+### Browser-only Application
+
+Map interaction belongs in the browser, but multi-gigabyte raster access,
+coordinate transformations, contour polygon generation, and CNC export are more
+reliable in the local Python/GDAL engine.
+

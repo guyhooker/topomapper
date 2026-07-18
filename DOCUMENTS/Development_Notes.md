@@ -146,14 +146,40 @@
   result beside the Mount Taranaki summit. The fixed Stage 2 reference rectangle
   has about 76% coverage from those two north/south tiles because it also extends
   beyond their shared east/west limits.
+- Guy added BH28, BH29, BJ28, and BJ29 to cover the complete national-park
+  selection. The real four-tile mosaic displayed correctly and reached 100%
+  usable coverage.
+- Independent regression over the fixed Stage 2 reference rectangle with those
+  four real tiles reported a 41.2 m minimum in BH28, a 2510.3 m maximum in BJ29
+  beside the summit, and 100% coverage.
+- Stage 3 was accepted on 18 July 2026.
+
+### Stage 4 — Layer Boundary Editor
+
+- Implemented 18 July 2026; awaiting Guy's acceptance test.
+- Added a land-elevation boundary editor after a successful raster analysis.
+- Sea level is a named, fixed 0 m boundary and the analysed maximum is a fixed
+  final boundary.
+- Added the suggested non-linear terrain preset: 0, 50, 100, 200, 350, 500,
+  750, 1000, 1500, 2000, then the analysed maximum, omitting values above a
+  lower maximum.
+- Added ten-equal-interval and every-100-metre presets.
+- Added a colour-coded elevation range showing every active boundary.
+- Added controls to enter a new boundary, edit intermediate values, remove
+  them, and move them up or down in the ordered list.
+- Duplicate values, blank/invalid values, and descending/out-of-order values
+  produce a clear validation message and suppress the ready summary.
+- The interface reports the resulting physical elevation-band count.
+- Valid working layer plans are saved locally and restored when the analysed
+  maximum matches.
+- Subsea boundaries remain deferred until the coastal and bathymetry stage.
+- Production build passes successfully.
 
 ## Next Steps
 
-1. Restart Topomapper so its private Rasterio environment is installed and the
-   local elevation service starts.
-2. Select BJ29 and BH29 together in the multi-file chooser and analyse them as
-   one mosaic.
-3. Confirm a summit near 2510 m, inspect the combined coverage, and verify the
-   high/low cards name their source tiles.
-4. Mark Stage 3 complete after the combined real-tile interface test passes.
-5. Do not begin Stage 4 layer boundaries until Stage 3 is accepted.
+1. Exercise the Stage 4 suggested, ten-equal, and every-100-metre presets.
+2. Add, edit, remove, and reorder intermediate boundaries.
+3. Confirm the editor rejects a duplicate and an out-of-order value clearly.
+4. Confirm the valid non-linear plan survives a page reload after re-analysis.
+5. Mark Stage 4 complete only after the acceptance test passes.
+6. Do not begin Stage 5 filled polygon generation until Stage 4 is accepted.

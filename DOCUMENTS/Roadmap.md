@@ -49,7 +49,7 @@ same numerical bounds after reopening a saved example.
 
 ## Stage 3 — First Elevation Dataset and Analysis
 
-**Status: Implementation complete — real LINZ GeoTIFF acceptance test pending**
+**Status: Complete — accepted 18 July 2026**
 
 ### Adds
 
@@ -67,6 +67,8 @@ plausible minimum and maximum elevations, marks their locations, and
 distinguishes missing raster data from real elevation values.
 
 ## Stage 4 — Layer Boundary Editor
+
+**Status: Implementation complete — acceptance test pending**
 
 ### Adds
 

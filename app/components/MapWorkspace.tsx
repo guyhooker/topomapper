@@ -67,6 +67,14 @@ type ElevationAnalysis = {
 
 type ProcessorStatus = "checking" | "ready" | "unavailable";
 
+type LayerBoundary = {
+  id: string;
+  value: string;
+  role: "sea-level" | "custom" | "maximum";
+};
+
+type LayerPreset = "suggested" | "equal" | "hundreds" | "custom";
+
 const QUICK_PLACES: Place[] = [
   { name: "Mount Taranaki", subtitle: "First terrain proof", longitude: 174.0632, latitude: -39.2968, zoom: 10.2 },
   { name: "Banks Peninsula", subtitle: "Future coastal proof", longitude: 172.915, latitude: -43.75, zoom: 9.2 },
@@ -87,6 +95,7 @@ const ELEVATION_SOURCE = "topomapper-elevation-preview";
 const ELEVATION_LAYER = "topomapper-elevation-preview";
 const LAST_SELECTION_KEY = "topomapper:selection:last";
 const SAVED_EXAMPLE_KEY = "topomapper:selection:example";
+const LAYER_PLAN_KEY = "topomapper:layer-plan";
 const EARTH_RADIUS_METRES = 6_371_008.8;
 
 function formatCoordinate(value: number, positive: string, negative: string) {
@@ -176,6 +185,61 @@ function formatElevation(value: number) {
   return `${Math.round(value).toLocaleString("en-NZ")} m`;
 }
 
+function formatBoundaryValue(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+function parseBoundary(boundary: LayerBoundary) {
+  if (!boundary.value.trim()) return Number.NaN;
+  return Number(boundary.value);
+}
+
+function boundarySet(values: number[], maximum: number, prefix: string): LayerBoundary[] {
+  return values.map((value, index) => ({
+    id: `${prefix}-${index}-${formatBoundaryValue(value)}`,
+    value: formatBoundaryValue(value),
+    role: index === 0 ? "sea-level" : index === values.length - 1 ? "maximum" : "custom",
+  }));
+}
+
+function presetBoundaries(preset: LayerPreset, maximum: number): LayerBoundary[] {
+  let values: number[];
+  if (preset === "equal") {
+    values = Array.from({ length: 11 }, (_, index) => index === 10 ? maximum : Math.round(maximum * index / 10));
+  } else if (preset === "hundreds") {
+    values = [0];
+    for (let value = 100; value < maximum; value += 100) values.push(value);
+    values.push(maximum);
+  } else {
+    values = [0, 50, 100, 200, 350, 500, 750, 1000, 1500, 2000].filter((value) => value < maximum);
+    values.push(maximum);
+  }
+  values = values.filter((value, index) => index === 0 || Math.abs(value - values[index - 1]) > 0.001);
+  return boundarySet(values, maximum, preset);
+}
+
+function validateLayerBoundaries(boundaries: LayerBoundary[], maximum: number) {
+  const values = boundaries.map(parseBoundary);
+  if (values.some((value) => !Number.isFinite(value))) return "Every boundary needs a valid elevation.";
+  if (Math.abs(values[0]) > 0.001) return "Sea level must remain at 0 m.";
+  if (Math.abs(values[values.length - 1] - maximum) > 0.05) return "The final boundary must remain at the analysed maximum.";
+  for (let index = 1; index < values.length; index += 1) {
+    if (Math.abs(values[index] - values[index - 1]) < 0.001) return `Duplicate boundary at ${formatBoundaryValue(values[index])} m.`;
+    if (values[index] < values[index - 1]) return `${formatBoundaryValue(values[index])} m is out of order. Boundaries must rise from sea level.`;
+  }
+  return "";
+}
+
+function layerColour(value: number, maximum: number) {
+  const position = maximum > 0 ? Math.max(0, Math.min(1, value / maximum)) : 0;
+  if (position < 0.18) return "#3f8459";
+  if (position < 0.38) return "#70a160";
+  if (position < 0.58) return "#a2a66a";
+  if (position < 0.76) return "#9b846c";
+  if (position < 0.9) return "#8a8580";
+  return "#f0efe9";
+}
+
 export function MapWorkspace() {
   const mapNode = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -203,6 +267,10 @@ export function MapWorkspace() {
   const [analysing, setAnalysing] = useState(false);
   const [analysis, setAnalysis] = useState<ElevationAnalysis | null>(null);
   const [analysisStatus, setAnalysisStatus] = useState("Choose a LINZ elevation GeoTIFF for this area.");
+  const [layerBoundaries, setLayerBoundaries] = useState<LayerBoundary[]>([]);
+  const [layerPreset, setLayerPreset] = useState<LayerPreset>("suggested");
+  const [newBoundaryValue, setNewBoundaryValue] = useState("");
+  const [layerStatus, setLayerStatus] = useState("Analyse elevation data to begin a layer plan.");
 
   function cornerPosition(bounds: SelectionBounds, corner: SelectionCorner): [number, number] {
     switch (corner) {
@@ -315,6 +383,8 @@ export function MapWorkspace() {
       analysisRef.current = null;
       setAnalysis(null);
       setAnalysisStatus("The area changed. Analyse the GeoTIFF again for the new bounds.");
+      setLayerBoundaries([]);
+      setLayerStatus("Analyse the changed area before editing its layer plan.");
     }
     selectionRef.current = bounds;
     setSelection(bounds);
@@ -582,6 +652,99 @@ export function MapWorkspace() {
     }
   }
 
+  function storeLayerPlan(next: LayerBoundary[], maximum: number, successMessage: string) {
+    setLayerBoundaries(next);
+    const error = validateLayerBoundaries(next, maximum);
+    if (error) {
+      setLayerStatus(error);
+      return;
+    }
+    window.localStorage.setItem(LAYER_PLAN_KEY, JSON.stringify({
+      maximum,
+      values: next.map(parseBoundary),
+    }));
+    setLayerStatus(successMessage);
+  }
+
+  function initialiseLayerPlan(maximum: number) {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(LAYER_PLAN_KEY) ?? "null") as { maximum?: number; values?: number[] } | null;
+      if (saved && Number.isFinite(saved.maximum) && Array.isArray(saved.values)
+        && Math.abs(Number(saved.maximum) - maximum) < 0.05 && saved.values.length >= 2) {
+        const restored = boundarySet(saved.values, maximum, "restored");
+        if (!validateLayerBoundaries(restored, maximum)) {
+          setLayerBoundaries(restored);
+          setLayerStatus("Your saved layer plan has been restored for this elevation range.");
+          return;
+        }
+      }
+    } catch {
+      window.localStorage.removeItem(LAYER_PLAN_KEY);
+    }
+    const suggested = presetBoundaries("suggested", maximum);
+    setLayerPreset("suggested");
+    storeLayerPlan(suggested, maximum, "Suggested non-linear terrain boundaries are ready to edit.");
+  }
+
+  function applyLayerPreset(preset: LayerPreset) {
+    if (!analysis) return;
+    const next = presetBoundaries(preset, analysis.maximum.elevation);
+    setLayerPreset(preset);
+    storeLayerPlan(next, analysis.maximum.elevation, preset === "suggested"
+      ? "Suggested non-linear terrain boundaries applied."
+      : preset === "equal" ? "Ten equal elevation intervals applied." : "100 metre intervals applied.");
+  }
+
+  function editLayerBoundary(id: string, value: string) {
+    if (!analysis) return;
+    setLayerPreset("custom");
+    const next = layerBoundaries.map((boundary) => boundary.id === id ? { ...boundary, value } : boundary);
+    storeLayerPlan(next, analysis.maximum.elevation, "Layer boundary updated and saved on this Mac.");
+  }
+
+  function addLayerBoundary() {
+    if (!analysis) return;
+    const value = Number(newBoundaryValue);
+    const maximum = analysis.maximum.elevation;
+    if (!newBoundaryValue.trim() || !Number.isFinite(value)) {
+      setLayerStatus("Enter a valid elevation before adding a boundary.");
+      return;
+    }
+    if (value <= 0 || value >= maximum) {
+      setLayerStatus(`New boundaries must be above 0 m and below ${formatBoundaryValue(maximum)} m.`);
+      return;
+    }
+    if (layerBoundaries.some((boundary) => Math.abs(parseBoundary(boundary) - value) < 0.001)) {
+      setLayerStatus(`A ${formatBoundaryValue(value)} m boundary already exists.`);
+      return;
+    }
+    const custom = layerBoundaries.filter((boundary) => boundary.role === "custom");
+    custom.push({ id: `custom-${Date.now()}`, value: formatBoundaryValue(value), role: "custom" });
+    custom.sort((left, right) => parseBoundary(left) - parseBoundary(right));
+    const next = [layerBoundaries[0], ...custom, layerBoundaries[layerBoundaries.length - 1]];
+    setLayerPreset("custom");
+    setNewBoundaryValue("");
+    storeLayerPlan(next, maximum, `${formatBoundaryValue(value)} m boundary added.`);
+  }
+
+  function removeLayerBoundary(id: string) {
+    if (!analysis) return;
+    setLayerPreset("custom");
+    const next = layerBoundaries.filter((boundary) => boundary.id !== id);
+    storeLayerPlan(next, analysis.maximum.elevation, "Boundary removed.");
+  }
+
+  function moveLayerBoundary(id: string, direction: -1 | 1) {
+    if (!analysis) return;
+    const index = layerBoundaries.findIndex((boundary) => boundary.id === id);
+    const target = index + direction;
+    if (index < 1 || target < 1 || target >= layerBoundaries.length - 1) return;
+    const next = [...layerBoundaries];
+    [next[index], next[target]] = [next[target], next[index]];
+    setLayerPreset("custom");
+    storeLayerPlan(next, analysis.maximum.elevation, "Boundary order updated.");
+  }
+
   function chooseElevationFiles(files: File[]) {
     setElevationFiles(files);
     if (!files.length) {
@@ -592,6 +755,8 @@ export function MapWorkspace() {
       clearElevationOverlay();
       analysisRef.current = null;
       setAnalysis(null);
+      setLayerBoundaries([]);
+      setLayerStatus("Analyse the new GeoTIFF selection before editing layers.");
     }
     setAnalysisStatus(files.length === 1
       ? `${files[0].name} is ready to analyse.`
@@ -637,6 +802,7 @@ export function MapWorkspace() {
       analysisRef.current = payload;
       setAnalysis(payload);
       showElevationOverlay(payload);
+      initialiseLayerPlan(payload.maximum.elevation);
       const missing = payload.coverage.missing_data_percent;
       setAnalysisStatus(missing > 0.5
         ? `Analysis complete. ${missing.toFixed(1)}% of the selected area has no usable data.`
@@ -653,6 +819,8 @@ export function MapWorkspace() {
   }
 
   const measurements = selection ? selectionMeasurements(selection) : null;
+  const layerMaximum = analysis?.maximum.elevation ?? 0;
+  const layerValidation = analysis && layerBoundaries.length ? validateLayerBoundaries(layerBoundaries, layerMaximum) : "";
 
   return (
     <main className={`workspace ${drawing ? "is-drawing" : ""}`}>
@@ -663,7 +831,7 @@ export function MapWorkspace() {
           <span className="brand-mark" aria-hidden="true"><i /><i /><i /></span>
           <span><strong>topo</strong>mapper</span>
         </button>
-        <div className="stage-pill"><span /> Stage 3 · Elevation</div>
+        <div className="stage-pill"><span /> Stage 4 · Layers</div>
       </header>
 
       <section className="search-panel" aria-label="Place search">
@@ -830,6 +998,77 @@ export function MapWorkspace() {
             </div>
           )}
         </section>
+
+        {analysis && layerBoundaries.length > 0 && (
+          <section className="layer-editor" aria-labelledby="layer-editor-heading">
+            <div className="layer-editor-heading">
+              <div>
+                <span className="section-label">PHYSICAL LAYERS</span>
+                <strong id="layer-editor-heading">Elevation boundaries</strong>
+              </div>
+              <span className={`layer-ready ${layerValidation ? "invalid" : ""}`}>
+                {layerValidation ? "Needs attention" : `${layerBoundaries.length - 1} layers`}
+              </span>
+            </div>
+            <p className="layer-intro">Choose non-linear heights for the plywood stack. Sea level and the analysed maximum stay fixed.</p>
+
+            <div className="elevation-range" aria-label={`Elevation boundaries from 0 to ${formatBoundaryValue(layerMaximum)} metres`}>
+              <div className="range-bar" />
+              {layerBoundaries.map((boundary) => {
+                const value = parseBoundary(boundary);
+                if (!Number.isFinite(value)) return null;
+                return (
+                  <span
+                    key={boundary.id}
+                    className={`range-tick ${boundary.role}`}
+                    style={{ left: `${Math.max(0, Math.min(100, value / layerMaximum * 100))}%`, backgroundColor: layerColour(value, layerMaximum) }}
+                    title={`${formatBoundaryValue(value)} m`}
+                  />
+                );
+              })}
+              <div className="range-labels"><span>Sea level · 0 m</span><span>Maximum · {formatBoundaryValue(layerMaximum)} m</span></div>
+            </div>
+
+            <div className="preset-row" aria-label="Layer boundary presets">
+              <button className={layerPreset === "suggested" ? "active" : ""} onClick={() => applyLayerPreset("suggested")}>Suggested</button>
+              <button className={layerPreset === "equal" ? "active" : ""} onClick={() => applyLayerPreset("equal")}>10 equal</button>
+              <button className={layerPreset === "hundreds" ? "active" : ""} onClick={() => applyLayerPreset("hundreds")}>Every 100 m</button>
+            </div>
+
+            <form className="add-boundary" onSubmit={(event) => { event.preventDefault(); addLayerBoundary(); }}>
+              <label htmlFor="new-boundary">Add boundary</label>
+              <div><input id="new-boundary" type="number" step="any" min="0" max={layerMaximum} value={newBoundaryValue} onChange={(event) => setNewBoundaryValue(event.target.value)} placeholder="e.g. 1250" /><span>m</span><button type="submit">Add</button></div>
+            </form>
+
+            <ol className="boundary-list">
+              {layerBoundaries.map((boundary, index) => {
+                const value = parseBoundary(boundary);
+                const isCustom = boundary.role === "custom";
+                return (
+                  <li key={boundary.id} className={!Number.isFinite(value) ? "invalid" : ""}>
+                    <span className="layer-swatch" style={{ backgroundColor: Number.isFinite(value) ? layerColour(value, layerMaximum) : "#d35a36" }} />
+                    <span className="boundary-label">
+                      <small>{boundary.role === "sea-level" ? "SEA LEVEL" : boundary.role === "maximum" ? "ANALYSED MAXIMUM" : `BOUNDARY ${index}`}</small>
+                      {isCustom ? (
+                        <span><input type="number" step="any" value={boundary.value} onChange={(event) => editLayerBoundary(boundary.id, event.target.value)} aria-label={`Boundary ${index} elevation`} /> m</span>
+                      ) : <strong>{formatBoundaryValue(value)} m</strong>}
+                    </span>
+                    <span className="boundary-controls">
+                      <button onClick={() => moveLayerBoundary(boundary.id, -1)} disabled={!isCustom || index <= 1} aria-label={`Move ${boundary.value} metre boundary up`}>↑</button>
+                      <button onClick={() => moveLayerBoundary(boundary.id, 1)} disabled={!isCustom || index >= layerBoundaries.length - 2} aria-label={`Move ${boundary.value} metre boundary down`}>↓</button>
+                      <button className="remove" onClick={() => removeLayerBoundary(boundary.id)} disabled={!isCustom} aria-label={`Remove ${boundary.value} metre boundary`}>×</button>
+                    </span>
+                  </li>
+                );
+              })}
+            </ol>
+
+            <p className={`layer-status ${layerValidation ? "warning" : ""}`} role="status">{layerValidation || layerStatus}</p>
+            {!layerValidation && (
+              <div className="layer-summary"><strong>{layerBoundaries.length - 1}</strong><span>physical elevation bands ready for Stage 5 geometry</span></div>
+            )}
+          </section>
+        )}
       </aside>
 
       <footer className="statusbar">

@@ -40,3 +40,8 @@ elevations and their source tiles, and overlays a coloured terrain preview.
 Missing data is reported separately from real zero elevation. See
 [`DOCUMENTS/Elevation_Data.md`](DOCUMENTS/Elevation_Data.md) for suitable LINZ
 sources and the included synthetic test fixture.
+
+Stage 4 adds an editable non-linear land-elevation plan. Sea level and the
+analysed maximum remain fixed, while intermediate boundaries can be added,
+edited, removed, reordered, or generated from presets. Invalid duplicates and
+out-of-order boundaries are shown before later geometry generation.

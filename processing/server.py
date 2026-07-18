@@ -11,7 +11,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
-from analyse import AnalysisError, analyse_geotiffs
+from analyse import AnalysisError, analyse_geotiffs, generate_filled_layers
 
 
 HOST = "127.0.0.1"
@@ -56,7 +56,8 @@ class RequestHandler(BaseHTTPRequestHandler):
         self._send_json(404, {"error": "Not found"})
 
     def do_POST(self) -> None:  # noqa: N802
-        if urlparse(self.path).path != "/analyze":
+        request_path = urlparse(self.path).path
+        if request_path not in {"/analyze", "/layers"}:
             self._send_json(404, {"error": "Not found"})
             return
         try:
@@ -67,7 +68,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": "No GeoTIFF was supplied."})
             return
         if length > MAX_UPLOAD_BYTES:
-            self._send_json(413, {"error": "The GeoTIFF is larger than the 4 GB Stage 3 limit."})
+            self._send_json(413, {"error": "The GeoTIFF upload is larger than the 4 GB local processing limit."})
             return
 
         content_type = self.headers.get("Content-Type", "")
@@ -96,6 +97,12 @@ class RequestHandler(BaseHTTPRequestHandler):
             if bounds_field is None:
                 raise AnalysisError("Draw or reset a map area before analysing elevation.")
             bounds = json.loads(bounds_field.value)
+            boundaries = None
+            if request_path == "/layers":
+                boundaries_field = form["boundaries"] if "boundaries" in form else None
+                if boundaries_field is None:
+                    raise AnalysisError("Choose valid elevation boundaries before generating layers.")
+                boundaries = json.loads(boundaries_field.value)
             inputs: list[tuple[Path, str]] = []
             for upload in uploads:
                 filename = Path(getattr(upload, "filename", "elevation.tif") or "elevation.tif").name
@@ -106,12 +113,13 @@ class RequestHandler(BaseHTTPRequestHandler):
                     temporary_paths.append(temporary_path)
                     shutil.copyfileobj(upload.file, target, length=1024 * 1024)
                 inputs.append((temporary_path, filename))
-            result = analyse_geotiffs(inputs, bounds)
+            result = (generate_filled_layers(inputs, bounds, boundaries)
+                      if request_path == "/layers" else analyse_geotiffs(inputs, bounds))
             self._send_json(200, result)
         except AnalysisError as error:
             self._send_json(422, {"error": str(error)})
         except json.JSONDecodeError:
-            self._send_json(400, {"error": "The selected map bounds could not be read."})
+            self._send_json(400, {"error": "The selected map bounds or layer boundaries could not be read."})
         except Exception as error:
             self._send_json(500, {"error": f"The local processor failed: {error}"})
         finally:

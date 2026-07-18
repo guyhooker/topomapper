@@ -42,7 +42,12 @@ Missing data is reported separately from real zero elevation. See
 sources and the included synthetic test fixture.
 
 Stage 4 adds an editable land-elevation plan. Sea level and the analysed
-maximum remain fixed; suggested non-linear or linear spacing can be combined
+maximum remain fixed; Log or Linear spacing can be combined
 with an adjustable 2–40 layer count. Intermediate boundaries can also be added,
 edited, removed, or reordered. Invalid duplicates and out-of-order boundaries
 are shown before later geometry generation.
+
+Stage 5 turns those boundaries into cumulative filled land polygons and draws a
+colour-coded 2D stack over the map. Individual layers can be hidden or shown,
+and the preview reports disconnected pieces and preserved holes. This is preview
+geometry; physical sizing and fabrication-resolution SVG output begin in Stage 6.

@@ -76,15 +76,17 @@ distinguishes missing raster data from real elevation values.
 - Editable ordered list of layer boundaries.
 - Add, remove, and reorder boundary controls.
 - Named sea-level boundary at 0 m, although subsea processing is not yet active.
-- Presets such as equal interval and a manually chosen non-linear set.
+- Log-style and Linear spacing with an independently adjustable layer count.
 
 ### Acceptance Test
 
-The user can enter a non-linear set such as 0, 50, 100, 200, 350, 500, 750,
-1000, 1500, 2000, and maximum, and the application rejects duplicates or
-out-of-order values clearly.
+The user can select Log or Linear spacing, adjust the number of layers, edit
+individual boundaries, and the application rejects duplicates or out-of-order
+values clearly.
 
 ## Stage 5 — Filled Layer Generation and 2D Preview
+
+**Status: Implementation complete — acceptance test pending**
 
 ### Adds
 

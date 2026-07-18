@@ -160,7 +160,7 @@
 - Added a land-elevation boundary editor after a successful raster analysis.
 - Sea level is a named, fixed 0 m boundary and the analysed maximum is a fixed
   final boundary.
-- Added suggested non-linear and linear spacing styles. The style and physical
+- Added logarithmic and linear spacing styles. The style and physical
   layer count are independent, so either distribution can be regenerated with
   between 2 and 40 layers using decrease/increase controls.
 - Added a colour-coded elevation range showing every active boundary.
@@ -173,10 +173,39 @@
   maximum matches.
 - Subsea boundaries remain deferred until the coastal and bathymetry stage.
 - Production build passes successfully.
+- After acceptance, the spacing buttons were relabelled Log and Linear. Either
+  distribution can still be regenerated with the independent 2–40 layer count.
+
+### Stage 5 — Filled Layer Generation and 2D Preview
+
+- Implemented 18 July 2026; awaiting Guy's visual acceptance test.
+- Added a local `/layers` processor operation using the same selected bounds,
+  GeoTIFF mosaic, and validated elevation boundaries as the interface.
+- Each physical layer is generated as a cumulative filled mask at its lower
+  elevation, so the output nests correctly for plywood stacking rather than
+  returning contour lines alone.
+- Raster polygonisation preserves disconnected pieces, interior rings/holes,
+  and nested summit shapes without adding another Python dependency.
+- Added a coloured land-layer overlay to the main map, elevation-range labels,
+  polygon-piece and hole counts, per-layer visibility toggles, and Show all / Hide
+  all controls.
+- Changing the area, source files, or boundaries invalidates the old geometry
+  so stale polygons cannot be mistaken for the current design.
+- The preview grid is capped at 520 pixels on its longest side for responsive
+  interaction. Fabrication-resolution generation remains a Stage 6 concern.
+- Synthetic regression produced eight cumulative polygons and retained its
+  deliberate enclosed NODATA hole.
+- Four-tile Taranaki regression generated 10 Log-spaced layers on a 483 × 520
+  grid: 23 polygon pieces, 34 rings, no structurally invalid geometry, and a
+  compact 0.26 MB JSON result.
+- Maximum-size regression also passed: 40 Log layers produced 98 valid polygon
+  pieces in 0.22 seconds, while 40 Linear layers produced 84 in 0.18 seconds.
+- Frontend production build and Python syntax checks pass successfully.
 
 ## Next Steps
 
-1. Confirm suggested and linear spacing can each be regenerated with 11 or 12
-   layers.
-2. Confirm the valid layer plan survives a page reload after re-analysis.
-3. Begin Stage 5 filled polygon generation when requested.
+1. Restart Topomapper so the updated local processor is active.
+2. Generate the four-tile Taranaki preview using both Log and Linear spacing.
+3. Toggle individual layers and confirm Mount Taranaki changes as expected.
+4. Change one boundary, regenerate, and confirm the expected outline changes.
+5. Mark Stage 5 complete only after the 2D geometry looks convincing.

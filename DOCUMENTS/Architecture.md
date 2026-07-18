@@ -47,6 +47,14 @@ and reprojected onto a small common WGS84 preview grid. This avoids allocating a
 full-resolution in-memory mosaic while still exposing remaining gaps and mixed
 source metadata before later automatic dataset retrieval is attempted.
 
+Stage 5 reprojects the selected tiles onto a bounded preview grid and polygonises
+one cumulative mask for every chosen land boundary. A layer therefore contains
+all terrain at or above its lower elevation, which produces nested shapes that
+can be physically stacked rather than isolated contour lines. Raster polygon
+rings retain holes and disconnected components. This grid is deliberately a
+responsive 2D feasibility preview; later SVG export will generate fabrication
+geometry at an explicitly chosen physical scale and simplification tolerance.
+
 ### Project and Export Formats
 
 - A readable JSON project file for settings and provenance.

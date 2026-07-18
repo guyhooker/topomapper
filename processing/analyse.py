@@ -11,6 +11,7 @@ import numpy as np
 import rasterio
 from rasterio.enums import Resampling
 from rasterio.errors import RasterioIOError, WindowError
+from rasterio.features import shapes
 from rasterio.io import MemoryFile
 from rasterio.transform import from_bounds as output_transform
 from rasterio.warp import reproject, transform, transform_bounds
@@ -20,6 +21,7 @@ from rasterio.windows import Window, from_bounds
 WGS84 = "EPSG:4326"
 ANALYSIS_TILE_SIZE = 1024
 PREVIEW_MAX_SIZE = 720
+LAYER_PREVIEW_MAX_SIZE = 520
 
 
 class AnalysisError(Exception):
@@ -259,6 +261,126 @@ def _mosaic_preview(
         "missing_data_percent": round(100 - valid_percent, 2),
     }
     return _encode_preview(mosaic, valid_mask, minimum, maximum, destination_transform), coverage
+
+
+def _layer_mosaic(
+    inputs: Iterable[tuple[Path, str]],
+    selection: Bounds,
+) -> tuple[np.ndarray, np.ndarray, rasterio.Affine]:
+    """Build a bounded WGS84 elevation grid suitable for interactive polygon previews."""
+    natural_width, natural_height = _preview_shape(selection)
+    scale = min(1.0, LAYER_PREVIEW_MAX_SIZE / max(natural_width, natural_height))
+    width = max(2, round(natural_width * scale))
+    height = max(2, round(natural_height * scale))
+    destination_transform = output_transform(*selection.as_tuple(), width, height)
+    mosaic = np.full((height, width), np.nan, dtype="float32")
+
+    for path, _filename in inputs:
+        with rasterio.open(path) as dataset:
+            if not selection.overlaps(_source_bounds(dataset)):
+                continue
+            tile = np.full((height, width), np.nan, dtype="float32")
+            reproject(
+                source=rasterio.band(dataset, 1),
+                destination=tile,
+                src_transform=dataset.transform,
+                src_crs=dataset.crs,
+                src_nodata=dataset.nodata,
+                dst_transform=destination_transform,
+                dst_crs=WGS84,
+                dst_nodata=np.nan,
+                resampling=Resampling.bilinear,
+                init_dest_nodata=True,
+            )
+            valid = np.isfinite(tile)
+            mosaic[valid] = tile[valid]
+
+    valid_mask = np.isfinite(mosaic)
+    if not valid_mask.any():
+        raise AnalysisError("The selected GeoTIFFs contain no usable elevation data for layer generation.")
+    return mosaic, valid_mask, destination_transform
+
+
+def _validate_boundaries(values: Iterable[object]) -> list[float]:
+    try:
+        boundaries = [float(value) for value in values]
+    except (TypeError, ValueError) as error:
+        raise AnalysisError("Every layer boundary must be a valid elevation.") from error
+    if len(boundaries) < 2:
+        raise AnalysisError("At least two elevation boundaries are required.")
+    if len(boundaries) > 41:
+        raise AnalysisError("The Stage 5 preview supports up to 40 physical layers.")
+    if not all(math.isfinite(value) for value in boundaries):
+        raise AnalysisError("Every layer boundary must be a finite elevation.")
+    if abs(boundaries[0]) > 0.001:
+        raise AnalysisError("The first land boundary must remain at sea level (0 m).")
+    if any(current <= previous for previous, current in zip(boundaries, boundaries[1:])):
+        raise AnalysisError("Layer boundaries must rise without duplicates.")
+    return boundaries
+
+
+def generate_filled_layers(
+    inputs: Iterable[tuple[str | Path, str]],
+    bounds_value: dict[str, Any],
+    boundary_values: Iterable[object],
+) -> dict[str, Any]:
+    """Polygonise cumulative land masks for a stackable 2D layer preview."""
+    selection = Bounds.from_mapping(bounds_value)
+    prepared = [(Path(path), filename) for path, filename in inputs]
+    if not prepared:
+        raise AnalysisError("Choose at least one GeoTIFF elevation file.")
+    boundaries = _validate_boundaries(boundary_values)
+
+    try:
+        mosaic, valid_mask, transform_value = _layer_mosaic(prepared, selection)
+        features: list[dict[str, Any]] = []
+        layers: list[dict[str, Any]] = []
+        for index, (lower, upper) in enumerate(zip(boundaries, boundaries[1:])):
+            cumulative_mask = valid_mask & (mosaic >= lower)
+            piece_count = 0
+            hole_count = 0
+            for geometry, raster_value in shapes(
+                cumulative_mask.astype("uint8"),
+                mask=cumulative_mask,
+                transform=transform_value,
+                connectivity=8,
+            ):
+                if int(raster_value) != 1:
+                    continue
+                coordinates = geometry.get("coordinates", [])
+                piece_count += 1
+                hole_count += max(0, len(coordinates) - 1)
+                features.append({
+                    "type": "Feature",
+                    "properties": {
+                        "layer_index": index,
+                        "lower_elevation": lower,
+                        "upper_elevation": upper,
+                    },
+                    "geometry": geometry,
+                })
+            layers.append({
+                "index": index,
+                "lower_elevation": lower,
+                "upper_elevation": upper,
+                "piece_count": piece_count,
+                "hole_count": hole_count,
+                "cell_count": int(cumulative_mask.sum()),
+            })
+
+        return {
+            "selection": selection.as_dict(),
+            "boundaries": boundaries,
+            "grid": {"width": int(mosaic.shape[1]), "height": int(mosaic.shape[0])},
+            "layers": layers,
+            "feature_collection": {"type": "FeatureCollection", "features": features},
+        }
+    except AnalysisError:
+        raise
+    except RasterioIOError as error:
+        raise AnalysisError("One of the selected files is not a readable GeoTIFF elevation raster.") from error
+    except Exception as error:
+        raise AnalysisError(f"The filled layer geometry could not be generated: {error}") from error
 
 
 def _dataset_metadata(dataset: rasterio.io.DatasetReader, filename: str, selection: Bounds) -> dict[str, Any]:

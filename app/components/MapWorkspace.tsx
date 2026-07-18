@@ -73,7 +73,35 @@ type LayerBoundary = {
   role: "sea-level" | "custom" | "maximum";
 };
 
-type LayerDistribution = "suggested" | "linear";
+type LayerDistribution = "log" | "linear";
+
+type FilledLayer = {
+  index: number;
+  lower_elevation: number;
+  upper_elevation: number;
+  piece_count: number;
+  hole_count: number;
+  cell_count: number;
+};
+
+type FilledLayerFeature = {
+  type: "Feature";
+  properties: {
+    layer_index: number;
+    lower_elevation: number;
+    upper_elevation: number;
+    colour?: string;
+  };
+  geometry: { type: "Polygon"; coordinates: number[][][] };
+};
+
+type FilledLayerPreview = {
+  selection: SelectionBounds;
+  boundaries: number[];
+  grid: { width: number; height: number };
+  layers: FilledLayer[];
+  feature_collection: { type: "FeatureCollection"; features: FilledLayerFeature[] };
+};
 
 const QUICK_PLACES: Place[] = [
   { name: "Mount Taranaki", subtitle: "First terrain proof", longitude: 174.0632, latitude: -39.2968, zoom: 10.2 },
@@ -93,12 +121,16 @@ const PROCESSOR_ENDPOINT = "http://127.0.0.1:8765";
 const SELECTION_SOURCE = "topomapper-selection";
 const ELEVATION_SOURCE = "topomapper-elevation-preview";
 const ELEVATION_LAYER = "topomapper-elevation-preview";
+const FILLED_LAYER_SOURCE = "topomapper-filled-layers";
+const FILLED_LAYER_FILL = "topomapper-filled-layers-fill";
+const FILLED_LAYER_OUTLINE = "topomapper-filled-layers-outline";
 const LAST_SELECTION_KEY = "topomapper:selection:last";
 const SAVED_EXAMPLE_KEY = "topomapper:selection:example";
 const LAYER_PLAN_KEY = "topomapper:layer-plan";
 const DEFAULT_LAYER_COUNT = 10;
 const MIN_LAYER_COUNT = 2;
 const MAX_LAYER_COUNT = 40;
+const LOG_CURVE_STRENGTH = 2.2;
 const EARTH_RADIUS_METRES = 6_371_008.8;
 
 function formatCoordinate(value: number, positive: string, negative: string) {
@@ -211,7 +243,9 @@ function presetBoundaries(distribution: LayerDistribution, maximum: number, laye
     if (index === 0) return 0;
     if (index === count) return maximum;
     const position = index / count;
-    const value = distribution === "linear" ? maximum * position : maximum * position ** 2;
+    const value = distribution === "linear"
+      ? maximum * position
+      : maximum * Math.expm1(LOG_CURVE_STRENGTH * position) / Math.expm1(LOG_CURVE_STRENGTH);
     return Math.round(value * 10) / 10;
   });
   return boundarySet(values, maximum, distribution);
@@ -267,10 +301,14 @@ export function MapWorkspace() {
   const [analysis, setAnalysis] = useState<ElevationAnalysis | null>(null);
   const [analysisStatus, setAnalysisStatus] = useState("Choose a LINZ elevation GeoTIFF for this area.");
   const [layerBoundaries, setLayerBoundaries] = useState<LayerBoundary[]>([]);
-  const [layerDistribution, setLayerDistribution] = useState<LayerDistribution>("suggested");
+  const [layerDistribution, setLayerDistribution] = useState<LayerDistribution>("log");
   const [layerCount, setLayerCount] = useState(DEFAULT_LAYER_COUNT);
   const [newBoundaryValue, setNewBoundaryValue] = useState("");
   const [layerStatus, setLayerStatus] = useState("Analyse elevation data to begin a layer plan.");
+  const [filledLayerPreview, setFilledLayerPreview] = useState<FilledLayerPreview | null>(null);
+  const [visibleLayerIndices, setVisibleLayerIndices] = useState<number[]>([]);
+  const [generatingLayers, setGeneratingLayers] = useState(false);
+  const [layerGenerationStatus, setLayerGenerationStatus] = useState("Choose valid boundaries, then generate the filled 2D preview.");
 
   function cornerPosition(bounds: SelectionBounds, corner: SelectionCorner): [number, number] {
     switch (corner) {
@@ -333,6 +371,62 @@ export function MapWorkspace() {
     if (map.getSource(ELEVATION_SOURCE)) map.removeSource(ELEVATION_SOURCE);
   }
 
+  function clearFilledLayerOverlay() {
+    const map = mapRef.current;
+    if (!map) return;
+    if (map.getLayer(FILLED_LAYER_OUTLINE)) map.removeLayer(FILLED_LAYER_OUTLINE);
+    if (map.getLayer(FILLED_LAYER_FILL)) map.removeLayer(FILLED_LAYER_FILL);
+    if (map.getSource(FILLED_LAYER_SOURCE)) map.removeSource(FILLED_LAYER_SOURCE);
+    if (map.getLayer(ELEVATION_LAYER)) map.setPaintProperty(ELEVATION_LAYER, "raster-opacity", 0.86);
+  }
+
+  function visibleFeatureCollection(result: FilledLayerPreview, visible: number[]) {
+    const visibleSet = new Set(visible);
+    const maximum = result.boundaries[result.boundaries.length - 1] || 1;
+    return {
+      type: "FeatureCollection" as const,
+      features: result.feature_collection.features
+        .filter((feature) => visibleSet.has(feature.properties.layer_index))
+        .map((feature) => ({
+          ...feature,
+          properties: {
+            ...feature.properties,
+            colour: layerColour(feature.properties.lower_elevation, maximum),
+          },
+        })),
+    };
+  }
+
+  function showFilledLayerOverlay(result: FilledLayerPreview, visible: number[]) {
+    const map = mapRef.current;
+    if (!map || !map.isStyleLoaded()) return;
+    clearFilledLayerOverlay();
+    if (map.getLayer(ELEVATION_LAYER)) map.setPaintProperty(ELEVATION_LAYER, "raster-opacity", 0.18);
+    map.addSource(FILLED_LAYER_SOURCE, {
+      type: "geojson",
+      data: visibleFeatureCollection(result, visible),
+    });
+    map.addLayer({
+      id: FILLED_LAYER_FILL,
+      type: "fill",
+      source: FILLED_LAYER_SOURCE,
+      paint: { "fill-color": ["get", "colour"], "fill-opacity": 0.9 },
+    }, "topomapper-selection-outline");
+    map.addLayer({
+      id: FILLED_LAYER_OUTLINE,
+      type: "line",
+      source: FILLED_LAYER_SOURCE,
+      paint: { "line-color": "#203c31", "line-width": 0.65, "line-opacity": 0.62 },
+    }, "topomapper-selection-outline");
+  }
+
+  function invalidateFilledLayerPreview(message: string) {
+    clearFilledLayerOverlay();
+    setFilledLayerPreview(null);
+    setVisibleLayerIndices([]);
+    setLayerGenerationStatus(message);
+  }
+
   function addElevationMarker(point: ElevationPoint, kind: "minimum" | "maximum") {
     const map = mapRef.current;
     const maplibregl = mapLibreRef.current;
@@ -379,6 +473,7 @@ export function MapWorkspace() {
   function applySelection(bounds: SelectionBounds | null, persist = false) {
     const currentAnalysis = analysisRef.current;
     if (currentAnalysis && (!bounds || !sameBounds(bounds, currentAnalysis.selection))) {
+      invalidateFilledLayerPreview("The area changed. Generate the filled layers again after analysis.");
       clearElevationOverlay();
       analysisRef.current = null;
       setAnalysis(null);
@@ -653,6 +748,7 @@ export function MapWorkspace() {
   }
 
   function storeLayerPlan(next: LayerBoundary[], maximum: number, successMessage: string) {
+    if (filledLayerPreview) invalidateFilledLayerPreview("The boundaries changed. Generate the 2D preview again when they are ready.");
     setLayerBoundaries(next);
     const error = validateLayerBoundaries(next, maximum);
     if (error) {
@@ -682,10 +778,10 @@ export function MapWorkspace() {
     } catch {
       window.localStorage.removeItem(LAYER_PLAN_KEY);
     }
-    const suggested = presetBoundaries("suggested", maximum, DEFAULT_LAYER_COUNT);
-    setLayerDistribution("suggested");
+    const logarithmic = presetBoundaries("log", maximum, DEFAULT_LAYER_COUNT);
+    setLayerDistribution("log");
     setLayerCount(DEFAULT_LAYER_COUNT);
-    storeLayerPlan(suggested, maximum, "Suggested non-linear terrain boundaries are ready to edit.");
+    storeLayerPlan(logarithmic, maximum, "Logarithmic terrain boundaries are ready to edit.");
   }
 
   function applyLayerDistribution(distribution: LayerDistribution, count = layerCount) {
@@ -693,8 +789,8 @@ export function MapWorkspace() {
     const next = presetBoundaries(distribution, analysis.maximum.elevation, count);
     setLayerDistribution(distribution);
     setLayerCount(count);
-    storeLayerPlan(next, analysis.maximum.elevation, distribution === "suggested"
-      ? `${count} suggested non-linear elevation layers applied.`
+    storeLayerPlan(next, analysis.maximum.elevation, distribution === "log"
+      ? `${count} logarithmically spaced elevation layers applied.`
       : `${count} equal elevation layers applied.`);
   }
 
@@ -759,6 +855,7 @@ export function MapWorkspace() {
       return;
     }
     if (analysisRef.current) {
+      invalidateFilledLayerPreview("Analyse the new GeoTIFF selection before generating layers.");
       clearElevationOverlay();
       analysisRef.current = null;
       setAnalysis(null);
@@ -821,6 +918,56 @@ export function MapWorkspace() {
     }
   }
 
+  async function generateFilledLayerPreview() {
+    if (!analysis || !selection || !elevationFiles.length || layerValidation || generatingLayers) return;
+    setGeneratingLayers(true);
+    setLayerGenerationStatus(`Generating ${layerBoundaries.length - 1} cumulative polygon layers…`);
+    const form = new FormData();
+    elevationFiles.forEach((file) => form.append("geotiff", file));
+    form.append("bounds", JSON.stringify(selection));
+    form.append("boundaries", JSON.stringify(layerBoundaries.map(parseBoundary)));
+
+    try {
+      const response = await fetch(`${PROCESSOR_ENDPOINT}/layers`, { method: "POST", body: form });
+      const payload = await response.json() as FilledLayerPreview | { error?: string };
+      if (!response.ok || !("feature_collection" in payload)) {
+        throw new Error("error" in payload && payload.error ? payload.error : "The filled layers could not be generated.");
+      }
+      if (!selectionRef.current || !sameBounds(selectionRef.current, payload.selection)) {
+        throw new Error("The map area changed during layer generation. Generate the preview again.");
+      }
+      const visible = payload.layers.map((layer) => layer.index);
+      setFilledLayerPreview(payload);
+      setVisibleLayerIndices(visible);
+      showFilledLayerOverlay(payload, visible);
+      const pieces = payload.layers.reduce((total, layer) => total + layer.piece_count, 0);
+      const holes = payload.layers.reduce((total, layer) => total + layer.hole_count, 0);
+      setLayerGenerationStatus(`${payload.layers.length} filled layers generated: ${pieces} polygon piece${pieces === 1 ? "" : "s"}${holes ? ` with ${holes} preserved hole${holes === 1 ? "" : "s"}` : ""}.`);
+    } catch (error) {
+      setLayerGenerationStatus(error instanceof Error ? error.message : "The filled layers could not be generated.");
+    } finally {
+      setGeneratingLayers(false);
+    }
+  }
+
+  function toggleFilledLayer(index: number) {
+    if (!filledLayerPreview) return;
+    const next = visibleLayerIndices.includes(index)
+      ? visibleLayerIndices.filter((item) => item !== index)
+      : [...visibleLayerIndices, index].sort((left, right) => left - right);
+    setVisibleLayerIndices(next);
+    const source = mapRef.current?.getSource(FILLED_LAYER_SOURCE) as GeoJSONSource | undefined;
+    source?.setData(visibleFeatureCollection(filledLayerPreview, next));
+  }
+
+  function setAllFilledLayers(visible: boolean) {
+    if (!filledLayerPreview) return;
+    const next = visible ? filledLayerPreview.layers.map((layer) => layer.index) : [];
+    setVisibleLayerIndices(next);
+    const source = mapRef.current?.getSource(FILLED_LAYER_SOURCE) as GeoJSONSource | undefined;
+    source?.setData(visibleFeatureCollection(filledLayerPreview, next));
+  }
+
   function focusElevationPoint(point: ElevationPoint) {
     mapRef.current?.flyTo({ center: [point.longitude, point.latitude], zoom: Math.max(zoom, 12), duration: 900, essential: true });
   }
@@ -838,7 +985,7 @@ export function MapWorkspace() {
           <span className="brand-mark" aria-hidden="true"><i /><i /><i /></span>
           <span><strong>topo</strong>mapper</span>
         </button>
-        <div className="stage-pill"><span /> Stage 4 · Layers</div>
+        <div className="stage-pill"><span /> Stage 5 · 2D Preview</div>
       </header>
 
       <section className="search-panel" aria-label="Place search">
@@ -1040,10 +1187,10 @@ export function MapWorkspace() {
               <div className="distribution-control">
                 <span>Spacing style</span>
                 <div className="preset-row" aria-label="Layer spacing style">
-                  <button className={layerDistribution === "suggested" ? "active" : ""} onClick={() => applyLayerDistribution("suggested")}>Suggested</button>
+                  <button className={layerDistribution === "log" ? "active" : ""} onClick={() => applyLayerDistribution("log")}>Log</button>
                   <button className={layerDistribution === "linear" ? "active" : ""} onClick={() => applyLayerDistribution("linear")}>Linear</button>
                 </div>
-                <small>{layerDistribution === "suggested" ? "Thinner elevation bands lower down, broader bands higher up." : "Every elevation band has the same vertical height."}</small>
+                <small>{layerDistribution === "log" ? "Logarithmic spacing keeps bands thinner lower down and broader higher up." : "Every elevation band has the same vertical height."}</small>
               </div>
               <div className="layer-count-control">
                 <span>Number of layers</span>
@@ -1087,6 +1234,57 @@ export function MapWorkspace() {
             <p className={`layer-status ${layerValidation ? "warning" : ""}`} role="status">{layerValidation || layerStatus}</p>
             {!layerValidation && (
               <div className="layer-summary"><strong>{layerBoundaries.length - 1}</strong><span>physical elevation bands ready for Stage 5 geometry</span></div>
+            )}
+          </section>
+        )}
+
+        {analysis && layerBoundaries.length > 0 && (
+          <section className="filled-layer-section" aria-labelledby="filled-layer-heading">
+            <div className="filled-layer-heading">
+              <div>
+                <span className="section-label">STAGE 5 · GEOMETRY</span>
+                <strong id="filled-layer-heading">Filled 2D layer preview</strong>
+              </div>
+              {filledLayerPreview && <span>{visibleLayerIndices.length}/{filledLayerPreview.layers.length} visible</span>}
+            </div>
+            <p>Build cumulative shapes that can eventually be stacked and cut, including separate pieces and enclosed holes.</p>
+            <button
+              className="generate-layers-button"
+              onClick={generateFilledLayerPreview}
+              disabled={Boolean(layerValidation) || generatingLayers || processorStatus !== "ready"}
+            >
+              {generatingLayers ? "Generating filled polygons…" : filledLayerPreview ? "Regenerate 2D preview" : `Generate ${layerBoundaries.length - 1} filled layers`}
+            </button>
+            <p className={`layer-generation-status ${layerGenerationStatus.includes("could not") || layerGenerationStatus.includes("changed") ? "warning" : ""}`} role="status">{layerGenerationStatus}</p>
+
+            {filledLayerPreview && (
+              <div className="filled-layer-results">
+                <div className="preview-summary">
+                  <span><strong>{filledLayerPreview.layers.length}</strong> cumulative layers</span>
+                  <span><strong>{filledLayerPreview.grid.width} × {filledLayerPreview.grid.height}</strong> preview grid</span>
+                </div>
+                <div className="visibility-actions">
+                  <button onClick={() => setAllFilledLayers(true)}>Show all</button>
+                  <button onClick={() => setAllFilledLayers(false)}>Hide all</button>
+                </div>
+                <ol className="filled-layer-list">
+                  {[...filledLayerPreview.layers].reverse().map((layer) => {
+                    const visible = visibleLayerIndices.includes(layer.index);
+                    return (
+                      <li key={layer.index} className={visible ? "visible" : ""}>
+                        <button onClick={() => toggleFilledLayer(layer.index)} aria-pressed={visible}>
+                          <i style={{ backgroundColor: layerColour(layer.lower_elevation, layerMaximum) }} aria-hidden="true" />
+                          <span>
+                            <strong>Layer {layer.index + 1}</strong>
+                            <small>{formatBoundaryValue(layer.lower_elevation)}–{formatBoundaryValue(layer.upper_elevation)} m · {layer.piece_count} piece{layer.piece_count === 1 ? "" : "s"}{layer.hole_count ? ` · ${layer.hole_count} hole${layer.hole_count === 1 ? "" : "s"}` : ""}</small>
+                          </span>
+                          <b aria-hidden="true">{visible ? "✓" : ""}</b>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ol>
+              </div>
             )}
           </section>
         )}

@@ -74,6 +74,9 @@ type LayerBoundary = {
 };
 
 type LayerDistribution = "log" | "linear";
+type OutputFormat = "free" | "12x8" | "a2" | "square" | "custom";
+type OutputOrientation = "landscape" | "portrait";
+type StackView = "three-dimensional" | "side" | "top";
 
 type FilledLayer = {
   index: number;
@@ -127,6 +130,7 @@ const FILLED_LAYER_OUTLINE = "topomapper-filled-layers-outline";
 const LAST_SELECTION_KEY = "topomapper:selection:last";
 const SAVED_EXAMPLE_KEY = "topomapper:selection:example";
 const LAYER_PLAN_KEY = "topomapper:layer-plan";
+const OUTPUT_PLAN_KEY = "topomapper:output-plan";
 const DEFAULT_LAYER_COUNT = 10;
 const MIN_LAYER_COUNT = 2;
 const MAX_LAYER_COUNT = 40;
@@ -160,6 +164,58 @@ function selectionMeasurements(bounds: SelectionBounds) {
     * Math.abs(Math.sin(toRadians(bounds.north)) - Math.sin(toRadians(bounds.south)))
     * Math.abs(toRadians(bounds.east - bounds.west));
   return { width, height, area: sphericalArea };
+}
+
+function constrainBoundsToAspect(
+  anchorLongitude: number,
+  anchorLatitude: number,
+  pointerLongitude: number,
+  pointerLatitude: number,
+  aspectRatio: number | null,
+) {
+  if (!aspectRatio || !Number.isFinite(aspectRatio) || aspectRatio <= 0) {
+    return normaliseBounds(anchorLongitude, anchorLatitude, pointerLongitude, pointerLatitude);
+  }
+  const centreLatitude = (anchorLatitude + pointerLatitude) / 2;
+  const longitudeMetres = 111_320 * Math.max(0.1, Math.cos(toRadians(centreLatitude)));
+  const latitudeMetres = 111_132;
+  let width = Math.abs(pointerLongitude - anchorLongitude) * longitudeMetres;
+  let height = Math.abs(pointerLatitude - anchorLatitude) * latitudeMetres;
+  if (width / Math.max(height, 0.001) > aspectRatio) height = width / aspectRatio;
+  else width = height * aspectRatio;
+  const longitude = anchorLongitude + Math.sign(pointerLongitude - anchorLongitude || 1) * width / longitudeMetres;
+  const latitude = anchorLatitude + Math.sign(pointerLatitude - anchorLatitude || 1) * height / latitudeMetres;
+  return normaliseBounds(anchorLongitude, anchorLatitude, longitude, latitude);
+}
+
+function fitBoundsToAspect(bounds: SelectionBounds, aspectRatio: number) {
+  const measured = selectionMeasurements(bounds);
+  const centreLongitude = (bounds.west + bounds.east) / 2;
+  const centreLatitude = (bounds.south + bounds.north) / 2;
+  const area = measured.width * measured.height;
+  const width = Math.sqrt(area * aspectRatio);
+  const height = width / aspectRatio;
+  const longitudeMetres = 111_320 * Math.max(0.1, Math.cos(toRadians(centreLatitude)));
+  const latitudeMetres = 111_132;
+  return {
+    west: centreLongitude - width / 2 / longitudeMetres,
+    east: centreLongitude + width / 2 / longitudeMetres,
+    south: centreLatitude - height / 2 / latitudeMetres,
+    north: centreLatitude + height / 2 / latitudeMetres,
+  };
+}
+
+function outputDimensions(format: OutputFormat, orientation: OutputOrientation, customWidth: number, customHeight: number) {
+  let dimensions: { width: number; height: number; label: string } | null;
+  if (format === "12x8") dimensions = { width: 304.8, height: 203.2, label: "12 × 8 inch" };
+  else if (format === "a2") dimensions = { width: 594, height: 420, label: "A2" };
+  else if (format === "square") dimensions = { width: 300, height: 300, label: "Square" };
+  else if (format === "custom" && customWidth > 0 && customHeight > 0) dimensions = { width: customWidth, height: customHeight, label: "Custom" };
+  else dimensions = null;
+  if (dimensions && orientation === "portrait" && format !== "square") {
+    [dimensions.width, dimensions.height] = [dimensions.height, dimensions.width];
+  }
+  return dimensions;
 }
 
 function formatDistance(metres: number) {
@@ -273,6 +329,176 @@ function layerColour(value: number, maximum: number) {
   return "#f0efe9";
 }
 
+function darkenColour(colour: string, amount = 0.7) {
+  const components = colour.slice(1).match(/.{2}/g)?.map((value) => Math.round(parseInt(value, 16) * amount)) ?? [50, 70, 60];
+  return `rgb(${components.join(",")})`;
+}
+
+function StackPreviewCanvas({
+  preview,
+  visibleLayers,
+  modelWidth,
+  modelHeight,
+  materialThickness,
+  groundWidth,
+  view,
+  yaw,
+  showTrueElevation,
+  onYawChange,
+}: {
+  preview: FilledLayerPreview;
+  visibleLayers: number[];
+  modelWidth: number;
+  modelHeight: number;
+  materialThickness: number;
+  groundWidth: number;
+  view: StackView;
+  yaw: number;
+  showTrueElevation: boolean;
+  onYawChange: (yaw: number) => void;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const dragRef = useRef<{ x: number; yaw: number } | null>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const draw = () => {
+      const rectangle = canvas.getBoundingClientRect();
+      const pixelRatio = Math.min(2, window.devicePixelRatio || 1);
+      canvas.width = Math.max(1, Math.round(rectangle.width * pixelRatio));
+      canvas.height = Math.max(1, Math.round(rectangle.height * pixelRatio));
+      const context = canvas.getContext("2d");
+      if (!context) return;
+      context.scale(pixelRatio, pixelRatio);
+      context.clearRect(0, 0, rectangle.width, rectangle.height);
+
+      const elevationAngle = view === "top" ? 90 : view === "side" ? 0 : 34;
+      const elevationRadians = toRadians(elevationAngle);
+      const yawRadians = toRadians(yaw);
+      const maximum = preview.boundaries[preview.boundaries.length - 1] || 1;
+      const physicalHeight = preview.layers.length * materialThickness;
+      const trueHeight = groundWidth > 0 ? maximum * modelWidth / groundWidth : 0;
+      const visibleSet = new Set(visibleLayers);
+
+      const rotate = (x: number, y: number) => ({
+        x: x * Math.cos(yawRadians) - y * Math.sin(yawRadians),
+        y: x * Math.sin(yawRadians) + y * Math.cos(yawRadians),
+      });
+      const projectRaw = (longitude: number, latitude: number, z: number) => {
+        const x = ((longitude - preview.selection.west) / (preview.selection.east - preview.selection.west) - 0.5) * modelWidth;
+        const y = ((latitude - preview.selection.south) / (preview.selection.north - preview.selection.south) - 0.5) * modelHeight;
+        const rotated = rotate(x, y);
+        return { x: rotated.x, y: rotated.y * Math.sin(elevationRadians) - z * Math.cos(elevationRadians) };
+      };
+
+      const extentPoints = [
+        [preview.selection.west, preview.selection.south],
+        [preview.selection.east, preview.selection.south],
+        [preview.selection.east, preview.selection.north],
+        [preview.selection.west, preview.selection.north],
+      ].flatMap(([longitude, latitude]) => [projectRaw(longitude, latitude, 0), projectRaw(longitude, latitude, Math.max(physicalHeight, showTrueElevation ? trueHeight : 0))]);
+      const minX = Math.min(...extentPoints.map((point) => point.x));
+      const maxX = Math.max(...extentPoints.map((point) => point.x));
+      const minY = Math.min(...extentPoints.map((point) => point.y));
+      const maxY = Math.max(...extentPoints.map((point) => point.y));
+      const padding = 24;
+      const scale = Math.min((rectangle.width - padding * 2) / Math.max(1, maxX - minX), (rectangle.height - padding * 2) / Math.max(1, maxY - minY));
+      const offsetX = rectangle.width / 2 - (minX + maxX) / 2 * scale;
+      const offsetY = rectangle.height / 2 - (minY + maxY) / 2 * scale;
+      const project = (longitude: number, latitude: number, z: number) => {
+        const point = projectRaw(longitude, latitude, z);
+        return { x: point.x * scale + offsetX, y: point.y * scale + offsetY };
+      };
+
+      const traceRing = (ring: number[][], z: number) => {
+        ring.forEach(([longitude, latitude], index) => {
+          const point = project(longitude, latitude, z);
+          if (index === 0) context.moveTo(point.x, point.y);
+          else context.lineTo(point.x, point.y);
+        });
+        context.closePath();
+      };
+
+      const base = preview.selection;
+      context.beginPath();
+      traceRing([[base.west, base.south], [base.east, base.south], [base.east, base.north], [base.west, base.north]], 0);
+      context.fillStyle = "rgba(238,235,226,.7)";
+      context.fill();
+      context.strokeStyle = "rgba(34,56,47,.25)";
+      context.lineWidth = 1;
+      context.stroke();
+
+      preview.layers.forEach((layer) => {
+        if (!visibleSet.has(layer.index)) return;
+        const bottom = layer.index * materialThickness;
+        const top = bottom + materialThickness;
+        const colour = layerColour(layer.lower_elevation, maximum);
+        const features = preview.feature_collection.features.filter((feature) => feature.properties.layer_index === layer.index);
+        features.forEach((feature) => {
+          feature.geometry.coordinates.forEach((ring) => {
+            for (let index = 1; index < ring.length; index += 1) {
+              const [longitudeA, latitudeA] = ring[index - 1];
+              const [longitudeB, latitudeB] = ring[index];
+              const bottomA = project(longitudeA, latitudeA, bottom);
+              const bottomB = project(longitudeB, latitudeB, bottom);
+              const topB = project(longitudeB, latitudeB, top);
+              const topA = project(longitudeA, latitudeA, top);
+              context.beginPath();
+              context.moveTo(bottomA.x, bottomA.y);
+              context.lineTo(bottomB.x, bottomB.y);
+              context.lineTo(topB.x, topB.y);
+              context.lineTo(topA.x, topA.y);
+              context.closePath();
+              context.fillStyle = darkenColour(colour);
+              context.fill();
+            }
+          });
+          context.beginPath();
+          feature.geometry.coordinates.forEach((ring) => traceRing(ring, top));
+          context.fillStyle = colour;
+          context.fill("evenodd");
+          context.strokeStyle = "rgba(28,49,40,.62)";
+          context.lineWidth = 0.7;
+          context.stroke();
+        });
+      });
+
+      if (showTrueElevation && view !== "top") {
+        preview.layers.forEach((layer) => {
+          const z = groundWidth > 0 ? layer.lower_elevation * modelWidth / groundWidth : 0;
+          preview.feature_collection.features
+            .filter((feature) => feature.properties.layer_index === layer.index)
+            .forEach((feature) => feature.geometry.coordinates.forEach((ring) => {
+              context.beginPath();
+              traceRing(ring, z);
+              context.strokeStyle = "rgba(196,79,45,.72)";
+              context.setLineDash([4, 3]);
+              context.lineWidth = 1;
+              context.stroke();
+              context.setLineDash([]);
+            }));
+        });
+      }
+    };
+    draw();
+    const observer = new ResizeObserver(draw);
+    observer.observe(canvas);
+    return () => observer.disconnect();
+  }, [preview, visibleLayers, modelWidth, modelHeight, materialThickness, groundWidth, view, yaw, showTrueElevation]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      aria-label="Interactive three-dimensional preview of the equal-thickness physical layer stack"
+      onPointerDown={(event) => { dragRef.current = { x: event.clientX, yaw }; event.currentTarget.setPointerCapture(event.pointerId); }}
+      onPointerMove={(event) => { if (dragRef.current) onYawChange((dragRef.current.yaw + event.clientX - dragRef.current.x + 360) % 360); }}
+      onPointerUp={(event) => { dragRef.current = null; event.currentTarget.releasePointerCapture(event.pointerId); }}
+      onPointerCancel={() => { dragRef.current = null; }}
+    />
+  );
+}
+
 export function MapWorkspace() {
   const mapNode = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -281,6 +507,7 @@ export function MapWorkspace() {
   const selectionMarkersRef = useRef<Partial<Record<SelectionCorner, MapLibreMarker>>>({});
   const elevationMarkersRef = useRef<MapLibreMarker[]>([]);
   const selectionRef = useRef<SelectionBounds | null>(null);
+  const aspectRatioRef = useRef<number | null>(null);
   const analysisRef = useRef<ElevationAnalysis | null>(null);
   const drawingRef = useRef(false);
   const drawStartRef = useRef<{ longitude: number; latitude: number } | null>(null);
@@ -309,6 +536,16 @@ export function MapWorkspace() {
   const [visibleLayerIndices, setVisibleLayerIndices] = useState<number[]>([]);
   const [generatingLayers, setGeneratingLayers] = useState(false);
   const [layerGenerationStatus, setLayerGenerationStatus] = useState("Choose valid boundaries, then generate the filled 2D preview.");
+  const [outputFormat, setOutputFormat] = useState<OutputFormat>("free");
+  const [outputOrientation, setOutputOrientation] = useState<OutputOrientation>("landscape");
+  const [customWidthMm, setCustomWidthMm] = useState(600);
+  const [customHeightMm, setCustomHeightMm] = useState(400);
+  const [materialThicknessMm, setMaterialThicknessMm] = useState(6);
+  const [stackView, setStackView] = useState<StackView>("three-dimensional");
+  const [stackYaw, setStackYaw] = useState(325);
+  const [showTrueElevation, setShowTrueElevation] = useState(true);
+  const chosenOutput = outputDimensions(outputFormat, outputOrientation, customWidthMm, customHeightMm);
+  aspectRatioRef.current = chosenOutput ? chosenOutput.width / chosenOutput.height : null;
 
   function cornerPosition(bounds: SelectionBounds, corner: SelectionCorner): [number, number] {
     switch (corner) {
@@ -321,10 +558,10 @@ export function MapWorkspace() {
 
   function boundsFromDraggedCorner(bounds: SelectionBounds, corner: SelectionCorner, longitude: number, latitude: number) {
     switch (corner) {
-      case "north-west": return normaliseBounds(longitude, bounds.south, bounds.east, latitude);
-      case "north-east": return normaliseBounds(bounds.west, bounds.south, longitude, latitude);
-      case "south-east": return normaliseBounds(bounds.west, latitude, longitude, bounds.north);
-      case "south-west": return normaliseBounds(longitude, latitude, bounds.east, bounds.north);
+      case "north-west": return constrainBoundsToAspect(bounds.east, bounds.south, longitude, latitude, aspectRatioRef.current);
+      case "north-east": return constrainBoundsToAspect(bounds.west, bounds.south, longitude, latitude, aspectRatioRef.current);
+      case "south-east": return constrainBoundsToAspect(bounds.west, bounds.north, longitude, latitude, aspectRatioRef.current);
+      case "south-west": return constrainBoundsToAspect(bounds.east, bounds.north, longitude, latitude, aspectRatioRef.current);
     }
   }
 
@@ -556,7 +793,7 @@ export function MapWorkspace() {
         setCursor({ longitude: event.lngLat.lng, latitude: event.lngLat.lat });
         const start = drawStartRef.current;
         if (!start) return;
-        applySelection(normaliseBounds(start.longitude, start.latitude, event.lngLat.lng, event.lngLat.lat));
+        applySelection(constrainBoundsToAspect(start.longitude, start.latitude, event.lngLat.lng, event.lngLat.lat, aspectRatioRef.current));
       });
       map.on("mousedown", (event) => {
         if (!drawingRef.current || event.originalEvent.button !== 0) return;
@@ -568,7 +805,7 @@ export function MapWorkspace() {
       map.on("mouseup", (event) => {
         const start = drawStartRef.current;
         if (!start) return;
-        const next = normaliseBounds(start.longitude, start.latitude, event.lngLat.lng, event.lngLat.lat);
+        const next = constrainBoundsToAspect(start.longitude, start.latitude, event.lngLat.lng, event.lngLat.lat, aspectRatioRef.current);
         const isUsable = Math.abs(next.east - next.west) > 0.00001 && Math.abs(next.north - next.south) > 0.00001;
         setDrawingMode(false);
         if (isUsable) {
@@ -599,6 +836,36 @@ export function MapWorkspace() {
       mapLibreRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(OUTPUT_PLAN_KEY) ?? "null") as {
+        format?: OutputFormat;
+        orientation?: OutputOrientation;
+        customWidthMm?: number;
+        customHeightMm?: number;
+        materialThicknessMm?: number;
+      } | null;
+      if (!saved) return;
+      if (["free", "12x8", "a2", "square", "custom"].includes(saved.format ?? "")) setOutputFormat(saved.format as OutputFormat);
+      if (["landscape", "portrait"].includes(saved.orientation ?? "")) setOutputOrientation(saved.orientation as OutputOrientation);
+      if (Number(saved.customWidthMm) > 0) setCustomWidthMm(Number(saved.customWidthMm));
+      if (Number(saved.customHeightMm) > 0) setCustomHeightMm(Number(saved.customHeightMm));
+      if (Number(saved.materialThicknessMm) > 0) setMaterialThicknessMm(Number(saved.materialThicknessMm));
+    } catch {
+      window.localStorage.removeItem(OUTPUT_PLAN_KEY);
+    }
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(OUTPUT_PLAN_KEY, JSON.stringify({
+      format: outputFormat,
+      orientation: outputOrientation,
+      customWidthMm,
+      customHeightMm,
+      materialThicknessMm,
+    }));
+  }, [outputFormat, outputOrientation, customWidthMm, customHeightMm, materialThicknessMm]);
 
   useEffect(() => {
     let cancelled = false;
@@ -716,14 +983,23 @@ export function MapWorkspace() {
 
   function resetTaranakiExample() {
     setDrawingMode(false);
-    applySelection(TARANAKI_EXAMPLE, true);
+    const example = aspectRatioRef.current ? fitBoundsToAspect(TARANAKI_EXAMPLE, aspectRatioRef.current) : TARANAKI_EXAMPLE;
+    applySelection(example, true);
     mapRef.current?.fitBounds(
-      [[TARANAKI_EXAMPLE.west, TARANAKI_EXAMPLE.south], [TARANAKI_EXAMPLE.east, TARANAKI_EXAMPLE.north]],
+      [[example.west, example.south], [example.east, example.north]],
       { padding: 130, maxZoom: 12, duration: 1200 },
     );
     setQuery("Mount Taranaki");
     setSearchMessage("Stage 2 reference area");
     setSelectionStatus("Mount Taranaki reference area restored.");
+  }
+
+  function fitAreaToOutputFormat() {
+    if (!selection || !chosenOutput) return;
+    const fitted = fitBoundsToAspect(selection, chosenOutput.width / chosenOutput.height);
+    applySelection(fitted, true);
+    mapRef.current?.fitBounds([[fitted.west, fitted.south], [fitted.east, fitted.north]], { padding: 130, maxZoom: 13, duration: 700 });
+    setSelectionStatus(`${chosenOutput.label} ${outputOrientation} ratio applied without stretching the landscape.`);
   }
 
   function saveExample() {
@@ -975,6 +1251,14 @@ export function MapWorkspace() {
   const measurements = selection ? selectionMeasurements(selection) : null;
   const layerMaximum = analysis?.maximum.elevation ?? 0;
   const layerValidation = analysis && layerBoundaries.length ? validateLayerBoundaries(layerBoundaries, layerMaximum) : "";
+  const previewDimensions = chosenOutput ?? {
+    width: 600,
+    height: measurements && measurements.width > 0 ? 600 * measurements.height / measurements.width : 400,
+    label: "Free preview",
+  };
+  const physicalStackHeight = (filledLayerPreview?.layers.length ?? layerCount) * materialThicknessMm;
+  const trueScaledHeight = measurements && measurements.width > 0 ? layerMaximum * previewDimensions.width / measurements.width : 0;
+  const verticalExaggeration = trueScaledHeight > 0 ? physicalStackHeight / trueScaledHeight : 0;
 
   return (
     <main className={`workspace ${drawing ? "is-drawing" : ""}`}>
@@ -985,14 +1269,14 @@ export function MapWorkspace() {
           <span className="brand-mark" aria-hidden="true"><i /><i /><i /></span>
           <span><strong>topo</strong>mapper</span>
         </button>
-        <div className="stage-pill"><span /> Stage 5 · 2D Preview</div>
+        <div className="stage-pill"><span /> Stage 6 · Physical Preview</div>
       </header>
 
       <section className="search-panel" aria-label="Place search">
         <div className="panel-heading">
           <span className="eyebrow">NEW ZEALAND WORKSPACE</span>
-          <h1>Choose a landscape</h1>
-          <p>Find the landscape, then mark the exact area for your physical map.</p>
+          <h1>Find a location</h1>
+          <p>Navigate the map here. The numbered model-making workflow is on the right.</p>
         </div>
 
         <form className="search-form" onSubmit={searchPlaces}>
@@ -1035,9 +1319,45 @@ export function MapWorkspace() {
 
       <aside className="selection-panel" aria-label="Area selection and elevation analysis">
         <div className="selection-heading">
-          <span className="section-label">MODEL AREA</span>
+          <span className="section-label">STEP 1 · AREA &amp; FORMAT</span>
           <strong>{selection ? "Selection ready" : "Draw a rectangle"}</strong>
           <p role="status">{selectionStatus}</p>
+        </div>
+
+        <div className="output-format-controls">
+          <label htmlFor="output-format">Finished format</label>
+          <select
+            id="output-format"
+            value={outputFormat}
+            onChange={(event) => {
+              setOutputFormat(event.target.value as OutputFormat);
+              setSelectionStatus(event.target.value === "free" ? "Free selection enabled." : "Format selected. Draw a new area or fit the current area to it.");
+            }}
+          >
+            <option value="free">Free selection</option>
+            <option value="12x8">12 × 8 inch frame</option>
+            <option value="a2">A2</option>
+            <option value="square">Square</option>
+            <option value="custom">Custom millimetres</option>
+          </select>
+          {outputFormat !== "free" && outputFormat !== "square" && (
+            <div className="orientation-buttons" aria-label="Finished format orientation">
+              <button className={outputOrientation === "landscape" ? "active" : ""} onClick={() => setOutputOrientation("landscape")}>Landscape</button>
+              <button className={outputOrientation === "portrait" ? "active" : ""} onClick={() => setOutputOrientation("portrait")}>Portrait</button>
+            </div>
+          )}
+          {outputFormat === "custom" && (
+            <div className="custom-dimensions">
+              <label>Width <span><input type="number" min="1" step="1" value={customWidthMm} onChange={(event) => setCustomWidthMm(Math.max(1, Number(event.target.value)))} /> mm</span></label>
+              <label>Height <span><input type="number" min="1" step="1" value={customHeightMm} onChange={(event) => setCustomHeightMm(Math.max(1, Number(event.target.value)))} /> mm</span></label>
+            </div>
+          )}
+          <div className="format-summary">
+            {chosenOutput ? (
+              <><strong>{chosenOutput.width.toFixed(chosenOutput.width % 1 ? 1 : 0)} × {chosenOutput.height.toFixed(chosenOutput.height % 1 ? 1 : 0)} mm</strong><span>Ratio {(chosenOutput.width / chosenOutput.height).toFixed(3)} · drawing lock active</span></>
+            ) : <><strong>Any proportion</strong><span>Choose a format to lock the scene shape</span></>}
+          </div>
+          <button className="fit-format-button" onClick={fitAreaToOutputFormat} disabled={!selection || !chosenOutput}>Fit current area to format</button>
         </div>
 
         <button className={`draw-button ${drawing ? "active" : ""}`} onClick={startDrawing}>
@@ -1077,7 +1397,7 @@ export function MapWorkspace() {
         <section className="elevation-section" aria-labelledby="elevation-heading">
           <div className="elevation-heading-row">
             <div>
-              <span className="section-label">ELEVATION DATA</span>
+              <span className="section-label">STEP 2 · ELEVATION DATA</span>
               <strong id="elevation-heading">Analyse GeoTIFF mosaic</strong>
             </div>
             <span className={`processor-state ${processorStatus}`}>
@@ -1157,7 +1477,7 @@ export function MapWorkspace() {
           <section className="layer-editor" aria-labelledby="layer-editor-heading">
             <div className="layer-editor-heading">
               <div>
-                <span className="section-label">PHYSICAL LAYERS</span>
+                <span className="section-label">STEP 3 · LAYER PLAN</span>
                 <strong id="layer-editor-heading">Elevation boundaries</strong>
               </div>
               <span className={`layer-ready ${layerValidation ? "invalid" : ""}`}>
@@ -1242,7 +1562,7 @@ export function MapWorkspace() {
           <section className="filled-layer-section" aria-labelledby="filled-layer-heading">
             <div className="filled-layer-heading">
               <div>
-                <span className="section-label">STAGE 5 · GEOMETRY</span>
+                <span className="section-label">STEP 4 · FILLED GEOMETRY</span>
                 <strong id="filled-layer-heading">Filled 2D layer preview</strong>
               </div>
               {filledLayerPreview && <span>{visibleLayerIndices.length}/{filledLayerPreview.layers.length} visible</span>}
@@ -1289,6 +1609,48 @@ export function MapWorkspace() {
           </section>
         )}
       </aside>
+
+      {filledLayerPreview && measurements && (
+        <section className="stack-preview" aria-labelledby="stack-preview-heading">
+          <div className="stack-preview-heading">
+            <div>
+              <span className="section-label">STEP 5 · PHYSICAL STACK</span>
+              <strong id="stack-preview-heading">Equal-thickness 3D preview</strong>
+            </div>
+            <span>{previewDimensions.label}</span>
+          </div>
+          <div className="stack-preview-toolbar">
+            <div className="stack-view-buttons" aria-label="Stack viewpoint">
+              <button className={stackView === "three-dimensional" ? "active" : ""} onClick={() => setStackView("three-dimensional")}>3D</button>
+              <button className={stackView === "side" ? "active" : ""} onClick={() => setStackView("side")}>Side</button>
+              <button className={stackView === "top" ? "active" : ""} onClick={() => setStackView("top")}>Top</button>
+            </div>
+            <label className="thickness-control">Material <span><input type="number" min="0.5" max="50" step="0.5" value={materialThicknessMm} onChange={(event) => setMaterialThicknessMm(Math.max(0.5, Number(event.target.value)))} /> mm</span></label>
+            <label className="true-profile-toggle"><input type="checkbox" checked={showTrueElevation} onChange={(event) => setShowTrueElevation(event.target.checked)} disabled={stackView === "top"} /> True-elevation reference</label>
+          </div>
+          <div className="stack-canvas-wrap">
+            <StackPreviewCanvas
+              preview={filledLayerPreview}
+              visibleLayers={visibleLayerIndices}
+              modelWidth={previewDimensions.width}
+              modelHeight={previewDimensions.height}
+              materialThickness={materialThicknessMm}
+              groundWidth={measurements.width}
+              view={stackView}
+              yaw={stackYaw}
+              showTrueElevation={showTrueElevation}
+              onYawChange={setStackYaw}
+            />
+            <span>Drag horizontally to rotate · dashed orange lines show true scaled elevations</span>
+          </div>
+          <div className="stack-metrics">
+            <span><small>Finished size</small><strong>{previewDimensions.width.toFixed(1)} × {previewDimensions.height.toFixed(1)} mm</strong></span>
+            <span><small>Physical height</small><strong>{physicalStackHeight.toFixed(1)} mm</strong></span>
+            <span><small>True scaled relief</small><strong>{trueScaledHeight.toFixed(1)} mm</strong></span>
+            <span><small>Vertical exaggeration</small><strong>{verticalExaggeration.toFixed(2)}×</strong></span>
+          </div>
+        </section>
+      )}
 
       <footer className="statusbar">
         <div><span className={`status-light ${mapStatus === "Map ready" ? "ready" : ""}`} />{mapStatus}</div>

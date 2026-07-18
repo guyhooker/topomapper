@@ -178,7 +178,7 @@
 
 ### Stage 5 — Filled Layer Generation and 2D Preview
 
-- Implemented 18 July 2026; awaiting Guy's visual acceptance test.
+- Implemented and accepted 18 July 2026.
 - Added a local `/layers` processor operation using the same selected bounds,
   GeoTIFF mosaic, and validated elevation boundaries as the interface.
 - Each physical layer is generated as a cumulative filled mask at its lower
@@ -192,7 +192,7 @@
 - Changing the area, source files, or boundaries invalidates the old geometry
   so stale polygons cannot be mistaken for the current design.
 - The preview grid is capped at 520 pixels on its longest side for responsive
-  interaction. Fabrication-resolution generation remains a Stage 6 concern.
+  interaction. Fabrication-resolution generation remains a Stage 7 concern.
 - Synthetic regression produced eight cumulative polygons and retained its
   deliberate enclosed NODATA hole.
 - Four-tile Taranaki regression generated 10 Log-spaced layers on a 483 × 520
@@ -202,10 +202,41 @@
   pieces in 0.22 seconds, while 40 Linear layers produced 84 in 0.18 seconds.
 - Frontend production build and Python syntax checks pass successfully.
 
+### Stage 6 — Physical Format and 3D Stack Preview
+
+- Implemented 18 July 2026; awaiting Guy's visual acceptance test.
+- Reframed the left panel as a location-finding map tool. The right panel now
+  presents one numbered model workflow: area/format, elevation data, layer plan,
+  filled geometry, and physical stack.
+- Added early 8 × 12 inch, A2, square, custom-millimetre, and free-format
+  choices with portrait/landscape orientation.
+- A chosen format constrains new rectangles and dragged corner handles using
+  ground-distance proportions rather than raw longitude/latitude degrees.
+- Existing selections can be fitted around their centre while approximately
+  preserving selected ground area; terrain is cropped/expanded, never stretched.
+- Output settings persist on the local Mac.
+- Added a dependency-free canvas preview using the generated polygon rings,
+  including holes and disconnected components.
+- Added rotatable 3D, direct side, and top viewpoints. The 3D model uses one
+  common material thickness for every physical layer and respects the Stage 5
+  visibility toggles.
+- Added finished size, physical stack height, true scaled relief height, and
+  vertical-exaggeration readouts. An optional dashed true-elevation reference
+  makes Log/equal-sheet distortion visible.
+- New Plymouth is the second geometry reference area after Mount Taranaki. Any
+  later cleanup must retain Paritutu and genuine offshore islands by default.
+- Automatic tile retrieval was removed from the roadmap. Manual projects are
+  intentionally limited to 24 adjoining GeoTIFF files.
+- Small-piece removal remains off by default and separate from border smoothing.
+  Original geometry must remain reversible; any component can later be marked
+  Protected, and cleanup must never silently delete a meaningful summit or island.
+- Frontend production build passes successfully.
+
 ## Next Steps
 
-1. Restart Topomapper so the updated local processor is active.
-2. Generate the four-tile Taranaki preview using both Log and Linear spacing.
-3. Toggle individual layers and confirm Mount Taranaki changes as expected.
-4. Change one boundary, regenerate, and confirm the expected outline changes.
-5. Mark Stage 5 complete only after the 2D geometry looks convincing.
+1. Choose A2, 8 × 12 inch, and square formats and confirm drawing/corner edits
+   retain the correct ground ratio.
+2. Generate the four-tile Taranaki layers and inspect the 3D and side views.
+3. Confirm ten 6 mm layers report a 60 mm physical stack.
+4. Compare the physical stack against the true-elevation reference.
+5. Mark Stage 6 complete only after the side profile looks convincing.

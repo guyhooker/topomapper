@@ -86,7 +86,7 @@ values clearly.
 
 ## Stage 5 — Filled Layer Generation and 2D Preview
 
-**Status: Implementation complete — acceptance test pending**
+**Status: Complete — accepted 18 July 2026**
 
 ### Adds
 
@@ -104,22 +104,43 @@ changes the expected shapes, and all generated polygons are geometrically valid.
 This is the first major feasibility gate. Do not invest in automatic downloads
 or CNC integration until this stage produces convincing geometry.
 
-## Stage 6 — Physical Dimensions and SVG Export
+## Stage 6 — Physical Format and 3D Stack Preview
+
+**Status: Implementation complete — acceptance test pending**
 
 ### Adds
 
-- Finished map width and height in millimetres.
-- Preserve-aspect-ratio option.
+- Consistent numbered workflow on the right; location search remains a map tool
+  on the left rather than appearing to be a separate production stage.
+- Early format choice: 8 × 12 inch, A2, square, custom millimetres, or free.
+- Portrait/landscape orientation and ground-crop aspect-ratio locking during
+  both drawing and corner adjustment.
+- Equal-thickness material setting and finished stack-height calculation.
+- Rotatable 3D, direct side, and top views of the generated cumulative layers.
+- Optional true-elevation reference for judging vertical exaggeration caused by
+  the chosen physical sheet stack.
+
+### Acceptance Test
+
+An A2, 8 × 12 inch, square, or custom selection retains its ground aspect ratio
+without stretching. Ten 6 mm layers report a 60 mm physical height, the side
+view shows the complete stack, and rotating the model reveals plausible Mount
+Taranaki geometry.
+
+## Stage 7 — SVG Export
+
+### Adds
+
 - One labelled SVG file per physical layer.
 - Combined registration/overview SVG.
-- Scale, source, layer order, and elevation metadata.
+- Finished dimensions, scale, source, layer order, and elevation metadata.
 
 ### Acceptance Test
 
 The SVGs open at the requested physical dimensions in a vector editor and CAM
 software. Printed paper outlines align when stacked.
 
-## Stage 7 — Fabrication Geometry Controls
+## Stage 8 — Fabrication Geometry Controls
 
 ### Adds
 
@@ -137,38 +158,7 @@ that topomapper must own it.
 Topomapper identifies deliberately troublesome small features, and registration
 holes align consistently across every exported layer.
 
-## Stage 8 — Stacked 3D Preview
-
-### Adds
-
-- Material thickness per sheet.
-- Exploded and assembled layer views.
-- Optional vertical exaggeration.
-- Finished stack height and sheet count.
-- Basic green, grey, and snow-level colour planning.
-
-### Acceptance Test
-
-The preview contains the same number and order of layers as the SVG export, and
-its reported physical height equals the layer stack being fabricated.
-
-## Stage 9 — Automatic LINZ Data Retrieval
-
-### Adds
-
-- Determine data coverage for the selected area.
-- Download only the required spatial window where the source permits it.
-- Local dataset cache and cache-management interface.
-- Dataset source, resolution, date, licence, coordinate system, and vertical
-  datum display.
-- Clear fallback and missing-coverage behaviour.
-
-### Acceptance Test
-
-A fresh Mount Taranaki project can obtain its elevation data without manually
-locating a GeoTIFF, and a repeated project reuses the local cache.
-
-## Stage 10 — Coast and Bathymetry
+## Stage 9 — Coast and Bathymetry
 
 ### Adds
 
@@ -185,7 +175,7 @@ A Banks Peninsula selection shows land, coastline, and seabed bands without a
 gap or silent zero-level mismatch. Low-resolution offshore geometry is visibly
 identified.
 
-## Stage 11 — DXF and Physical Test Cut
+## Stage 10 — DXF and Physical Test Cut
 
 ### Adds
 
@@ -200,7 +190,7 @@ Produce a small plywood test map through existing CAM software and the CNC
 machine. Record fit, loose-piece problems, useful simplification, tolerances,
 paint allowance, and assembly experience.
 
-## Stage 12 — Packaged Mac Application
+## Stage 11 — Packaged Mac Application
 
 ### Adds
 
@@ -215,7 +205,7 @@ paint allowance, and assembly experience.
 Install and run topomapper on a clean Mac user account without manually starting
 Python, a terminal, or a development server.
 
-## Stage 13 — Optional Direct G-code
+## Stage 12 — Optional Direct G-code
 
 Only undertake this stage if the SVG/DXF-to-CAM workflow is genuinely
 inconvenient.
@@ -235,9 +225,8 @@ material before any project sheet is machined.
 ## Suggested Release Milestones
 
 - **Prototype A — Terrain analyser:** Stages 1–4.
-- **Prototype B — Cuttable land map:** Stages 5–7.
-- **Prototype C — Full visual model:** Stage 8.
-- **Prototype D — Convenient New Zealand workflow:** Stage 9.
-- **Prototype E — Coastal model:** Stage 10.
-- **Version 1.0 — Proven Mac fabrication tool:** Stages 11–12.
-- **Optional CNC-native version:** Stage 13.
+- **Prototype B — Visual land model:** Stages 5–6.
+- **Prototype C — Cuttable land map:** Stages 7–8.
+- **Prototype D — Coastal model:** Stage 9.
+- **Version 1.0 — Proven Mac fabrication tool:** Stages 10–11.
+- **Optional CNC-native version:** Stage 12.

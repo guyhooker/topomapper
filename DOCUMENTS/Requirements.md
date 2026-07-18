@@ -81,5 +81,6 @@ controller/postprocessor are specified.
 - Live navigation or marine navigation.
 - Buildings and vegetation from surface models.
 - Fully automatic toolpath and G-code generation.
+- Automatic elevation-tile discovery or downloading. A project may manually
+  select up to 24 adjoining GeoTIFF files.
 - Cloud accounts or multi-user collaboration.
-

@@ -102,7 +102,7 @@ so selecting Banks Peninsula does not require downloading a national raster.
 
 - Add searchable MapLibre map.
 - Draw and edit the selection.
-- Retrieve and cache the appropriate LINZ elevation window.
+- Manually select up to 24 appropriate LINZ elevation tiles.
 - Add project save/open.
 
 ### Phase 3 — Coast and bathymetry

@@ -49,5 +49,9 @@ are shown before later geometry generation.
 
 Stage 5 turns those boundaries into cumulative filled land polygons and draws a
 colour-coded 2D stack over the map. Individual layers can be hidden or shown,
-and the preview reports disconnected pieces and preserved holes. This is preview
-geometry; physical sizing and fabrication-resolution SVG output begin in Stage 6.
+and the preview reports disconnected pieces and preserved holes.
+
+Stage 6 adds an early finished-format choice with aspect-locked ground cropping,
+then displays the geometry as an equal-thickness physical stack. The preview can
+be rotated or viewed directly from the side or top, and compares physical height
+with a true-elevation reference before SVG fabrication work begins in Stage 7.

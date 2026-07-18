@@ -366,4 +366,8 @@
   its readable left-to-right row preference.
 - Clicking a DRC warning focuses and highlights its parts. Selecting a part
   highlights every visible warning involving that placement.
+- Fixed an Auto layout browser crash found on the first full-model test. Trial
+  positions now use a fast conservative rectangle test; precise coastline DRC
+  runs once on the resulting editable layout and during manual adjustment,
+  rather than for every rejected search candidate.
 - Production build passes successfully.

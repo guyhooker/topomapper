@@ -744,6 +744,23 @@ function checkLayoutRules(placements: SheetPlacement[], parts: LayoutPart[], rul
   return violations;
 }
 
+function candidateFitsConservative(candidate: SheetPlacement, placements: SheetPlacement[], partMap: Map<string, LayoutPart>, rules: SheetRules) {
+  const part = partMap.get(candidate.partId);
+  if (!part) return false;
+  const bounds = placementBounds(candidate, part);
+  if (bounds.left < rules.edgeMargin || bounds.top < rules.edgeMargin || bounds.right > rules.width - rules.edgeMargin || bounds.bottom > rules.height - rules.edgeMargin) return false;
+  return placements.every((placement) => {
+    if (placement.sheetIndex !== candidate.sheetIndex) return true;
+    const otherPart = partMap.get(placement.partId);
+    if (!otherPart) return true;
+    const other = placementBounds(placement, otherPart);
+    return bounds.right + rules.partSpacing <= other.left
+      || other.right + rules.partSpacing <= bounds.left
+      || bounds.bottom + rules.partSpacing <= other.top
+      || other.bottom + rules.partSpacing <= bounds.top;
+  });
+}
+
 function rotateLayoutPoint(point: { x: number; y: number }, part: LayoutPart, rotation: SheetPlacement["rotation"]) {
   const radians = rotation * Math.PI / 180;
   const cosine = Math.cos(radians);
@@ -2523,6 +2540,7 @@ export function MapWorkspace() {
   function autoLayoutUnplaced() {
     const placedPartIds = new Set(sheetPlacements.map((placement) => placement.partId));
     const unplaced = layoutParts.filter((part) => !placedPartIds.has(part.id)).sort((left, right) => right.areaMm2 - left.areaMm2);
+    const partMap = new Map(layoutParts.map((part) => [part.id, part]));
     let working = [...sheetPlacements];
     let workingSheetCount = sheetCount;
     unplaced.forEach((part) => {
@@ -2541,7 +2559,7 @@ export function MapWorkspace() {
           for (const y of [...new Set(yCandidates)].sort((left, right) => left - right)) {
             for (const x of [...new Set(xCandidates)].sort((left, right) => left - right)) {
               const candidate: SheetPlacement = { id: nextPlacementId(part.id), partId: part.id, sheetIndex, x, y, rotation };
-              if (!checkLayoutRules([...working, candidate], layoutParts, sheetRules).some((violation) => violation.placementIds.includes(candidate.id))) { fitted = candidate; break; }
+              if (candidateFitsConservative(candidate, working, partMap, sheetRules)) { fitted = candidate; break; }
             }
             if (fitted) break;
           }

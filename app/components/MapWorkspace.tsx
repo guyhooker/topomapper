@@ -73,7 +73,7 @@ type LayerBoundary = {
   role: "sea-level" | "custom" | "maximum";
 };
 
-type LayerPreset = "suggested" | "equal" | "hundreds" | "custom";
+type LayerDistribution = "suggested" | "linear";
 
 const QUICK_PLACES: Place[] = [
   { name: "Mount Taranaki", subtitle: "First terrain proof", longitude: 174.0632, latitude: -39.2968, zoom: 10.2 },
@@ -96,6 +96,9 @@ const ELEVATION_LAYER = "topomapper-elevation-preview";
 const LAST_SELECTION_KEY = "topomapper:selection:last";
 const SAVED_EXAMPLE_KEY = "topomapper:selection:example";
 const LAYER_PLAN_KEY = "topomapper:layer-plan";
+const DEFAULT_LAYER_COUNT = 10;
+const MIN_LAYER_COUNT = 2;
+const MAX_LAYER_COUNT = 40;
 const EARTH_RADIUS_METRES = 6_371_008.8;
 
 function formatCoordinate(value: number, positive: string, negative: string) {
@@ -202,20 +205,16 @@ function boundarySet(values: number[], maximum: number, prefix: string): LayerBo
   }));
 }
 
-function presetBoundaries(preset: LayerPreset, maximum: number): LayerBoundary[] {
-  let values: number[];
-  if (preset === "equal") {
-    values = Array.from({ length: 11 }, (_, index) => index === 10 ? maximum : Math.round(maximum * index / 10));
-  } else if (preset === "hundreds") {
-    values = [0];
-    for (let value = 100; value < maximum; value += 100) values.push(value);
-    values.push(maximum);
-  } else {
-    values = [0, 50, 100, 200, 350, 500, 750, 1000, 1500, 2000].filter((value) => value < maximum);
-    values.push(maximum);
-  }
-  values = values.filter((value, index) => index === 0 || Math.abs(value - values[index - 1]) > 0.001);
-  return boundarySet(values, maximum, preset);
+function presetBoundaries(distribution: LayerDistribution, maximum: number, layerCount: number): LayerBoundary[] {
+  const count = Math.max(MIN_LAYER_COUNT, Math.min(MAX_LAYER_COUNT, Math.round(layerCount)));
+  const values = Array.from({ length: count + 1 }, (_, index) => {
+    if (index === 0) return 0;
+    if (index === count) return maximum;
+    const position = index / count;
+    const value = distribution === "linear" ? maximum * position : maximum * position ** 2;
+    return Math.round(value * 10) / 10;
+  });
+  return boundarySet(values, maximum, distribution);
 }
 
 function validateLayerBoundaries(boundaries: LayerBoundary[], maximum: number) {
@@ -268,7 +267,8 @@ export function MapWorkspace() {
   const [analysis, setAnalysis] = useState<ElevationAnalysis | null>(null);
   const [analysisStatus, setAnalysisStatus] = useState("Choose a LINZ elevation GeoTIFF for this area.");
   const [layerBoundaries, setLayerBoundaries] = useState<LayerBoundary[]>([]);
-  const [layerPreset, setLayerPreset] = useState<LayerPreset>("suggested");
+  const [layerDistribution, setLayerDistribution] = useState<LayerDistribution>("suggested");
+  const [layerCount, setLayerCount] = useState(DEFAULT_LAYER_COUNT);
   const [newBoundaryValue, setNewBoundaryValue] = useState("");
   const [layerStatus, setLayerStatus] = useState("Analyse elevation data to begin a layer plan.");
 
@@ -674,6 +674,7 @@ export function MapWorkspace() {
         const restored = boundarySet(saved.values, maximum, "restored");
         if (!validateLayerBoundaries(restored, maximum)) {
           setLayerBoundaries(restored);
+          setLayerCount(restored.length - 1);
           setLayerStatus("Your saved layer plan has been restored for this elevation range.");
           return;
         }
@@ -681,23 +682,30 @@ export function MapWorkspace() {
     } catch {
       window.localStorage.removeItem(LAYER_PLAN_KEY);
     }
-    const suggested = presetBoundaries("suggested", maximum);
-    setLayerPreset("suggested");
+    const suggested = presetBoundaries("suggested", maximum, DEFAULT_LAYER_COUNT);
+    setLayerDistribution("suggested");
+    setLayerCount(DEFAULT_LAYER_COUNT);
     storeLayerPlan(suggested, maximum, "Suggested non-linear terrain boundaries are ready to edit.");
   }
 
-  function applyLayerPreset(preset: LayerPreset) {
+  function applyLayerDistribution(distribution: LayerDistribution, count = layerCount) {
     if (!analysis) return;
-    const next = presetBoundaries(preset, analysis.maximum.elevation);
-    setLayerPreset(preset);
-    storeLayerPlan(next, analysis.maximum.elevation, preset === "suggested"
-      ? "Suggested non-linear terrain boundaries applied."
-      : preset === "equal" ? "Ten equal elevation intervals applied." : "100 metre intervals applied.");
+    const next = presetBoundaries(distribution, analysis.maximum.elevation, count);
+    setLayerDistribution(distribution);
+    setLayerCount(count);
+    storeLayerPlan(next, analysis.maximum.elevation, distribution === "suggested"
+      ? `${count} suggested non-linear elevation layers applied.`
+      : `${count} equal elevation layers applied.`);
+  }
+
+  function adjustLayerCount(change: -1 | 1) {
+    const nextCount = Math.max(MIN_LAYER_COUNT, Math.min(MAX_LAYER_COUNT, layerCount + change));
+    if (nextCount === layerCount) return;
+    applyLayerDistribution(layerDistribution, nextCount);
   }
 
   function editLayerBoundary(id: string, value: string) {
     if (!analysis) return;
-    setLayerPreset("custom");
     const next = layerBoundaries.map((boundary) => boundary.id === id ? { ...boundary, value } : boundary);
     storeLayerPlan(next, analysis.maximum.elevation, "Layer boundary updated and saved on this Mac.");
   }
@@ -722,15 +730,15 @@ export function MapWorkspace() {
     custom.push({ id: `custom-${Date.now()}`, value: formatBoundaryValue(value), role: "custom" });
     custom.sort((left, right) => parseBoundary(left) - parseBoundary(right));
     const next = [layerBoundaries[0], ...custom, layerBoundaries[layerBoundaries.length - 1]];
-    setLayerPreset("custom");
+    setLayerCount(next.length - 1);
     setNewBoundaryValue("");
     storeLayerPlan(next, maximum, `${formatBoundaryValue(value)} m boundary added.`);
   }
 
   function removeLayerBoundary(id: string) {
     if (!analysis) return;
-    setLayerPreset("custom");
     const next = layerBoundaries.filter((boundary) => boundary.id !== id);
+    setLayerCount(next.length - 1);
     storeLayerPlan(next, analysis.maximum.elevation, "Boundary removed.");
   }
 
@@ -741,7 +749,6 @@ export function MapWorkspace() {
     if (index < 1 || target < 1 || target >= layerBoundaries.length - 1) return;
     const next = [...layerBoundaries];
     [next[index], next[target]] = [next[target], next[index]];
-    setLayerPreset("custom");
     storeLayerPlan(next, analysis.maximum.elevation, "Boundary order updated.");
   }
 
@@ -1010,7 +1017,7 @@ export function MapWorkspace() {
                 {layerValidation ? "Needs attention" : `${layerBoundaries.length - 1} layers`}
               </span>
             </div>
-            <p className="layer-intro">Choose non-linear heights for the plywood stack. Sea level and the analysed maximum stay fixed.</p>
+            <p className="layer-intro">Choose how the heights are spaced, then set the number of plywood layers. Sea level and the analysed maximum stay fixed.</p>
 
             <div className="elevation-range" aria-label={`Elevation boundaries from 0 to ${formatBoundaryValue(layerMaximum)} metres`}>
               <div className="range-bar" />
@@ -1029,10 +1036,24 @@ export function MapWorkspace() {
               <div className="range-labels"><span>Sea level · 0 m</span><span>Maximum · {formatBoundaryValue(layerMaximum)} m</span></div>
             </div>
 
-            <div className="preset-row" aria-label="Layer boundary presets">
-              <button className={layerPreset === "suggested" ? "active" : ""} onClick={() => applyLayerPreset("suggested")}>Suggested</button>
-              <button className={layerPreset === "equal" ? "active" : ""} onClick={() => applyLayerPreset("equal")}>10 equal</button>
-              <button className={layerPreset === "hundreds" ? "active" : ""} onClick={() => applyLayerPreset("hundreds")}>Every 100 m</button>
+            <div className="layer-generation-controls">
+              <div className="distribution-control">
+                <span>Spacing style</span>
+                <div className="preset-row" aria-label="Layer spacing style">
+                  <button className={layerDistribution === "suggested" ? "active" : ""} onClick={() => applyLayerDistribution("suggested")}>Suggested</button>
+                  <button className={layerDistribution === "linear" ? "active" : ""} onClick={() => applyLayerDistribution("linear")}>Linear</button>
+                </div>
+                <small>{layerDistribution === "suggested" ? "Thinner elevation bands lower down, broader bands higher up." : "Every elevation band has the same vertical height."}</small>
+              </div>
+              <div className="layer-count-control">
+                <span>Number of layers</span>
+                <div className="layer-stepper">
+                  <button onClick={() => adjustLayerCount(-1)} disabled={layerCount <= MIN_LAYER_COUNT} aria-label="Decrease number of layers">−</button>
+                  <output aria-live="polite" aria-label={`${layerCount} layers`}>{layerCount}</output>
+                  <button onClick={() => adjustLayerCount(1)} disabled={layerCount >= MAX_LAYER_COUNT} aria-label="Increase number of layers">+</button>
+                </div>
+                <small>{MIN_LAYER_COUNT}–{MAX_LAYER_COUNT} layers</small>
+              </div>
             </div>
 
             <form className="add-boundary" onSubmit={(event) => { event.preventDefault(); addLayerBoundary(); }}>

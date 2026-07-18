@@ -41,7 +41,8 @@ Missing data is reported separately from real zero elevation. See
 [`DOCUMENTS/Elevation_Data.md`](DOCUMENTS/Elevation_Data.md) for suitable LINZ
 sources and the included synthetic test fixture.
 
-Stage 4 adds an editable non-linear land-elevation plan. Sea level and the
-analysed maximum remain fixed, while intermediate boundaries can be added,
-edited, removed, reordered, or generated from presets. Invalid duplicates and
-out-of-order boundaries are shown before later geometry generation.
+Stage 4 adds an editable land-elevation plan. Sea level and the analysed
+maximum remain fixed; suggested non-linear or linear spacing can be combined
+with an adjustable 2–40 layer count. Intermediate boundaries can also be added,
+edited, removed, or reordered. Invalid duplicates and out-of-order boundaries
+are shown before later geometry generation.

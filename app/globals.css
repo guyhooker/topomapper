@@ -297,9 +297,18 @@ button { color: inherit; }
 .range-tick.sea-level, .range-tick.maximum { width: 7px; margin-left: -3px; background: var(--clay) !important; }
 .range-labels { position: absolute; top: 28px; left: 0; right: 0; display: flex; justify-content: space-between; color: var(--muted); font-size: 8px; font-weight: 700; }
 
-.preset-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
+.layer-generation-controls { display: grid; grid-template-columns: minmax(0, 1fr) 112px; gap: 8px; }
+.distribution-control, .layer-count-control { padding: 8px; border: 1px solid var(--line); border-radius: 9px; background: rgba(255,255,255,.38); }
+.distribution-control > span, .layer-count-control > span { display: block; margin-bottom: 6px; color: var(--muted); font-size: 8px; font-weight: 780; letter-spacing: .04em; text-transform: uppercase; }
+.distribution-control small, .layer-count-control small { display: block; min-height: 22px; margin-top: 6px; color: var(--muted); font-size: 8px; line-height: 1.35; }
+.preset-row { display: grid; grid-template-columns: repeat(2, 1fr); gap: 5px; }
 .preset-row button { min-height: 30px; padding: 4px 5px; border: 1px solid rgba(33,79,61,.18); border-radius: 7px; background: rgba(255,255,255,.62); color: var(--forest); font-size: 9px; font-weight: 730; cursor: pointer; }
 .preset-row button:hover, .preset-row button.active { border-color: var(--forest-soft); background: rgba(33,79,61,.1); }
+.layer-stepper { display: grid; grid-template-columns: 30px 1fr 30px; align-items: center; min-height: 30px; overflow: hidden; border: 1px solid rgba(33,79,61,.18); border-radius: 7px; background: rgba(255,255,255,.72); }
+.layer-stepper button { align-self: stretch; padding: 0; border: 0; background: rgba(33,79,61,.07); color: var(--forest); font-size: 18px; line-height: 1; cursor: pointer; }
+.layer-stepper button:hover:not(:disabled) { background: rgba(33,79,61,.14); }
+.layer-stepper button:disabled { opacity: .3; cursor: default; }
+.layer-stepper output { color: var(--forest); font-family: Georgia, "Times New Roman", serif; font-size: 18px; font-weight: 600; text-align: center; font-variant-numeric: tabular-nums; }
 
 .add-boundary { margin-top: 12px; }
 .add-boundary label { display: block; margin-bottom: 5px; color: var(--muted); font-size: 9px; font-weight: 750; text-transform: uppercase; }

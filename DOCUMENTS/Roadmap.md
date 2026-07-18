@@ -68,7 +68,7 @@ distinguishes missing raster data from real elevation values.
 
 ## Stage 4 — Layer Boundary Editor
 
-**Status: Implementation complete — acceptance test pending**
+**Status: Complete — accepted 18 July 2026**
 
 ### Adds
 

@@ -156,14 +156,13 @@
 
 ### Stage 4 — Layer Boundary Editor
 
-- Implemented 18 July 2026; awaiting Guy's acceptance test.
+- Implemented and accepted 18 July 2026.
 - Added a land-elevation boundary editor after a successful raster analysis.
 - Sea level is a named, fixed 0 m boundary and the analysed maximum is a fixed
   final boundary.
-- Added the suggested non-linear terrain preset: 0, 50, 100, 200, 350, 500,
-  750, 1000, 1500, 2000, then the analysed maximum, omitting values above a
-  lower maximum.
-- Added ten-equal-interval and every-100-metre presets.
+- Added suggested non-linear and linear spacing styles. The style and physical
+  layer count are independent, so either distribution can be regenerated with
+  between 2 and 40 layers using decrease/increase controls.
 - Added a colour-coded elevation range showing every active boundary.
 - Added controls to enter a new boundary, edit intermediate values, remove
   them, and move them up or down in the ordered list.
@@ -177,9 +176,7 @@
 
 ## Next Steps
 
-1. Exercise the Stage 4 suggested, ten-equal, and every-100-metre presets.
-2. Add, edit, remove, and reorder intermediate boundaries.
-3. Confirm the editor rejects a duplicate and an out-of-order value clearly.
-4. Confirm the valid non-linear plan survives a page reload after re-analysis.
-5. Mark Stage 4 complete only after the acceptance test passes.
-6. Do not begin Stage 5 filled polygon generation until Stage 4 is accepted.
+1. Confirm suggested and linear spacing can each be regenerated with 11 or 12
+   layers.
+2. Confirm the valid layer plan survives a page reload after re-analysis.
+3. Begin Stage 5 filled polygon generation when requested.

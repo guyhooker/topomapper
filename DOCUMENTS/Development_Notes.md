@@ -370,4 +370,11 @@
   positions now use a fast conservative rectangle test; precise coastline DRC
   runs once on the resulting editable layout and during manual adjustment,
   rather than for every rejected search candidate.
+- Removed pointer lag by limiting placement updates to the display frame and
+  pausing exact coastline DRC during a drag. Releasing the part immediately
+  checks its rotated polygon using the same transform used to draw it.
+- Added Save layout for browser-local persistence and Backup file/Restore file
+  for a portable, versioned JSON copy. Positions, rotations, sheets, rules,
+  smoothing, output size, and assembly settings are retained. Elevation source
+  files are not embedded and must be loaded again to regenerate the same parts.
 - Production build passes successfully.

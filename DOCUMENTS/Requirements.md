@@ -108,6 +108,12 @@ boundary.
   part with every DRC warning that references it.
 - Prefer left-to-right rows for quick Auto layout, while allowing the later
   optimiser to keep searching and retain every improved result until stopped.
+- Keep dragging responsive by deferring exact coastline DRC until pointer
+  release, then check the same transformed outline and rotation shown on screen.
+- Save sheet positions, rotations, stock rules, smoothing, and relevant model
+  settings locally, with a downloadable/importable backup for work resumed on
+  another day. The same terrain inputs must be regenerated before a restored
+  layout can display its referenced parts.
 
 ## Preview and Analysis
 

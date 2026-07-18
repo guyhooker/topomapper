@@ -227,12 +227,16 @@ registration holes align consistently across every exported layer.
   parts-library selection, and Focus selected.
 - Coastline-shaped clearance DRC, 15° manual rotation, and two-way highlighting
   between placed parts and their rule warnings.
+- Responsive drag preview with exact transformed-outline DRC on release.
+- Explicit local save plus JSON backup and restore for multi-session layout.
 
 ### Acceptance Test
 
 All retained model parts can be placed manually without overlap and the saved
 layout retains identical positions and orientations. A selected part can be
 duplicated onto a replacement sheet without disturbing the production sheets.
+A saved layout can be restored after restarting Topomapper and regenerating the
+same terrain layers.
 
 ## Stage 11 — Automatic Sheet Nesting
 

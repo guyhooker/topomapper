@@ -90,3 +90,7 @@ screen hit target, and 1×–8× zoom, empty-sheet panning, library selection, a
 Focus selected make small replacement pieces manageable.
 Manual rotation is available in 15° steps, Auto layout fills from left to right,
 and selecting either a part or a DRC warning highlights its linked counterpart.
+Precise coastline DRC pauses while a part is being dragged and recalculates on
+release, keeping pointer movement responsive without weakening the final check.
+Save layout retains the current plan in this browser; Backup file and Restore
+file provide a portable JSON copy for resuming later.

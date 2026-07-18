@@ -508,12 +508,15 @@ button { color: inherit; }
 .sheet-layout-heading > span { padding: 5px 8px; border-radius: 999px; font-size: 8px; font-weight: 800; text-transform: uppercase; }
 .sheet-layout-heading > span.ready { background: rgba(75,149,105,.12); color: #34714f; }
 .sheet-layout-heading > span.warning { background: rgba(201,73,42,.12); color: #a83e22; }
+.sheet-layout-heading > span.checking { background: rgba(29,111,130,.12); color: #1d6f82; }
 .sheet-rules-toolbar { display: flex; align-items: end; gap: 6px; margin-top: 7px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 9px; background: rgba(255,255,255,.46); }
 .sheet-rules-toolbar label { color: var(--muted); font-size: 7px; font-weight: 760; text-transform: uppercase; white-space: nowrap; }
 .sheet-rules-toolbar label span { display: flex; align-items: center; gap: 2px; margin-top: 2px; text-transform: none; }
 .sheet-rules-toolbar input { width: 57px; height: 28px; padding: 0 4px; border: 1px solid #cbd3cb; border-radius: 5px; background: #fff; color: var(--ink); font-size: 8px; }
 .sheet-rules-toolbar > button { height: 28px; padding: 0 8px; border: 1px solid rgba(33,79,61,.2); border-radius: 6px; background: #fff; color: var(--forest); font-size: 8px; font-weight: 750; cursor: pointer; }
 .sheet-rules-toolbar > button:first-of-type { margin-left: auto; border-color: var(--forest); background: var(--forest); color: #fff; }
+.sheet-rules-toolbar .layout-import-button { display: flex; align-items: center; height: 28px; padding: 0 8px; border: 1px solid rgba(33,79,61,.2); border-radius: 6px; background: #fff; color: var(--forest); font-size: 8px; font-weight: 750; text-transform: none; cursor: pointer; }
+.sheet-rules-toolbar .layout-import-button input { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 .sheet-tabs { display: flex; gap: 4px; margin-top: 6px; overflow-x: auto; }
 .sheet-tabs button { display: flex; align-items: baseline; gap: 5px; min-width: max-content; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px 6px 0 0; background: rgba(255,255,255,.44); color: var(--muted); font-size: 8px; font-weight: 740; cursor: pointer; }
 .sheet-tabs button.active { border-color: var(--forest-soft); background: rgba(75,149,105,.13); color: var(--forest); }
@@ -532,6 +535,7 @@ button { color: inherit; }
 .sheet-layout-metrics small, .sheet-layout-metrics strong { display: block; }
 .sheet-layout-metrics small { color: var(--muted); font-size: 6px; text-transform: uppercase; }
 .sheet-layout-metrics strong { margin-top: 1px; color: var(--forest); font-size: 12px; }
+.layout-save-status { margin: 6px 0 0; color: var(--muted); font-size: 7px; }
 .selected-placement-controls { margin-top: 7px; padding: 7px; border-radius: 7px; background: rgba(29,111,130,.08); }
 .selected-placement-controls > strong, .selected-placement-controls > span { display: block; }
 .selected-placement-controls > strong { color: #1d6f82; font-size: 10px; }

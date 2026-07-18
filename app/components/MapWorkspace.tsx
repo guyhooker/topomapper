@@ -192,6 +192,7 @@ const FILLED_LAYER_OUTLINE = "topomapper-filled-layers-outline";
 const LAST_SELECTION_KEY = "topomapper:selection:last";
 const SAVED_EXAMPLE_KEY = "topomapper:selection:example";
 const LAYER_PLAN_KEY = "topomapper:layer-plan";
+const SHEET_LAYOUT_KEY = "topomapper:sheet-layout-v1";
 const OUTPUT_PLAN_KEY = "topomapper:output-plan";
 const ASSEMBLY_PLAN_KEY = "topomapper:assembly-settings";
 const DEFAULT_LAYER_COUNT = 10;
@@ -1493,6 +1494,7 @@ function SheetLayoutCanvas({
   onSelect,
   onMove,
   onPan,
+  onDragStateChange,
 }: {
   rules: SheetRules;
   parts: LayoutPart[];
@@ -1506,10 +1508,13 @@ function SheetLayoutCanvas({
   onSelect: (id: string | null) => void;
   onMove: (id: string, x: number, y: number) => void;
   onPan: (centre: { x: number; y: number }) => void;
+  onDragStateChange: (dragging: boolean) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const transformRef = useRef({ scale: 1, offsetX: 0, offsetY: 0 });
   const dragRef = useRef<({ kind: "part"; id: string; offsetX: number; offsetY: number } | { kind: "pan"; clientX: number; clientY: number; centreX: number; centreY: number }) | null>(null);
+  const pendingMoveRef = useRef<{ id: string; x: number; y: number } | null>(null);
+  const moveFrameRef = useRef<number | null>(null);
   const partMap = useMemo(() => new Map(parts.map((part) => [part.id, part])), [parts]);
   const sheetPlacements = placements.filter((placement) => placement.sheetIndex === sheetIndex);
   useEffect(() => {
@@ -1607,6 +1612,19 @@ function SheetLayoutCanvas({
     const transform = transformRef.current;
     return { x: (event.clientX - rectangle.left - transform.offsetX) / transform.scale, y: (event.clientY - rectangle.top - transform.offsetY) / transform.scale };
   };
+  const flushPendingMove = () => {
+    if (moveFrameRef.current !== null) window.cancelAnimationFrame(moveFrameRef.current);
+    moveFrameRef.current = null;
+    const pending = pendingMoveRef.current;
+    pendingMoveRef.current = null;
+    if (pending) onMove(pending.id, pending.x, pending.y);
+  };
+  const finishPointerDrag = () => {
+    const wasPartDrag = dragRef.current?.kind === "part";
+    if (wasPartDrag) flushPendingMove();
+    dragRef.current = null;
+    if (wasPartDrag) onDragStateChange(false);
+  };
   return <canvas
     ref={canvasRef}
     aria-label={`Manual part layout for material sheet ${sheetIndex + 1}`}
@@ -1622,19 +1640,23 @@ function SheetLayoutCanvas({
         return point.x >= bounds.left - paddingX && point.x <= bounds.right + paddingX && point.y >= bounds.top - paddingY && point.y <= bounds.bottom + paddingY;
       });
       onSelect(hit?.id ?? null);
-      if (hit) dragRef.current = { kind: "part", id: hit.id, offsetX: point.x - hit.x, offsetY: point.y - hit.y };
+      if (hit) { dragRef.current = { kind: "part", id: hit.id, offsetX: point.x - hit.x, offsetY: point.y - hit.y }; onDragStateChange(true); }
       else if (zoom > 1) dragRef.current = { kind: "pan", clientX: event.clientX, clientY: event.clientY, centreX: viewCenter.x, centreY: viewCenter.y };
       if (dragRef.current) event.currentTarget.setPointerCapture(event.pointerId);
     }}
     onPointerMove={(event) => {
-      if (dragRef.current?.kind === "part") { const point = sheetPoint(event); onMove(dragRef.current.id, point.x - dragRef.current.offsetX, point.y - dragRef.current.offsetY); }
+      if (dragRef.current?.kind === "part") {
+        const point = sheetPoint(event);
+        pendingMoveRef.current = { id: dragRef.current.id, x: point.x - dragRef.current.offsetX, y: point.y - dragRef.current.offsetY };
+        if (moveFrameRef.current === null) moveFrameRef.current = window.requestAnimationFrame(() => { moveFrameRef.current = null; const pending = pendingMoveRef.current; pendingMoveRef.current = null; if (pending) onMove(pending.id, pending.x, pending.y); });
+      }
       if (dragRef.current?.kind === "pan") {
         const scale = transformRef.current.scale;
         onPan({ x: dragRef.current.centreX - (event.clientX - dragRef.current.clientX) / scale, y: dragRef.current.centreY - (event.clientY - dragRef.current.clientY) / scale });
       }
     }}
-    onPointerUp={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); dragRef.current = null; }}
-    onPointerCancel={() => { dragRef.current = null; }}
+    onPointerUp={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); finishPointerDrag(); }}
+    onPointerCancel={finishPointerDrag}
   />;
 }
 
@@ -1703,12 +1725,32 @@ export function MapWorkspace() {
   const [sheetZoom, setSheetZoom] = useState(1);
   const [sheetViewCenter, setSheetViewCenter] = useState({ x: 600, y: 300 });
   const [selectedViolationIndex, setSelectedViolationIndex] = useState<number | null>(null);
+  const [sheetPartDragging, setSheetPartDragging] = useState(false);
+  const [layoutSaveStatus, setLayoutSaveStatus] = useState("Layout changes have not been saved locally yet.");
   const placementCounterRef = useRef(1);
+  const layoutViolationsRef = useRef<LayoutViolation[]>([]);
+  const layoutDirtyReadyRef = useRef(false);
+  const suppressLayoutDirtyRef = useRef(false);
 
   useEffect(() => {
     setSheetViewCenter({ x: sheetRules.width / 2, y: sheetRules.height / 2 });
     setSheetZoom(1);
   }, [sheetRules.width, sheetRules.height]);
+  useEffect(() => {
+    const saved = window.localStorage.getItem(SHEET_LAYOUT_KEY);
+    if (!saved) return;
+    try {
+      applySheetLayoutData(JSON.parse(saved));
+      setLayoutSaveStatus("Saved sheet layout restored from this browser.");
+    } catch {
+      setLayoutSaveStatus("The saved sheet layout could not be restored.");
+    }
+  }, []);
+  useEffect(() => {
+    if (!layoutDirtyReadyRef.current) { layoutDirtyReadyRef.current = true; return; }
+    if (suppressLayoutDirtyRef.current) { suppressLayoutDirtyRef.current = false; return; }
+    setLayoutSaveStatus("Layout has unsaved changes.");
+  }, [sheetPlacements, sheetRules, smoothingLevels, outputFormat, outputOrientation, customWidthMm, customHeightMm]);
   const chosenOutput = outputDimensions(outputFormat, outputOrientation, customWidthMm, customHeightMm);
   aspectRatioRef.current = chosenOutput ? chosenOutput.width / chosenOutput.height : null;
 
@@ -2485,7 +2527,12 @@ export function MapWorkspace() {
   const originalSmoothingMetrics = filledLayerPreview ? layerGeometryMetrics(filledLayerPreview, smoothingLayerIndex, previewDimensions.width, previewDimensions.height) : null;
   const smoothedSmoothingMetrics = fabricationPreview ? layerGeometryMetrics(fabricationPreview, smoothingLayerIndex, previewDimensions.width, previewDimensions.height) : null;
   const layoutParts = useMemo(() => fabricationPreview && assemblyPlan ? buildLayoutParts(fabricationPreview, assemblyPlan, previewDimensions.width, previewDimensions.height) : [], [fabricationPreview, assemblyPlan, previewDimensions.width, previewDimensions.height]);
-  const layoutViolations = useMemo(() => checkLayoutRules(sheetPlacements, layoutParts, sheetRules), [sheetPlacements, layoutParts, sheetRules]);
+  const layoutViolations = useMemo(() => {
+    if (sheetPartDragging) return layoutViolationsRef.current;
+    const checked = checkLayoutRules(sheetPlacements, layoutParts, sheetRules);
+    layoutViolationsRef.current = checked;
+    return checked;
+  }, [sheetPlacements, layoutParts, sheetRules, sheetPartDragging]);
   const highlightedPlacementIds = selectedViolationIndex !== null ? (layoutViolations[selectedViolationIndex]?.placementIds ?? []) : [];
   const selectedPlacement = sheetPlacements.find((placement) => placement.id === selectedPlacementId) ?? null;
   const placedArea = sheetPlacements.reduce((total, placement) => total + (layoutParts.find((part) => part.id === placement.partId)?.areaMm2 ?? 0), 0);
@@ -2499,6 +2546,83 @@ export function MapWorkspace() {
     if (!filledLayerPreview) return;
     const value = smoothingLevels[smoothingLayerIndex] ?? 0;
     setSmoothingLevels(Object.fromEntries(filledLayerPreview.layers.map((layer) => [layer.index, value])));
+  }
+
+  function sheetLayoutData() {
+    return {
+      format: "topomapper-sheet-layout",
+      version: 1,
+      savedAt: new Date().toISOString(),
+      sheetRules,
+      sheetCount,
+      activeSheetIndex,
+      sheetPlacements,
+      smoothingLevels,
+      output: { outputFormat, outputOrientation, customWidthMm, customHeightMm },
+      assembly: { gridPitchMm, dowelDiameterMm, holeDiameterMm, holeEdgeClearanceMm },
+      partSignature: layoutParts.map((part) => ({ id: part.id, width: svgNumber(part.width), height: svgNumber(part.height) })),
+    };
+  }
+
+  function applySheetLayoutData(value: unknown) {
+    const data = value as {
+      format?: string;
+      version?: number;
+      sheetRules?: SheetRules;
+      sheetCount?: number;
+      activeSheetIndex?: number;
+      sheetPlacements?: SheetPlacement[];
+      smoothingLevels?: Record<number, number>;
+      output?: { outputFormat?: OutputFormat; outputOrientation?: OutputOrientation; customWidthMm?: number; customHeightMm?: number };
+      assembly?: { gridPitchMm?: number; dowelDiameterMm?: number; holeDiameterMm?: number; holeEdgeClearanceMm?: number };
+    };
+    if (!data || data.format !== "topomapper-sheet-layout" || data.version !== 1 || !Array.isArray(data.sheetPlacements)) throw new Error("Not a Topomapper sheet layout file.");
+    suppressLayoutDirtyRef.current = true;
+    if (data.sheetRules) setSheetRules(data.sheetRules);
+    const count = Math.max(1, Math.round(data.sheetCount ?? 1));
+    setSheetCount(count);
+    setActiveSheetIndex(Math.max(0, Math.min(count - 1, Math.round(data.activeSheetIndex ?? 0))));
+    setSheetPlacements(data.sheetPlacements);
+    setSmoothingLevels(data.smoothingLevels ?? {});
+    if (data.output?.outputFormat) setOutputFormat(data.output.outputFormat);
+    if (data.output?.outputOrientation) setOutputOrientation(data.output.outputOrientation);
+    if (Number.isFinite(data.output?.customWidthMm)) setCustomWidthMm(Number(data.output?.customWidthMm));
+    if (Number.isFinite(data.output?.customHeightMm)) setCustomHeightMm(Number(data.output?.customHeightMm));
+    if (Number.isFinite(data.assembly?.gridPitchMm)) setGridPitchMm(Number(data.assembly?.gridPitchMm));
+    if (Number.isFinite(data.assembly?.dowelDiameterMm)) setDowelDiameterMm(Number(data.assembly?.dowelDiameterMm));
+    if (Number.isFinite(data.assembly?.holeDiameterMm)) setHoleDiameterMm(Number(data.assembly?.holeDiameterMm));
+    if (Number.isFinite(data.assembly?.holeEdgeClearanceMm)) setHoleEdgeClearanceMm(Number(data.assembly?.holeEdgeClearanceMm));
+    const maximumInstance = data.sheetPlacements.reduce((maximum, placement) => Math.max(maximum, Number(placement.id.split("-").pop()) || 0), 0);
+    placementCounterRef.current = maximumInstance + 1;
+    setSelectedPlacementId(null);
+    setSelectedViolationIndex(null);
+  }
+
+  function saveSheetLayoutLocally() {
+    const data = sheetLayoutData();
+    window.localStorage.setItem(SHEET_LAYOUT_KEY, JSON.stringify(data));
+    setLayoutSaveStatus(`Layout saved locally at ${new Date().toLocaleTimeString("en-NZ", { hour: "2-digit", minute: "2-digit" })}.`);
+  }
+
+  function downloadSheetLayoutBackup() {
+    const data = sheetLayoutData();
+    window.localStorage.setItem(SHEET_LAYOUT_KEY, JSON.stringify(data));
+    downloadFile(JSON.stringify(data, null, 2), "application/json;charset=utf-8", "topomapper-sheet-layout.json");
+    setLayoutSaveStatus("Layout saved locally and downloaded as a backup file.");
+  }
+
+  async function importSheetLayoutBackup(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      const data = JSON.parse(await file.text());
+      applySheetLayoutData(data);
+      window.localStorage.setItem(SHEET_LAYOUT_KEY, JSON.stringify(data));
+      setLayoutSaveStatus(`Layout restored from ${file.name}. Regenerate the same terrain layers if they are not already loaded.`);
+    } catch (error) {
+      setLayoutSaveStatus(error instanceof Error ? error.message : "The layout backup could not be restored.");
+    }
+    event.target.value = "";
   }
 
   function nextPlacementId(partId: string) {
@@ -3153,7 +3277,7 @@ export function MapWorkspace() {
         <section className="sheet-layout-preview" aria-labelledby="sheet-layout-heading">
           <div className="sheet-layout-heading">
             <div><span className="section-label">STAGE 10 · MANUAL SHEET LAYOUT</span><strong id="sheet-layout-heading">Place production or replacement parts</strong></div>
-            <span className={layoutViolations.length ? "warning" : "ready"}>{layoutViolations.length ? `${layoutViolations.length} DRC warning${layoutViolations.length === 1 ? "" : "s"}` : "DRC clear"}</span>
+            <span className={sheetPartDragging ? "checking" : layoutViolations.length ? "warning" : "ready"}>{sheetPartDragging ? "Moving · DRC on release" : layoutViolations.length ? `${layoutViolations.length} DRC warning${layoutViolations.length === 1 ? "" : "s"}` : "DRC clear"}</span>
           </div>
           <div className="sheet-rules-toolbar">
             <label>Sheet W <span><input type="number" min="100" step="10" value={sheetRules.width} onChange={(event) => setSheetRules((rules) => ({ ...rules, width: Math.max(100, Number(event.target.value)) }))} /> mm</span></label>
@@ -3163,6 +3287,9 @@ export function MapWorkspace() {
             <label>Part spacing <span><input type="number" min="0" step="1" value={sheetRules.partSpacing} onChange={(event) => setSheetRules((rules) => ({ ...rules, partSpacing: Math.max(0, Number(event.target.value)) }))} /> mm</span></label>
             <button onClick={autoLayoutUnplaced}>Auto layout unplaced</button>
             <button onClick={addReplacementSheet}>+ Replacement sheet</button>
+            <button onClick={saveSheetLayoutLocally}>Save layout</button>
+            <button onClick={downloadSheetLayoutBackup}>Backup file</button>
+            <label className="layout-import-button">Restore file<input type="file" accept=".json,application/json" onChange={importSheetLayoutBackup} /></label>
           </div>
           <div className="sheet-tabs" aria-label="Material sheets">
             {Array.from({ length: sheetCount }, (_, index) => <button key={index} className={index === activeSheetIndex ? "active" : ""} onClick={() => { setActiveSheetIndex(index); setSelectedPlacementId(null); setSheetZoom(1); setSheetViewCenter({ x: sheetRules.width / 2, y: sheetRules.height / 2 }); }}>Sheet {index + 1}<small>{sheetPlacements.filter((placement) => placement.sheetIndex === index).length} parts</small></button>)}
@@ -3183,11 +3310,13 @@ export function MapWorkspace() {
                 onSelect={(id) => { setSelectedPlacementId(id); setSelectedViolationIndex(null); }}
                 onMove={(id, x, y) => { setSelectedViolationIndex(null); updateSheetPlacement(id, { x: Math.round(x * 2) / 2, y: Math.round(y * 2) / 2 }); }}
                 onPan={setSheetViewCenter}
+                onDragStateChange={setSheetPartDragging}
               />
               <div className="sheet-scale-note">{sheetRules.width} × {sheetRules.height} mm · {sheetZoom}× view · drag empty sheet to pan · blue halos show {sheetRules.partSpacing} mm clearance</div>
             </div>
             <aside className="sheet-layout-details">
               <div className="sheet-layout-metrics"><span><small>Sheets</small><strong>{sheetCount}</strong></span><span><small>Instances</small><strong>{sheetPlacements.length}</strong></span><span><small>Area use</small><strong>{sheetUtilisation.toFixed(1)}%</strong></span></div>
+              <p className="layout-save-status" role="status">{layoutSaveStatus}</p>
               {selectedPlacement && (
                 <div className="selected-placement-controls">
                   <strong>{selectedPlacement.partId}</strong><span>Sheet {selectedPlacement.sheetIndex + 1} · {selectedPlacement.rotation}° · X {selectedPlacement.x.toFixed(1)}, Y {selectedPlacement.y.toFixed(1)} mm</span>
@@ -3204,7 +3333,7 @@ export function MapWorkspace() {
               </ol>
               <div className={`drc-panel ${layoutViolations.length ? "has-warnings" : ""}`}>
                 <strong>Design rule check</strong>
-                <p>Warnings do not block placement or saving. Clearance currently uses conservative part rectangles.</p>
+                <p>{sheetPartDragging ? "Precise checking is paused while the part follows the pointer and refreshes when released." : "Warnings do not block placement or saving. Clearance follows each part’s rotated coastline."}</p>
                 {layoutViolations.length ? <ul>{layoutViolations.slice(0, 12).map((violation, index) => <li key={`${violation.message}-${index}`} className={selectedViolationIndex === index || Boolean(selectedPlacementId && violation.placementIds.includes(selectedPlacementId)) ? "active" : ""}><button onClick={() => { const placement = sheetPlacements.find((candidate) => candidate.id === violation.placementIds[0]); if (placement) focusSheetPlacement(placement, index); }}>{violation.message}</button></li>)}</ul> : <span>No rule violations on placed parts.</span>}
               </div>
             </aside>

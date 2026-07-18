@@ -78,6 +78,11 @@ geometry at an explicitly chosen physical scale and simplification tolerance.
   moving geometry or blocking deliberate exceptions.
 - Part-spacing DRC uses transformed polygon rings, segment intersection,
   containment, and minimum segment distance after a bounding-box broad phase.
+  During pointer movement the last result remains visible; the exact check runs
+  once on release using the same rotation transform as the canvas.
+- The current layout document is stored in browser-local storage and can be
+  exported/imported as versioned JSON. It references generated part identifiers,
+  so terrain source files remain external and must be regenerated separately.
 - Automatic nesting is an anytime search: publish an editable left-to-right
   result quickly, then retain better sheet-count/waste results until the user
   stops the search or its time allowance expires.

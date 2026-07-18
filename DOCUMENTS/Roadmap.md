@@ -106,7 +106,7 @@ or CNC integration until this stage produces convincing geometry.
 
 ## Stage 6 — Physical Format and 3D Stack Preview
 
-**Status: Implementation complete — acceptance test pending**
+**Status: Complete — accepted 18 July 2026**
 
 ### Adds
 
@@ -129,7 +129,34 @@ without stretching. Ten 6 mm layers report a 60 mm physical height, the side
 view shows the complete stack, and the full-screen model can be freely rotated
 and tilted to reveal plausible Mount Taranaki geometry.
 
-## Stage 7 — SVG Export
+## Stage 7 — Parts and Registration Planning
+
+**Status: Implementation complete — acceptance test pending**
+
+### Adds
+
+- Stable bottom-up part names such as L01A, L01B, and L02A for every
+  disconnected polygon piece.
+- Layer-by-layer full-screen assembly and machining preview with explicit north
+  orientation.
+- Optional covered part-name and north-arrow engraving where a piece is large
+  enough; small pieces remain identified on the assembly sheet.
+- Configurable grid pitch, dowel diameter, finished hole diameter, and minimum
+  edge clearance.
+- Buried alignment-hole generation: each proposed hole passes through lower
+  mating layers but is omitted from the local top/capping layer.
+- Three non-collinear, unequally spaced keyed datum holes to prevent rotated or
+  mirrored assembly.
+- Warnings when the datum cannot fit, no holes are safe, machining text is
+  impractical, or the finished hole does not clear the chosen dowel.
+
+### Acceptance Test
+
+Every Taranaki polygon has a deterministic part name, ten layers can be reviewed
+individually, all proposed holes remain capped by terrain, and the three keyed
+datum holes cannot be matched after flipping or rotating the stack.
+
+## Stage 8 — SVG Export
 
 ### Adds
 
@@ -142,7 +169,7 @@ and tilted to reveal plausible Mount Taranaki geometry.
 The SVGs open at the requested physical dimensions in a vector editor and CAM
 software. Printed paper outlines align when stacked.
 
-## Stage 8 — Fabrication Geometry Controls
+## Stage 9 — Fabrication Geometry Controls
 
 ### Adds
 
@@ -160,7 +187,7 @@ that topomapper must own it.
 Topomapper identifies deliberately troublesome small features, and registration
 holes align consistently across every exported layer.
 
-## Stage 9 — Coast and Bathymetry
+## Stage 10 — Coast and Bathymetry
 
 ### Adds
 
@@ -177,7 +204,7 @@ A Banks Peninsula selection shows land, coastline, and seabed bands without a
 gap or silent zero-level mismatch. Low-resolution offshore geometry is visibly
 identified.
 
-## Stage 10 — DXF and Physical Test Cut
+## Stage 11 — DXF and Physical Test Cut
 
 ### Adds
 
@@ -192,7 +219,7 @@ Produce a small plywood test map through existing CAM software and the CNC
 machine. Record fit, loose-piece problems, useful simplification, tolerances,
 paint allowance, and assembly experience.
 
-## Stage 11 — Packaged Mac Application
+## Stage 12 — Packaged Mac Application
 
 ### Adds
 
@@ -207,7 +234,7 @@ paint allowance, and assembly experience.
 Install and run topomapper on a clean Mac user account without manually starting
 Python, a terminal, or a development server.
 
-## Stage 12 — Optional Direct G-code
+## Stage 13 — Optional Direct G-code
 
 Only undertake this stage if the SVG/DXF-to-CAM workflow is genuinely
 inconvenient.
@@ -228,7 +255,7 @@ material before any project sheet is machined.
 
 - **Prototype A — Terrain analyser:** Stages 1–4.
 - **Prototype B — Visual land model:** Stages 5–6.
-- **Prototype C — Cuttable land map:** Stages 7–8.
-- **Prototype D — Coastal model:** Stage 9.
-- **Version 1.0 — Proven Mac fabrication tool:** Stages 10–11.
-- **Optional CNC-native version:** Stage 12.
+- **Prototype C — Cuttable land map:** Stages 7–9.
+- **Prototype D — Coastal model:** Stage 10.
+- **Version 1.0 — Proven Mac fabrication tool:** Stages 11–12.
+- **Optional CNC-native version:** Stage 13.

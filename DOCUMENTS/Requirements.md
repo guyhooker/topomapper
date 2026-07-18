@@ -20,8 +20,9 @@ and Mount Taranaki. International support, such as central Paris, may follow.
 6. Preview the terrain, contour boundaries, and physical layer stack.
 7. Set finished-map size, material thickness, and optional vertical
    exaggeration.
-8. Export one labelled, cut-ready shape per physical layer.
-9. Eventually produce machine-specific CNC G-code.
+8. Review named parts, hidden alignment holes, and assembly orientation.
+9. Export one labelled, cut-ready shape per physical layer.
+10. Eventually produce machine-specific CNC G-code.
 
 ## Elevation Layers
 
@@ -47,6 +48,21 @@ boundary.
 - Label every exported layer with its elevation range, sequence, and side.
 - Warn about pieces smaller than the selected cutter or practical material
   limit.
+
+## Parts and Assembly
+
+- Assign every disconnected component a stable bottom-up identifier such as
+  L01A or L03B.
+- Provide a layer-by-layer assembly sheet even when a piece is too small for
+  machined text.
+- Allow covered engraving of a part identifier and north arrow without marking
+  the finished terrain surface.
+- Generate alignment-dowel holes only through layers that have a solid local
+  cap above them.
+- Use a deliberately asymmetric, non-collinear datum pattern so a layer cannot
+  be fitted north/south, east/west, or face-reversed by mistake.
+- Keep dowel diameter, machined-hole diameter, grid pitch, and edge clearance
+  separately configurable for test-cut calibration.
 
 ## Preview and Analysis
 

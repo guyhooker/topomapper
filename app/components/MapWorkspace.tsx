@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type {
   GeoJSONSource,
   Map as MapLibreMap,
@@ -77,7 +77,7 @@ type LayerDistribution = "log" | "linear";
 type OutputFormat = "free" | "12x8" | "a2" | "square" | "custom";
 type OutputOrientation = "landscape" | "portrait";
 type StackView = "three-dimensional" | "side" | "top";
-type WorkspaceView = "two-dimensional" | "three-dimensional";
+type WorkspaceView = "two-dimensional" | "three-dimensional" | "assembly";
 
 type FilledLayer = {
   index: number;
@@ -107,6 +107,35 @@ type FilledLayerPreview = {
   feature_collection: { type: "FeatureCollection"; features: FilledLayerFeature[] };
 };
 
+type PhysicalPart = {
+  id: string;
+  layerIndex: number;
+  feature: FilledLayerFeature;
+  labelPoint: [number, number];
+  areaMm2: number;
+  labelClearanceMm: number;
+  machineLabel: boolean;
+};
+
+type RegistrationHole = {
+  id: string;
+  kind: "grid" | "datum";
+  xMm: number;
+  yMm: number;
+  longitude: number;
+  latitude: number;
+  drilledLayers: number[];
+  capLayer: number;
+  partIds: string[];
+};
+
+type AssemblyPlan = {
+  parts: PhysicalPart[];
+  holes: RegistrationHole[];
+  datumComplete: boolean;
+  warnings: string[];
+};
+
 const QUICK_PLACES: Place[] = [
   { name: "Mount Taranaki", subtitle: "First terrain proof", longitude: 174.0632, latitude: -39.2968, zoom: 10.2 },
   { name: "Banks Peninsula", subtitle: "Future coastal proof", longitude: 172.915, latitude: -43.75, zoom: 9.2 },
@@ -132,6 +161,7 @@ const LAST_SELECTION_KEY = "topomapper:selection:last";
 const SAVED_EXAMPLE_KEY = "topomapper:selection:example";
 const LAYER_PLAN_KEY = "topomapper:layer-plan";
 const OUTPUT_PLAN_KEY = "topomapper:output-plan";
+const ASSEMBLY_PLAN_KEY = "topomapper:assembly-settings";
 const DEFAULT_LAYER_COUNT = 10;
 const MIN_LAYER_COUNT = 2;
 const MAX_LAYER_COUNT = 40;
@@ -335,6 +365,201 @@ function darkenColour(colour: string, amount = 0.7) {
   return `rgb(${components.join(",")})`;
 }
 
+function partLetter(index: number) {
+  let value = index + 1;
+  let result = "";
+  while (value > 0) {
+    value -= 1;
+    result = String.fromCharCode(65 + value % 26) + result;
+    value = Math.floor(value / 26);
+  }
+  return result;
+}
+
+function physicalPoint(preview: FilledLayerPreview, modelWidth: number, modelHeight: number, point: number[]) {
+  return {
+    x: (point[0] - preview.selection.west) / (preview.selection.east - preview.selection.west) * modelWidth,
+    y: (preview.selection.north - point[1]) / (preview.selection.north - preview.selection.south) * modelHeight,
+  };
+}
+
+function geographicPoint(preview: FilledLayerPreview, modelWidth: number, modelHeight: number, x: number, y: number): [number, number] {
+  return [
+    preview.selection.west + x / modelWidth * (preview.selection.east - preview.selection.west),
+    preview.selection.north - y / modelHeight * (preview.selection.north - preview.selection.south),
+  ];
+}
+
+function pointInRing(point: [number, number], ring: number[][]) {
+  let inside = false;
+  for (let index = 0, previous = ring.length - 1; index < ring.length; previous = index, index += 1) {
+    const [longitude, latitude] = ring[index];
+    const [previousLongitude, previousLatitude] = ring[previous];
+    if ((latitude > point[1]) !== (previousLatitude > point[1])
+      && point[0] < (previousLongitude - longitude) * (point[1] - latitude) / (previousLatitude - latitude) + longitude) inside = !inside;
+  }
+  return inside;
+}
+
+function pointInFeature(point: [number, number], feature: FilledLayerFeature) {
+  const [outer, ...holes] = feature.geometry.coordinates;
+  return Boolean(outer && pointInRing(point, outer) && !holes.some((ring) => pointInRing(point, ring)));
+}
+
+function distanceToSegment(point: { x: number; y: number }, start: { x: number; y: number }, end: { x: number; y: number }) {
+  const lengthSquared = (end.x - start.x) ** 2 + (end.y - start.y) ** 2;
+  if (!lengthSquared) return Math.hypot(point.x - start.x, point.y - start.y);
+  const position = Math.max(0, Math.min(1, ((point.x - start.x) * (end.x - start.x) + (point.y - start.y) * (end.y - start.y)) / lengthSquared));
+  return Math.hypot(point.x - (start.x + position * (end.x - start.x)), point.y - (start.y + position * (end.y - start.y)));
+}
+
+function featureClearanceMm(preview: FilledLayerPreview, feature: FilledLayerFeature, modelWidth: number, modelHeight: number, point: [number, number]) {
+  const physical = physicalPoint(preview, modelWidth, modelHeight, point);
+  let clearance = Number.POSITIVE_INFINITY;
+  feature.geometry.coordinates.forEach((ring) => {
+    for (let index = 1; index < ring.length; index += 1) {
+      clearance = Math.min(clearance, distanceToSegment(
+        physical,
+        physicalPoint(preview, modelWidth, modelHeight, ring[index - 1]),
+        physicalPoint(preview, modelWidth, modelHeight, ring[index]),
+      ));
+    }
+  });
+  return clearance;
+}
+
+function featureAreaMm2(preview: FilledLayerPreview, feature: FilledLayerFeature, modelWidth: number, modelHeight: number) {
+  const ringArea = (ring: number[][]) => Math.abs(ring.reduce((total, point, index) => {
+    const current = physicalPoint(preview, modelWidth, modelHeight, point);
+    const next = physicalPoint(preview, modelWidth, modelHeight, ring[(index + 1) % ring.length]);
+    return total + current.x * next.y - next.x * current.y;
+  }, 0) / 2);
+  const [outer, ...holes] = feature.geometry.coordinates;
+  return Math.max(0, ringArea(outer) - holes.reduce((total, ring) => total + ringArea(ring), 0));
+}
+
+function featureLabelPoint(preview: FilledLayerPreview, feature: FilledLayerFeature, modelWidth: number, modelHeight: number): { point: [number, number]; clearance: number } {
+  const outer = feature.geometry.coordinates[0];
+  const longitudes = outer.map((point) => point[0]);
+  const latitudes = outer.map((point) => point[1]);
+  const west = Math.min(...longitudes);
+  const east = Math.max(...longitudes);
+  const south = Math.min(...latitudes);
+  const north = Math.max(...latitudes);
+  let bestPoint: [number, number] = outer[0] as [number, number];
+  let bestClearance = -1;
+  for (let row = 0; row <= 16; row += 1) {
+    for (let column = 0; column <= 16; column += 1) {
+      const candidate: [number, number] = [west + (east - west) * (column + 0.5) / 17, south + (north - south) * (row + 0.5) / 17];
+      if (!pointInFeature(candidate, feature)) continue;
+      const clearance = featureClearanceMm(preview, feature, modelWidth, modelHeight, candidate);
+      if (clearance > bestClearance) { bestPoint = candidate; bestClearance = clearance; }
+    }
+  }
+  return { point: bestPoint, clearance: Math.max(0, bestClearance) };
+}
+
+function buildPhysicalParts(preview: FilledLayerPreview, modelWidth: number, modelHeight: number) {
+  const prepared = preview.feature_collection.features.map((feature) => {
+    const label = featureLabelPoint(preview, feature, modelWidth, modelHeight);
+    return {
+      feature,
+      layerIndex: feature.properties.layer_index,
+      labelPoint: label.point,
+      labelClearanceMm: label.clearance,
+      areaMm2: featureAreaMm2(preview, feature, modelWidth, modelHeight),
+    };
+  });
+  const result: PhysicalPart[] = [];
+  preview.layers.forEach((layer) => {
+    const layerParts = prepared.filter((part) => part.layerIndex === layer.index);
+    const largest = [...layerParts].sort((left, right) => right.areaMm2 - left.areaMm2)[0];
+    const ordered = largest ? [largest, ...layerParts.filter((part) => part !== largest).sort((left, right) => right.labelPoint[1] - left.labelPoint[1] || left.labelPoint[0] - right.labelPoint[0])] : [];
+    ordered.forEach((part, index) => {
+      const coveringPart = prepared.find((candidate) => candidate.layerIndex === part.layerIndex + 1 && pointInFeature(part.labelPoint, candidate.feature));
+      const coveringClearance = coveringPart
+        ? featureClearanceMm(preview, coveringPart.feature, modelWidth, modelHeight, part.labelPoint)
+        : 0;
+      result.push({
+        ...part,
+        id: `L${String(layer.index + 1).padStart(2, "0")}${partLetter(index)}`,
+        machineLabel: part.labelClearanceMm >= 9 && coveringClearance >= 9 && part.areaMm2 >= 300,
+      });
+    });
+  });
+  return result;
+}
+
+function buildAssemblyPlan(
+  preview: FilledLayerPreview,
+  modelWidth: number,
+  modelHeight: number,
+  gridPitch: number,
+  holeDiameter: number,
+  edgeClearance: number,
+): AssemblyPlan {
+  const parts = buildPhysicalParts(preview, modelWidth, modelHeight);
+  const partsByLayer = preview.layers.map((layer) => parts.filter((part) => part.layerIndex === layer.index));
+  const requiredClearance = holeDiameter / 2 + edgeClearance;
+
+  const validateHole = (xMm: number, yMm: number, kind: "grid" | "datum", id: string): RegistrationHole | null => {
+    if (xMm <= 0 || yMm <= 0 || xMm >= modelWidth || yMm >= modelHeight) return null;
+    const point = geographicPoint(preview, modelWidth, modelHeight, xMm, yMm);
+    const stack: PhysicalPart[] = [];
+    for (const layerParts of partsByLayer) {
+      const part = layerParts.find((candidate) => pointInFeature(point, candidate.feature));
+      if (!part) break;
+      stack.push(part);
+    }
+    if (stack.length < 2) return null;
+    if (stack.some((part) => featureClearanceMm(preview, part.feature, modelWidth, modelHeight, point) < requiredClearance)) return null;
+    const cap = stack[stack.length - 1];
+    const drilled = stack.slice(0, -1);
+    return {
+      id,
+      kind,
+      xMm,
+      yMm,
+      longitude: point[0],
+      latitude: point[1],
+      drilledLayers: drilled.map((part) => part.layerIndex),
+      capLayer: cap.layerIndex,
+      partIds: drilled.map((part) => part.id),
+    };
+  };
+
+  const regular: RegistrationHole[] = [];
+  const pitch = Math.max(20, gridPitch);
+  for (let y = pitch / 2; y < modelHeight; y += pitch) {
+    for (let x = pitch / 2; x < modelWidth; x += pitch) {
+      const hole = validateHole(x, y, "grid", `G${regular.length + 1}`);
+      if (hole) regular.push(hole);
+    }
+  }
+
+  const partAnchors = [...parts]
+    .sort((left, right) => right.layerIndex - left.layerIndex || right.labelClearanceMm - left.labelClearanceMm)
+    .map((part) => physicalPoint(preview, modelWidth, modelHeight, part.labelPoint));
+  const anchorCandidates = [...regular].sort((left, right) => right.capLayer - left.capLayer).map((hole) => ({ x: hole.xMm, y: hole.yMm })).concat(partAnchors);
+  let datum: RegistrationHole[] = [];
+  const sizes = [36, 28, 20, 14];
+  for (const anchor of anchorCandidates) {
+    if (datum.length === 3) break;
+    for (const size of sizes) {
+      const offsets = [[0, 0], [size, size * 0.23], [-size * 0.41, size * 1.17]];
+      const candidate = offsets.map(([x, y], index) => validateHole(anchor.x + x, anchor.y + y, "datum", `D${index + 1}`));
+      if (candidate.every(Boolean)) { datum = candidate as RegistrationHole[]; break; }
+    }
+  }
+  const holes = [...datum, ...regular.filter((hole) => !datum.some((key) => Math.hypot(key.xMm - hole.xMm, key.yMm - hole.yMm) < holeDiameter * 2))];
+  const warnings: string[] = [];
+  if (datum.length !== 3) warnings.push("A complete asymmetric three-hole datum could not fit inside buried terrain.");
+  if (!holes.length) warnings.push("No alignment hole has enough buried material and edge clearance.");
+  const unlabelled = parts.filter((part) => !part.machineLabel).length;
+  if (unlabelled) warnings.push(`${unlabelled} small part${unlabelled === 1 ? " is" : "s are"} too small for reliable machining text; use the assembly sheet.`);
+  return { parts, holes, datumComplete: datum.length === 3, warnings };
+}
+
 function StackPreviewCanvas({
   preview,
   visibleLayers,
@@ -527,6 +752,119 @@ function StackPreviewCanvas({
   );
 }
 
+function AssemblyPreviewCanvas({
+  preview,
+  plan,
+  layerIndex,
+  modelWidth,
+  modelHeight,
+  holeDiameter,
+}: {
+  preview: FilledLayerPreview;
+  plan: AssemblyPlan;
+  layerIndex: number;
+  modelWidth: number;
+  modelHeight: number;
+  holeDiameter: number;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const draw = () => {
+      const rectangle = canvas.getBoundingClientRect();
+      const pixelRatio = Math.min(2, window.devicePixelRatio || 1);
+      canvas.width = Math.max(1, Math.round(rectangle.width * pixelRatio));
+      canvas.height = Math.max(1, Math.round(rectangle.height * pixelRatio));
+      const context = canvas.getContext("2d");
+      if (!context) return;
+      context.scale(pixelRatio, pixelRatio);
+      context.clearRect(0, 0, rectangle.width, rectangle.height);
+      const padding = 58;
+      const scale = Math.min((rectangle.width - padding * 2) / modelWidth, (rectangle.height - padding * 2) / modelHeight);
+      const offsetX = (rectangle.width - modelWidth * scale) / 2;
+      const offsetY = (rectangle.height - modelHeight * scale) / 2;
+      const projectMm = (x: number, y: number) => ({ x: offsetX + x * scale, y: offsetY + y * scale });
+      const projectGeo = (point: number[]) => {
+        const physical = physicalPoint(preview, modelWidth, modelHeight, point);
+        return projectMm(physical.x, physical.y);
+      };
+      const layer = preview.layers[layerIndex];
+      const parts = plan.parts.filter((part) => part.layerIndex === layerIndex);
+
+      context.fillStyle = "rgba(255,255,255,.62)";
+      context.fillRect(offsetX, offsetY, modelWidth * scale, modelHeight * scale);
+      context.strokeStyle = "rgba(33,79,61,.28)";
+      context.lineWidth = 1;
+      context.strokeRect(offsetX, offsetY, modelWidth * scale, modelHeight * scale);
+
+      parts.forEach((part) => {
+        context.beginPath();
+        part.feature.geometry.coordinates.forEach((ring) => {
+          ring.forEach((point, index) => {
+            const projected = projectGeo(point);
+            if (index === 0) context.moveTo(projected.x, projected.y);
+            else context.lineTo(projected.x, projected.y);
+          });
+          context.closePath();
+        });
+        context.fillStyle = layerColour(layer.lower_elevation, preview.boundaries[preview.boundaries.length - 1]);
+        context.fill("evenodd");
+        context.strokeStyle = "rgba(28,49,40,.72)";
+        context.lineWidth = 1;
+        context.stroke();
+
+        const label = projectGeo(part.labelPoint);
+        context.fillStyle = "rgba(20,34,28,.9)";
+        context.font = `${part.machineLabel ? "700" : "500"} 12px Inter, sans-serif`;
+        context.textAlign = "center";
+        context.textBaseline = "middle";
+        context.fillText(`${part.id} ↑N`, label.x, label.y);
+        if (!part.machineLabel) {
+          context.font = "500 9px Inter, sans-serif";
+          context.fillText("assembly sheet", label.x, label.y + 13);
+        }
+      });
+
+      plan.holes.filter((hole) => hole.drilledLayers.includes(layerIndex)).forEach((hole) => {
+        const point = projectMm(hole.xMm, hole.yMm);
+        context.beginPath();
+        context.arc(point.x, point.y, Math.max(3, holeDiameter / 2 * scale), 0, Math.PI * 2);
+        context.fillStyle = hole.kind === "datum" ? "#d35a36" : "#f6f3eb";
+        context.fill();
+        context.strokeStyle = hole.kind === "datum" ? "#8f3118" : "#214f3d";
+        context.lineWidth = hole.kind === "datum" ? 2 : 1.2;
+        context.stroke();
+      });
+
+      const arrowX = offsetX + modelWidth * scale - 24;
+      const arrowY = offsetY + 34;
+      context.fillStyle = "#214f3d";
+      context.beginPath();
+      context.moveTo(arrowX, arrowY - 18);
+      context.lineTo(arrowX - 7, arrowY - 4);
+      context.lineTo(arrowX + 7, arrowY - 4);
+      context.closePath();
+      context.fill();
+      context.strokeStyle = "#214f3d";
+      context.lineWidth = 2;
+      context.beginPath();
+      context.moveTo(arrowX, arrowY - 4);
+      context.lineTo(arrowX, arrowY + 13);
+      context.stroke();
+      context.font = "700 11px Inter, sans-serif";
+      context.textAlign = "center";
+      context.fillText("N", arrowX, arrowY + 24);
+    };
+    draw();
+    const observer = new ResizeObserver(draw);
+    observer.observe(canvas);
+    return () => observer.disconnect();
+  }, [preview, plan, layerIndex, modelWidth, modelHeight, holeDiameter]);
+
+  return <canvas ref={canvasRef} aria-label={`Assembly and machining preview for layer ${layerIndex + 1}`} />;
+}
+
 export function MapWorkspace() {
   const mapNode = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -574,6 +912,11 @@ export function MapWorkspace() {
   const [stackPitch, setStackPitch] = useState(34);
   const [showTrueElevation, setShowTrueElevation] = useState(true);
   const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("two-dimensional");
+  const [assemblyLayerIndex, setAssemblyLayerIndex] = useState(0);
+  const [gridPitchMm, setGridPitchMm] = useState(100);
+  const [dowelDiameterMm, setDowelDiameterMm] = useState(4);
+  const [holeDiameterMm, setHoleDiameterMm] = useState(4.2);
+  const [holeEdgeClearanceMm, setHoleEdgeClearanceMm] = useState(6);
   const chosenOutput = outputDimensions(outputFormat, outputOrientation, customWidthMm, customHeightMm);
   aspectRatioRef.current = chosenOutput ? chosenOutput.width / chosenOutput.height : null;
 
@@ -897,6 +1240,28 @@ export function MapWorkspace() {
       materialThicknessMm,
     }));
   }, [outputFormat, outputOrientation, customWidthMm, customHeightMm, materialThicknessMm]);
+
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(ASSEMBLY_PLAN_KEY) ?? "null") as {
+        gridPitchMm?: number;
+        dowelDiameterMm?: number;
+        holeDiameterMm?: number;
+        holeEdgeClearanceMm?: number;
+      } | null;
+      if (!saved) return;
+      if (Number(saved.gridPitchMm) >= 20) setGridPitchMm(Number(saved.gridPitchMm));
+      if (Number(saved.dowelDiameterMm) > 0) setDowelDiameterMm(Number(saved.dowelDiameterMm));
+      if (Number(saved.holeDiameterMm) > 0) setHoleDiameterMm(Number(saved.holeDiameterMm));
+      if (Number(saved.holeEdgeClearanceMm) >= 0) setHoleEdgeClearanceMm(Number(saved.holeEdgeClearanceMm));
+    } catch {
+      window.localStorage.removeItem(ASSEMBLY_PLAN_KEY);
+    }
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(ASSEMBLY_PLAN_KEY, JSON.stringify({ gridPitchMm, dowelDiameterMm, holeDiameterMm, holeEdgeClearanceMm }));
+  }, [gridPitchMm, dowelDiameterMm, holeDiameterMm, holeEdgeClearanceMm]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1246,10 +1611,11 @@ export function MapWorkspace() {
       const visible = payload.layers.map((layer) => layer.index);
       setFilledLayerPreview(payload);
       setVisibleLayerIndices(visible);
+      setAssemblyLayerIndex(0);
       showFilledLayerOverlay(payload, visible);
       const pieces = payload.layers.reduce((total, layer) => total + layer.piece_count, 0);
       const holes = payload.layers.reduce((total, layer) => total + layer.hole_count, 0);
-      setLayerGenerationStatus(`${payload.layers.length} filled layers generated: ${pieces} polygon piece${pieces === 1 ? "" : "s"}${holes ? ` with ${holes} preserved hole${holes === 1 ? "" : "s"}` : ""}. Choose 3D Model in the header for the full-screen stack.`);
+      setLayerGenerationStatus(`${payload.layers.length} filled layers generated: ${pieces} polygon piece${pieces === 1 ? "" : "s"}${holes ? ` with ${holes} preserved hole${holes === 1 ? "" : "s"}` : ""}. Choose 3D Model or Assembly in the header.`);
     } catch (error) {
       setLayerGenerationStatus(error instanceof Error ? error.message : "The filled layers could not be generated.");
     } finally {
@@ -1290,9 +1656,20 @@ export function MapWorkspace() {
   const physicalStackHeight = (filledLayerPreview?.layers.length ?? layerCount) * materialThicknessMm;
   const trueScaledHeight = measurements && measurements.width > 0 ? layerMaximum * previewDimensions.width / measurements.width : 0;
   const verticalExaggeration = trueScaledHeight > 0 ? physicalStackHeight / trueScaledHeight : 0;
+  const assemblyPlan = useMemo(() => filledLayerPreview ? buildAssemblyPlan(
+    filledLayerPreview,
+    previewDimensions.width,
+    previewDimensions.height,
+    gridPitchMm,
+    holeDiameterMm,
+    holeEdgeClearanceMm,
+  ) : null, [filledLayerPreview, previewDimensions.width, previewDimensions.height, gridPitchMm, holeDiameterMm, holeEdgeClearanceMm]);
+  const selectedAssemblyLayer = filledLayerPreview?.layers[assemblyLayerIndex] ?? null;
+  const selectedAssemblyParts = assemblyPlan?.parts.filter((part) => part.layerIndex === assemblyLayerIndex) ?? [];
+  const selectedAssemblyHoles = assemblyPlan?.holes.filter((hole) => hole.drilledLayers.includes(assemblyLayerIndex)) ?? [];
 
   return (
-    <main className={`workspace ${drawing ? "is-drawing" : ""} ${workspaceView === "three-dimensional" ? "view-three-dimensional" : "view-two-dimensional"}`}>
+    <main className={`workspace ${drawing ? "is-drawing" : ""} view-${workspaceView}`}>
       <div ref={mapNode} className="map" aria-label="Interactive map of New Zealand" />
 
       <header className="topbar">
@@ -1305,9 +1682,10 @@ export function MapWorkspace() {
             <div className="workspace-view-toggle" aria-label="Workspace view">
               <button className={workspaceView === "two-dimensional" ? "active" : ""} onClick={() => setWorkspaceView("two-dimensional")}>2D Map</button>
               <button className={workspaceView === "three-dimensional" ? "active" : ""} onClick={() => setWorkspaceView("three-dimensional")}>3D Model</button>
+              <button className={workspaceView === "assembly" ? "active" : ""} onClick={() => setWorkspaceView("assembly")}>Assembly</button>
             </div>
           )}
-          <div className="stage-pill"><span /> Stage 6 · Physical Preview</div>
+          <div className="stage-pill"><span /> Stage 7 · Assembly Plan</div>
         </div>
       </header>
 
@@ -1690,6 +2068,72 @@ export function MapWorkspace() {
             <span><small>Physical height</small><strong>{physicalStackHeight.toFixed(1)} mm</strong></span>
             <span><small>True scaled relief</small><strong>{trueScaledHeight.toFixed(1)} mm</strong></span>
             <span><small>Vertical exaggeration</small><strong>{verticalExaggeration.toFixed(2)}×</strong></span>
+          </div>
+        </section>
+      )}
+
+      {filledLayerPreview && assemblyPlan && selectedAssemblyLayer && workspaceView === "assembly" && (
+        <section className="assembly-preview" aria-labelledby="assembly-preview-heading">
+          <div className="assembly-preview-heading">
+            <div>
+              <span className="section-label">STAGE 7 · PARTS &amp; REGISTRATION</span>
+              <strong id="assembly-preview-heading">Assembly machining plan</strong>
+            </div>
+            <span className={assemblyPlan.datumComplete ? "ready" : "warning"}>{assemblyPlan.datumComplete ? "Keyed datum ready" : "Datum needs attention"}</span>
+          </div>
+
+          <div className="assembly-toolbar">
+            <div className="assembly-layer-control">
+              <button onClick={() => setAssemblyLayerIndex(Math.max(0, assemblyLayerIndex - 1))} disabled={assemblyLayerIndex === 0} aria-label="Previous physical layer">←</button>
+              <select value={assemblyLayerIndex} onChange={(event) => setAssemblyLayerIndex(Number(event.target.value))} aria-label="Physical layer to inspect">
+                {filledLayerPreview.layers.map((layer) => <option key={layer.index} value={layer.index}>L{String(layer.index + 1).padStart(2, "0")} · {formatBoundaryValue(layer.lower_elevation)}–{formatBoundaryValue(layer.upper_elevation)} m</option>)}
+              </select>
+              <button onClick={() => setAssemblyLayerIndex(Math.min(filledLayerPreview.layers.length - 1, assemblyLayerIndex + 1))} disabled={assemblyLayerIndex === filledLayerPreview.layers.length - 1} aria-label="Next physical layer">→</button>
+            </div>
+            <label>Grid pitch <span><input type="number" min="20" step="5" value={gridPitchMm} onChange={(event) => setGridPitchMm(Math.max(20, Number(event.target.value)))} /> mm</span></label>
+            <label>Dowel <span><input type="number" min="1" step="0.1" value={dowelDiameterMm} onChange={(event) => setDowelDiameterMm(Math.max(1, Number(event.target.value)))} /> mm</span></label>
+            <label>Hole <span><input type="number" min="1" step="0.1" value={holeDiameterMm} onChange={(event) => setHoleDiameterMm(Math.max(1, Number(event.target.value)))} /> mm</span></label>
+            <label>Edge clearance <span><input type="number" min="0" step="1" value={holeEdgeClearanceMm} onChange={(event) => setHoleEdgeClearanceMm(Math.max(0, Number(event.target.value)))} /> mm</span></label>
+          </div>
+
+          <div className="assembly-workspace">
+            <div className="assembly-canvas-wrap">
+              <AssemblyPreviewCanvas
+                preview={filledLayerPreview}
+                plan={assemblyPlan}
+                layerIndex={assemblyLayerIndex}
+                modelWidth={previewDimensions.width}
+                modelHeight={previewDimensions.height}
+                holeDiameter={holeDiameterMm}
+              />
+              <div className="assembly-legend"><span><i className="grid-hole" /> Buried grid hole</span><span><i className="datum-hole" /> Asymmetric datum</span><span><b>↑N</b> covered engraving</span></div>
+            </div>
+
+            <aside className="assembly-details">
+              <div className="assembly-layer-summary">
+                <span><small>Layer</small><strong>L{String(assemblyLayerIndex + 1).padStart(2, "0")}</strong></span>
+                <span><small>Parts</small><strong>{selectedAssemblyParts.length}</strong></span>
+                <span><small>Drill holes</small><strong>{selectedAssemblyHoles.length}</strong></span>
+              </div>
+              <p>Holes shown on this layer are covered by solid terrain higher in the local stack.</p>
+              <ol className="assembly-part-list">
+                {selectedAssemblyParts.map((part) => {
+                  const partHoles = assemblyPlan.holes.filter((hole) => hole.partIds.includes(part.id)).length;
+                  return <li key={part.id}><strong>{part.id}</strong><span>{Math.round(part.areaMm2).toLocaleString("en-NZ")} mm² · {partHoles} hole{partHoles === 1 ? "" : "s"}</span><small>{part.machineLabel ? "Machine ID + north arrow in covered area" : "Identify on assembly sheet — too small to engrave safely"}</small></li>;
+                })}
+              </ol>
+              <div className="assembly-plan-summary">
+                <span><strong>{assemblyPlan.parts.length}</strong> named parts</span>
+                <span><strong>{assemblyPlan.holes.filter((hole) => hole.kind === "grid").length}</strong> buried grid holes</span>
+                <span><strong>{assemblyPlan.holes.filter((hole) => hole.kind === "datum").length}/3</strong> keyed datum holes</span>
+              </div>
+              {(holeDiameterMm <= dowelDiameterMm || assemblyPlan.warnings.length > 0) && (
+                <div className="assembly-warnings" role="status">
+                  {holeDiameterMm <= dowelDiameterMm && <p>Hole diameter should normally exceed dowel diameter; confirm with a plywood test cut.</p>}
+                  {assemblyPlan.warnings.map((warning) => <p key={warning}>{warning}</p>)}
+                </div>
+              )}
+            </aside>
           </div>
         </section>
       )}

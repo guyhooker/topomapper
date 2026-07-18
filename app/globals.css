@@ -72,7 +72,7 @@ button { color: inherit; }
 }
 .stage-pill span { width: 7px; height: 7px; border-radius: 50%; background: #56a178; box-shadow: 0 0 0 4px rgba(86, 161, 120, .13); }
 .topbar-actions { display: flex; align-items: center; gap: 9px; }
-.workspace-view-toggle { display: grid; grid-template-columns: 1fr 1fr; padding: 3px; border: 1px solid rgba(33,79,61,.18); border-radius: 9px; background: rgba(255,255,255,.56); }
+.workspace-view-toggle { display: grid; grid-template-columns: repeat(3, 1fr); padding: 3px; border: 1px solid rgba(33,79,61,.18); border-radius: 9px; background: rgba(255,255,255,.56); }
 .workspace-view-toggle button { min-width: 68px; height: 28px; padding: 0 9px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font-size: 9px; font-weight: 780; cursor: pointer; }
 .workspace-view-toggle button.active { background: var(--forest); color: #fff; box-shadow: 0 3px 8px rgba(33,79,61,.18); }
 
@@ -389,7 +389,8 @@ button { color: inherit; }
 .filled-layer-list b { display: grid; place-items: center; width: 18px; height: 18px; border: 1px solid rgba(33,79,61,.22); border-radius: 5px; color: #34714f; font-size: 10px; }
 .filled-layer-list li.visible b { background: rgba(75,149,105,.12); }
 
-.view-three-dimensional .map, .view-three-dimensional .search-panel, .view-three-dimensional .selection-panel, .view-three-dimensional .maplibregl-control-container { display: none; }
+.view-three-dimensional .map, .view-three-dimensional .search-panel, .view-three-dimensional .selection-panel, .view-three-dimensional .maplibregl-control-container,
+.view-assembly .map, .view-assembly .search-panel, .view-assembly .selection-panel, .view-assembly .maplibregl-control-container { display: none; }
 .stack-preview { position: fixed; z-index: 7; top: 68px; right: 0; bottom: 37px; left: 0; display: flex; flex-direction: column; min-width: 360px; padding: 22px 30px 18px; border: 0; background: linear-gradient(145deg, #e4eae5, #f6f3eb 64%); }
 .stack-preview-heading { display: flex; align-items: start; justify-content: space-between; gap: 10px; }
 .stack-preview-heading strong { display: block; margin-top: 4px; font-family: Georgia, "Times New Roman", serif; font-size: 18px; font-weight: 500; }
@@ -412,6 +413,50 @@ button { color: inherit; }
 .stack-metrics small, .stack-metrics strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .stack-metrics small { color: var(--muted); font-size: 7px; text-transform: uppercase; }
 .stack-metrics strong { margin-top: 2px; color: var(--forest); font-size: 10px; font-variant-numeric: tabular-nums; }
+
+.assembly-preview { position: fixed; z-index: 7; top: 68px; right: 0; bottom: 37px; left: 0; display: flex; flex-direction: column; min-width: 580px; padding: 20px 26px 18px; background: linear-gradient(145deg, #e4eae5, #f6f3eb 64%); }
+.assembly-preview-heading { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
+.assembly-preview-heading strong { display: block; margin-top: 4px; font-family: Georgia, "Times New Roman", serif; font-size: 19px; font-weight: 500; }
+.assembly-preview-heading > span { padding: 5px 8px; border-radius: 999px; font-size: 8px; font-weight: 800; text-transform: uppercase; }
+.assembly-preview-heading > span.ready { background: rgba(75,149,105,.12); color: #34714f; }
+.assembly-preview-heading > span.warning { background: rgba(211,90,54,.12); color: #a83e22; }
+.assembly-toolbar { display: flex; align-items: end; gap: 8px; margin-top: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 9px; background: rgba(255,255,255,.45); }
+.assembly-layer-control { display: grid; grid-template-columns: 30px minmax(180px, 1fr) 30px; gap: 4px; margin-right: auto; }
+.assembly-layer-control button, .assembly-layer-control select { height: 31px; border: 1px solid rgba(33,79,61,.18); border-radius: 6px; background: #fff; color: var(--forest); font-size: 9px; font-weight: 720; }
+.assembly-layer-control button { cursor: pointer; }
+.assembly-layer-control button:disabled { opacity: .3; cursor: default; }
+.assembly-layer-control select { min-width: 190px; padding: 0 7px; }
+.assembly-toolbar > label { color: var(--muted); font-size: 7px; font-weight: 760; text-transform: uppercase; white-space: nowrap; }
+.assembly-toolbar > label span { display: flex; align-items: center; gap: 3px; margin-top: 3px; text-transform: none; }
+.assembly-toolbar input { width: 55px; height: 31px; padding: 0 5px; border: 1px solid #cbd3cb; border-radius: 6px; background: #fff; color: var(--ink); font-size: 9px; font-weight: 720; }
+.assembly-workspace { display: grid; grid-template-columns: minmax(0, 1fr) 310px; gap: 12px; flex: 1; min-height: 0; margin-top: 10px; }
+.assembly-canvas-wrap { position: relative; min-height: 320px; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: radial-gradient(circle at 50% 42%, #fbfaf5, #e6ece7 76%); box-shadow: inset 0 0 45px rgba(38,62,51,.06); }
+.assembly-canvas-wrap canvas { display: block; width: 100%; height: 100%; }
+.assembly-legend { position: absolute; left: 9px; bottom: 8px; display: flex; flex-wrap: wrap; gap: 9px; padding: 5px 7px; border-radius: 6px; background: rgba(250,248,242,.88); color: var(--muted); font-size: 8px; }
+.assembly-legend span { display: flex; align-items: center; gap: 4px; }
+.assembly-legend i { display: inline-block; width: 9px; height: 9px; border: 1px solid var(--forest); border-radius: 50%; background: var(--paper); }
+.assembly-legend i.datum-hole { border: 2px solid #8f3118; background: var(--clay); }
+.assembly-legend b { color: var(--forest); }
+.assembly-details { min-height: 0; overflow: auto; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: rgba(252,250,244,.82); }
+.assembly-layer-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
+.assembly-layer-summary span { padding: 7px; border: 1px solid var(--line); border-radius: 7px; background: rgba(255,255,255,.5); }
+.assembly-layer-summary small, .assembly-layer-summary strong { display: block; }
+.assembly-layer-summary small { color: var(--muted); font-size: 7px; text-transform: uppercase; }
+.assembly-layer-summary strong { margin-top: 2px; color: var(--forest); font-size: 14px; }
+.assembly-details > p { margin: 9px 2px 0; color: var(--muted); font-size: 8px; line-height: 1.4; }
+.assembly-part-list { margin: 9px 0 0; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,.4); list-style: none; }
+.assembly-part-list li { padding: 8px; border-bottom: 1px solid var(--line); }
+.assembly-part-list li:last-child { border-bottom: 0; }
+.assembly-part-list strong, .assembly-part-list span, .assembly-part-list small { display: block; }
+.assembly-part-list strong { color: var(--forest); font-size: 11px; }
+.assembly-part-list span { margin-top: 2px; color: var(--ink); font-size: 8px; }
+.assembly-part-list small { margin-top: 3px; color: var(--muted); font-size: 8px; line-height: 1.35; }
+.assembly-plan-summary { display: grid; grid-template-columns: 1fr; gap: 4px; margin-top: 9px; }
+.assembly-plan-summary span { display: flex; align-items: baseline; gap: 5px; color: var(--muted); font-size: 8px; }
+.assembly-plan-summary strong { color: var(--forest); font-size: 13px; }
+.assembly-warnings { margin-top: 9px; padding: 7px 8px; border-radius: 7px; background: rgba(211,90,54,.09); color: #9d3a21; }
+.assembly-warnings p { margin: 0 0 4px; font-size: 8px; line-height: 1.4; }
+.assembly-warnings p:last-child { margin-bottom: 0; }
 
 .selection-handle {
   width: 17px;
@@ -480,4 +525,10 @@ button { color: inherit; }
   .stack-preview-toolbar { flex-wrap: wrap; }
   .true-profile-toggle { margin-left: 0; }
   .stack-metrics { grid-template-columns: 1fr 1fr; }
+  .assembly-preview { top: 60px; bottom: 37px; min-width: 0; padding: 12px 10px; }
+  .assembly-toolbar { flex-wrap: wrap; }
+  .assembly-layer-control { width: 100%; }
+  .assembly-workspace { grid-template-columns: 1fr; overflow: auto; }
+  .assembly-canvas-wrap { min-height: 300px; }
+  .assembly-details { overflow: visible; }
 }

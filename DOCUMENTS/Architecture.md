@@ -58,6 +58,8 @@ geometry at an explicitly chosen physical scale and simplification tolerance.
 ### Project and Export Formats
 
 - A readable JSON project file for settings and provenance.
+- Deterministic part IDs and a registration plan recording drill-through layers,
+  local cap layers, keyed datum holes, and covered engraving eligibility.
 - GeoTIFF cache for clipped elevation data.
 - GeoPackage or GeoJSON for intermediate polygons.
 - SVG first and DXF second for CNC/CAM interchange.

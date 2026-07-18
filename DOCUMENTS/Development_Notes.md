@@ -192,7 +192,7 @@
 - Changing the area, source files, or boundaries invalidates the old geometry
   so stale polygons cannot be mistaken for the current design.
 - The preview grid is capped at 520 pixels on its longest side for responsive
-  interaction. Fabrication-resolution generation remains a Stage 7 concern.
+  interaction. Fabrication-resolution generation remains a Stage 8 concern.
 - Synthetic regression produced eight cumulative polygons and retained its
   deliberate enclosed NODATA hole.
 - Four-tile Taranaki regression generated 10 Log-spaced layers on a 483 × 520
@@ -204,7 +204,7 @@
 
 ### Stage 6 — Physical Format and 3D Stack Preview
 
-- Implemented 18 July 2026; awaiting Guy's visual acceptance test.
+- Implemented and accepted 18 July 2026.
 - Reframed the left panel as a location-finding map tool. The right panel now
   presents one numbered model workflow: area/format, elevation data, layer plan,
   filled geometry, and physical stack.
@@ -242,11 +242,36 @@
   Protected, and cleanup must never silently delete a meaningful summit or island.
 - Frontend production build passes successfully.
 
+### Stage 7 — Parts and Registration Planning
+
+- Implemented 18 July 2026; awaiting Guy's assembly-plan acceptance test.
+- Added a third full-screen workspace mode, Assembly, beside 2D Map and 3D
+  Model. It reviews one physical layer at a time from L01 upward.
+- Every disconnected Stage 5 polygon receives a stable identifier. The largest
+  component is A; remaining components are ordered geographically.
+- The assembly drawing shows each part ID with a north arrow. Parts with at
+  least 9 mm clearance on both the engraved layer and its solid covering layer,
+  plus 300 mm² area, are eligible for covered machining text; exposed or smaller
+  pieces are explicitly assigned to the assembly sheet.
+- Added configurable grid pitch (100 mm default), nominal dowel diameter (4 mm),
+  finished hole diameter (4.2 mm), and minimum edge clearance (6 mm).
+- A proposed grid hole is accepted only if the location has at least two
+  contiguous physical layers, retains clearance in every intersected part, and
+  leaves the local uppermost layer solid as a cap.
+- The planner searches deep terrain for a scalene three-hole datum. Its unequal,
+  non-collinear spacing prevents north/south, east/west, 180-degree, and
+  face-flipped assembly from matching the hole pattern.
+- Grid holes, datum holes, north orientation, part areas, per-part hole counts,
+  machining-label eligibility, and warnings are visible before export.
+- Assembly settings persist locally and changing them recalculates the plan
+  without modifying the original terrain geometry.
+- Frontend production build passes successfully.
+
 ## Next Steps
 
-1. Choose A2, 8 × 12 inch, and square formats and confirm drawing/corner edits
-   retain the correct ground ratio.
-2. Generate the four-tile Taranaki layers and inspect the 3D and side views.
-3. Confirm ten 6 mm layers report a 60 mm physical stack.
-4. Compare the physical stack against the true-elevation reference.
-5. Mark Stage 6 complete only after the side profile looks convincing.
+1. Open Assembly after generating the four-tile Taranaki layers.
+2. Review part names and the layer-by-layer north orientation.
+3. Confirm regular holes appear only on layers that have solid terrain above.
+4. Confirm three orange datum holes are reported and visibly asymmetric.
+5. Change grid pitch, hole diameter, and edge clearance and inspect the plan.
+6. Mark Stage 7 complete only after the assembly scheme looks practical.

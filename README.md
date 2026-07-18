@@ -57,3 +57,9 @@ take over the workspace using the 2D Map / 3D Model switch, can be freely rotate
 and tilted or viewed directly from the side or top, and compares physical height
 with a true-elevation reference before SVG fabrication work begins in Stage 7.
 Compass labels and a North up reset keep its orientation aligned with the map.
+
+Stage 7 adds a full-screen Assembly workspace. It names every disconnected part
+from the bottom upward, previews covered part-ID/north-arrow engraving, and
+places configurable dowel holes only beneath a solid local terrain cap. A
+scalene three-hole datum supplements the regular grid so flipped or rotated
+layers cannot match. SVG fabrication export follows in Stage 8.

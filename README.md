@@ -73,3 +73,9 @@ receive a nearby grey ID and leader in waste material. A single download package
 contains every layer, a scale-preserving assembly overview, and manufacturing
 notes. Cutter cleanup, sheet nesting, and direct G-code follow as explicit
 stages rather than depending on subscription CAM software.
+
+Stage 9 keeps the future fabrication workflow visible in the header and adds an
+interactive per-layer Smoothing workspace. A physical cleanup size rounds raster
+steps, removes smaller islands and holes, and reports before/after part and hole
+statistics. Frame-contact edges remain locked straight, and cleaned geometry
+feeds the 3D, Assembly, Manufacture, and SVG outputs.

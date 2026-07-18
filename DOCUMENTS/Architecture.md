@@ -65,6 +65,10 @@ geometry at an explicitly chosen physical scale and simplification tolerance.
 - GeoPackage or GeoJSON for intermediate polygons.
 - Finished-size SVG as the inspectable manufacturing-geometry source, with
   separate profile, drilling, and engraving groups.
+- A non-destructive per-layer cleanup plan in physical millimetres. Original
+  polygons remain available for comparison; cleaned polygons feed downstream
+  previews and exports. Selection-boundary vertices stay locked so frame edges
+  cannot be rounded.
 - A sheet-layout document recording stock size, margins, clamp zones, part
   transforms, mirroring/face instructions, and nesting provenance.
 - Controller-specific G-code generated only from a validated manufacturing and

@@ -77,7 +77,7 @@ type LayerDistribution = "log" | "linear";
 type OutputFormat = "free" | "12x8" | "a2" | "square" | "custom";
 type OutputOrientation = "landscape" | "portrait";
 type StackView = "three-dimensional" | "side" | "top";
-type WorkspaceView = "two-dimensional" | "three-dimensional" | "assembly" | "manufacturing";
+type WorkspaceView = "two-dimensional" | "three-dimensional" | "assembly" | "manufacturing" | "smoothing";
 
 type FilledLayer = {
   index: number;
@@ -436,6 +436,74 @@ function featureAreaMm2(preview: FilledLayerPreview, feature: FilledLayerFeature
   }, 0) / 2);
   const [outer, ...holes] = feature.geometry.coordinates;
   return Math.max(0, ringArea(outer) - holes.reduce((total, ring) => total + ringArea(ring), 0));
+}
+
+function ringAreaMm2(preview: FilledLayerPreview, ring: number[][], modelWidth: number, modelHeight: number) {
+  return Math.abs(ring.reduce((total, point, index) => {
+    const current = physicalPoint(preview, modelWidth, modelHeight, point);
+    const next = physicalPoint(preview, modelWidth, modelHeight, ring[(index + 1) % ring.length]);
+    return total + current.x * next.y - next.x * current.y;
+  }, 0) / 2);
+}
+
+function smoothRing(ring: number[][], selection: SelectionBounds, iterations: number) {
+  const closed = ring.length > 1 && ring[0][0] === ring[ring.length - 1][0] && ring[0][1] === ring[ring.length - 1][1];
+  let points = (closed ? ring.slice(0, -1) : ring).map((point) => [...point]);
+  const tolerance = 1e-10;
+  const onFrame = (point: number[]) => Math.abs(point[0] - selection.west) < tolerance
+    || Math.abs(point[0] - selection.east) < tolerance
+    || Math.abs(point[1] - selection.south) < tolerance
+    || Math.abs(point[1] - selection.north) < tolerance;
+  for (let iteration = 0; iteration < iterations && points.length >= 4; iteration += 1) {
+    points = points.map((point, index) => {
+      if (onFrame(point)) return point;
+      const previous = points[(index - 1 + points.length) % points.length];
+      const next = points[(index + 1) % points.length];
+      return [(previous[0] + point[0] * 2 + next[0]) / 4, (previous[1] + point[1] * 2 + next[1]) / 4];
+    });
+  }
+  return points.length ? [...points, [...points[0]]] : ring;
+}
+
+function applySmoothing(
+  preview: FilledLayerPreview,
+  levels: Record<number, number>,
+  modelWidth: number,
+  modelHeight: number,
+): FilledLayerPreview {
+  const pixelSize = Math.max(0.1, Math.min(modelWidth / preview.grid.width, modelHeight / preview.grid.height));
+  const features = preview.feature_collection.features.flatMap((feature) => {
+    const level = levels[feature.properties.layer_index] ?? 0;
+    if (level <= 0) return [feature];
+    const iterations = Math.max(1, Math.min(6, Math.round(level / pixelSize)));
+    const coordinates = feature.geometry.coordinates.map((ring) => smoothRing(ring, preview.selection, iterations));
+    const candidate: FilledLayerFeature = { ...feature, geometry: { ...feature.geometry, coordinates } };
+    const minimumArea = Math.PI * (level / 2) ** 2;
+    if (featureAreaMm2(preview, candidate, modelWidth, modelHeight) < minimumArea) return [];
+    const [outer, ...holes] = coordinates;
+    return [{ ...candidate, geometry: { ...candidate.geometry, coordinates: [outer, ...holes.filter((ring) => ringAreaMm2(preview, ring, modelWidth, modelHeight) >= minimumArea)] } }];
+  });
+  const layers = preview.layers.map((layer) => {
+    const layerFeatures = features.filter((feature) => feature.properties.layer_index === layer.index);
+    return {
+      ...layer,
+      piece_count: layerFeatures.length,
+      hole_count: layerFeatures.reduce((total, feature) => total + Math.max(0, feature.geometry.coordinates.length - 1), 0),
+    };
+  });
+  return { ...preview, layers, feature_collection: { ...preview.feature_collection, features } };
+}
+
+function layerGeometryMetrics(preview: FilledLayerPreview, layerIndex: number, modelWidth: number, modelHeight: number) {
+  const features = preview.feature_collection.features.filter((feature) => feature.properties.layer_index === layerIndex);
+  const partAreas = features.map((feature) => featureAreaMm2(preview, feature, modelWidth, modelHeight));
+  const holeAreas = features.flatMap((feature) => feature.geometry.coordinates.slice(1).map((ring) => ringAreaMm2(preview, ring, modelWidth, modelHeight)));
+  return {
+    parts: features.length,
+    holes: holeAreas.length,
+    smallestPart: partAreas.length ? Math.min(...partAreas) : 0,
+    smallestHole: holeAreas.length ? Math.min(...holeAreas) : 0,
+  };
 }
 
 function featureLabelPoint(preview: FilledLayerPreview, feature: FilledLayerFeature, modelWidth: number, modelHeight: number): { point: [number, number]; clearance: number } {
@@ -1163,6 +1231,79 @@ function AssemblyPreviewCanvas({
   return <canvas ref={canvasRef} aria-label={`Assembly and machining preview for layer ${layerIndex + 1}`} />;
 }
 
+function SmoothingPreviewCanvas({
+  original,
+  smoothed,
+  layerIndex,
+  modelWidth,
+  modelHeight,
+  zoom,
+}: {
+  original: FilledLayerPreview;
+  smoothed: FilledLayerPreview;
+  layerIndex: number;
+  modelWidth: number;
+  modelHeight: number;
+  zoom: number;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const draw = () => {
+      const rectangle = canvas.getBoundingClientRect();
+      const ratio = Math.min(2, window.devicePixelRatio || 1);
+      canvas.width = Math.max(1, Math.round(rectangle.width * ratio));
+      canvas.height = Math.max(1, Math.round(rectangle.height * ratio));
+      const context = canvas.getContext("2d");
+      if (!context) return;
+      context.scale(ratio, ratio);
+      context.clearRect(0, 0, rectangle.width, rectangle.height);
+      const padding = 45;
+      const baseScale = Math.min((rectangle.width - padding * 2) / modelWidth, (rectangle.height - padding * 2) / modelHeight);
+      const scale = baseScale * zoom;
+      const offsetX = rectangle.width / 2 - modelWidth * scale / 2;
+      const offsetY = rectangle.height / 2 - modelHeight * scale / 2;
+      const trace = (preview: FilledLayerPreview, ring: number[][]) => ring.forEach((point, index) => {
+        const physical = physicalPoint(preview, modelWidth, modelHeight, point);
+        const x = offsetX + physical.x * scale;
+        const y = offsetY + physical.y * scale;
+        if (index === 0) context.moveTo(x, y); else context.lineTo(x, y);
+      });
+      context.save();
+      context.beginPath();
+      context.rect(Math.max(0, offsetX), Math.max(0, offsetY), modelWidth * scale, modelHeight * scale);
+      context.clip();
+      original.feature_collection.features.filter((feature) => feature.properties.layer_index === layerIndex).forEach((feature) => {
+        context.beginPath();
+        feature.geometry.coordinates.forEach((ring) => { trace(original, ring); context.closePath(); });
+        context.setLineDash([3, 3]);
+        context.strokeStyle = "rgba(201,73,42,.55)";
+        context.lineWidth = 1;
+        context.stroke();
+      });
+      smoothed.feature_collection.features.filter((feature) => feature.properties.layer_index === layerIndex).forEach((feature) => {
+        context.beginPath();
+        feature.geometry.coordinates.forEach((ring) => { trace(smoothed, ring); context.closePath(); });
+        context.setLineDash([]);
+        context.fillStyle = "rgba(75,149,105,.28)";
+        context.fill("evenodd");
+        context.strokeStyle = "#214f3d";
+        context.lineWidth = 1.3;
+        context.stroke();
+      });
+      context.restore();
+      context.strokeStyle = "rgba(33,79,61,.25)";
+      context.strokeRect(offsetX, offsetY, modelWidth * scale, modelHeight * scale);
+    };
+    draw();
+    const observer = new ResizeObserver(draw);
+    observer.observe(canvas);
+    return () => observer.disconnect();
+  }, [original, smoothed, layerIndex, modelWidth, modelHeight, zoom]);
+  return <canvas ref={canvasRef} aria-label={`Original dotted outline and smoothed manufacturing outline for layer ${layerIndex + 1}`} />;
+}
+
 export function MapWorkspace() {
   const mapNode = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -1216,6 +1357,9 @@ export function MapWorkspace() {
   const [holeDiameterMm, setHoleDiameterMm] = useState(4.2);
   const [holeEdgeClearanceMm, setHoleEdgeClearanceMm] = useState(6);
   const [exportStatus, setExportStatus] = useState("Manufacturing files are ready to inspect.");
+  const [smoothingLayerIndex, setSmoothingLayerIndex] = useState(0);
+  const [smoothingLevels, setSmoothingLevels] = useState<Record<number, number>>({});
+  const [smoothingZoom, setSmoothingZoom] = useState(1);
   const chosenOutput = outputDimensions(outputFormat, outputOrientation, customWidthMm, customHeightMm);
   aspectRatioRef.current = chosenOutput ? chosenOutput.width / chosenOutput.height : null;
 
@@ -1955,26 +2099,32 @@ export function MapWorkspace() {
   const physicalStackHeight = (filledLayerPreview?.layers.length ?? layerCount) * materialThicknessMm;
   const trueScaledHeight = measurements && measurements.width > 0 ? layerMaximum * previewDimensions.width / measurements.width : 0;
   const verticalExaggeration = trueScaledHeight > 0 ? physicalStackHeight / trueScaledHeight : 0;
-  const assemblyPlan = useMemo(() => filledLayerPreview ? buildAssemblyPlan(
+  const fabricationPreview = useMemo(() => filledLayerPreview ? applySmoothing(
     filledLayerPreview,
+    smoothingLevels,
+    previewDimensions.width,
+    previewDimensions.height,
+  ) : null, [filledLayerPreview, smoothingLevels, previewDimensions.width, previewDimensions.height]);
+  const assemblyPlan = useMemo(() => fabricationPreview ? buildAssemblyPlan(
+    fabricationPreview,
     previewDimensions.width,
     previewDimensions.height,
     gridPitchMm,
     holeDiameterMm,
     holeEdgeClearanceMm,
-  ) : null, [filledLayerPreview, previewDimensions.width, previewDimensions.height, gridPitchMm, holeDiameterMm, holeEdgeClearanceMm]);
-  const selectedAssemblyLayer = filledLayerPreview?.layers[assemblyLayerIndex] ?? null;
+  ) : null, [fabricationPreview, previewDimensions.width, previewDimensions.height, gridPitchMm, holeDiameterMm, holeEdgeClearanceMm]);
+  const selectedAssemblyLayer = fabricationPreview?.layers[assemblyLayerIndex] ?? null;
   const selectedAssemblyParts = assemblyPlan?.parts.filter((part) => part.layerIndex === assemblyLayerIndex) ?? [];
   const selectedAssemblyHoles = assemblyPlan?.holes.filter((hole) => hole.drilledLayers.includes(assemblyLayerIndex)) ?? [];
-  const selectedWasteLabels = useMemo(() => filledLayerPreview && assemblyPlan ? findWasteLabels(
-    filledLayerPreview,
+  const selectedWasteLabels = useMemo(() => fabricationPreview && assemblyPlan ? findWasteLabels(
+    fabricationPreview,
     assemblyPlan,
     assemblyLayerIndex,
     previewDimensions.width,
     previewDimensions.height,
-  ) : [], [filledLayerPreview, assemblyPlan, assemblyLayerIndex, previewDimensions.width, previewDimensions.height]);
-  const selectedManufacturingSvg = useMemo(() => filledLayerPreview && assemblyPlan && selectedAssemblyLayer ? buildLayerSvg(
-    filledLayerPreview,
+  ) : [], [fabricationPreview, assemblyPlan, assemblyLayerIndex, previewDimensions.width, previewDimensions.height]);
+  const selectedManufacturingSvg = useMemo(() => fabricationPreview && assemblyPlan && selectedAssemblyLayer ? buildLayerSvg(
+    fabricationPreview,
     assemblyPlan,
     assemblyLayerIndex,
     previewDimensions.width,
@@ -1982,7 +2132,19 @@ export function MapWorkspace() {
     holeDiameterMm,
     materialThicknessMm,
     analysis?.datasets.map((dataset) => dataset.filename) ?? [],
-  ) : "", [filledLayerPreview, assemblyPlan, selectedAssemblyLayer, assemblyLayerIndex, previewDimensions.width, previewDimensions.height, holeDiameterMm, materialThicknessMm, analysis]);
+  ) : "", [fabricationPreview, assemblyPlan, selectedAssemblyLayer, assemblyLayerIndex, previewDimensions.width, previewDimensions.height, holeDiameterMm, materialThicknessMm, analysis]);
+  const originalSmoothingMetrics = filledLayerPreview ? layerGeometryMetrics(filledLayerPreview, smoothingLayerIndex, previewDimensions.width, previewDimensions.height) : null;
+  const smoothedSmoothingMetrics = fabricationPreview ? layerGeometryMetrics(fabricationPreview, smoothingLayerIndex, previewDimensions.width, previewDimensions.height) : null;
+
+  function setLayerSmoothing(value: number) {
+    setSmoothingLevels((current) => ({ ...current, [smoothingLayerIndex]: Math.max(0, Math.min(12, value)) }));
+  }
+
+  function applySmoothingToAll() {
+    if (!filledLayerPreview) return;
+    const value = smoothingLevels[smoothingLayerIndex] ?? 0;
+    setSmoothingLevels(Object.fromEntries(filledLayerPreview.layers.map((layer) => [layer.index, value])));
+  }
 
   function downloadSelectedLayerSvg() {
     if (!selectedManufacturingSvg) return;
@@ -1992,11 +2154,11 @@ export function MapWorkspace() {
   }
 
   function downloadManufacturingPackage() {
-    if (!filledLayerPreview || !assemblyPlan) return;
-    const files = filledLayerPreview.layers.map((layer) => ({
+    if (!fabricationPreview || !assemblyPlan) return;
+    const files = fabricationPreview.layers.map((layer) => ({
       name: `layers/topomapper-L${String(layer.index + 1).padStart(2, "0")}.svg`,
       contents: buildLayerSvg(
-        filledLayerPreview,
+        fabricationPreview,
         assemblyPlan,
         layer.index,
         previewDimensions.width,
@@ -2008,7 +2170,7 @@ export function MapWorkspace() {
     }));
     files.push({
       name: "topomapper-overview.svg",
-      contents: buildOverviewSvg(filledLayerPreview, assemblyPlan, previewDimensions.width, previewDimensions.height, holeDiameterMm),
+      contents: buildOverviewSvg(fabricationPreview, assemblyPlan, previewDimensions.width, previewDimensions.height, holeDiameterMm),
     });
     files.push({
       name: "manufacturing-notes.txt",
@@ -2017,7 +2179,7 @@ export function MapWorkspace() {
         "",
         `Finished model: ${previewDimensions.width.toFixed(1)} x ${previewDimensions.height.toFixed(1)} mm`,
         `Material: ${materialThicknessMm.toFixed(1)} mm`,
-        `Layers: ${filledLayerPreview.layers.length}`,
+        `Layers: ${fabricationPreview.layers.length}`,
         `Dowel: ${dowelDiameterMm.toFixed(1)} mm`,
         `Finished holes: ${holeDiameterMm.toFixed(1)} mm`,
         `Elevation sources: ${analysis?.datasets.map((dataset) => dataset.filename).join(", ") || "not recorded"}`,
@@ -2048,15 +2210,18 @@ export function MapWorkspace() {
           <span><strong>topo</strong>mapper</span>
         </button>
         <div className="topbar-actions">
-          {filledLayerPreview && (
-            <div className="workspace-view-toggle" aria-label="Workspace view">
-              <button className={workspaceView === "two-dimensional" ? "active" : ""} onClick={() => setWorkspaceView("two-dimensional")}>2D Map</button>
-              <button className={workspaceView === "three-dimensional" ? "active" : ""} onClick={() => setWorkspaceView("three-dimensional")}>3D Model</button>
-              <button className={workspaceView === "assembly" ? "active" : ""} onClick={() => setWorkspaceView("assembly")}>Assembly</button>
-              <button className={workspaceView === "manufacturing" ? "active" : ""} onClick={() => setWorkspaceView("manufacturing")}>Manufacture</button>
-            </div>
-          )}
-          <div className="stage-pill"><span /> Stage 8 · Manufacturing SVG</div>
+          <div className="workspace-view-toggle" aria-label="Topomapper workflow">
+            <button className={workspaceView === "two-dimensional" ? "active" : ""} onClick={() => setWorkspaceView("two-dimensional")}>2D Map</button>
+            <button disabled={!filledLayerPreview} className={workspaceView === "three-dimensional" ? "active" : ""} onClick={() => setWorkspaceView("three-dimensional")}>3D Model</button>
+            <button disabled={!filledLayerPreview} className={workspaceView === "assembly" ? "active" : ""} onClick={() => setWorkspaceView("assembly")}>Assembly</button>
+            <button disabled={!filledLayerPreview} className={workspaceView === "manufacturing" ? "active" : ""} onClick={() => setWorkspaceView("manufacturing")}>Manufacture</button>
+            <button disabled={!filledLayerPreview} className={workspaceView === "smoothing" ? "active" : ""} onClick={() => setWorkspaceView("smoothing")}>Smoothing</button>
+            <button disabled>Sheet Layout</button>
+            <button disabled>G-code</button>
+            <button disabled>Colour Chart</button>
+            <button disabled>BOM</button>
+          </div>
+          <div className="stage-pill"><span /> Stage 9 · Geometry Cleanup</div>
         </div>
       </header>
 
@@ -2398,7 +2563,7 @@ export function MapWorkspace() {
         )}
       </aside>
 
-      {filledLayerPreview && measurements && workspaceView === "three-dimensional" && (
+      {fabricationPreview && measurements && workspaceView === "three-dimensional" && (
         <section className="stack-preview" aria-labelledby="stack-preview-heading">
           <div className="stack-preview-heading">
             <div>
@@ -2419,7 +2584,7 @@ export function MapWorkspace() {
           </div>
           <div className="stack-canvas-wrap">
             <StackPreviewCanvas
-              preview={filledLayerPreview}
+              preview={fabricationPreview}
               visibleLayers={visibleLayerIndices}
               modelWidth={previewDimensions.width}
               modelHeight={previewDimensions.height}
@@ -2443,7 +2608,7 @@ export function MapWorkspace() {
         </section>
       )}
 
-      {filledLayerPreview && assemblyPlan && selectedAssemblyLayer && workspaceView === "assembly" && (
+      {fabricationPreview && assemblyPlan && selectedAssemblyLayer && workspaceView === "assembly" && (
         <section className="assembly-preview" aria-labelledby="assembly-preview-heading">
           <div className="assembly-preview-heading">
             <div>
@@ -2457,7 +2622,7 @@ export function MapWorkspace() {
             <div className="assembly-layer-control">
               <button onClick={() => setAssemblyLayerIndex(Math.max(0, assemblyLayerIndex - 1))} disabled={assemblyLayerIndex === 0} aria-label="Previous physical layer">←</button>
               <select value={assemblyLayerIndex} onChange={(event) => setAssemblyLayerIndex(Number(event.target.value))} aria-label="Physical layer to inspect">
-                {filledLayerPreview.layers.map((layer) => <option key={layer.index} value={layer.index}>L{String(layer.index + 1).padStart(2, "0")} · {formatBoundaryValue(layer.lower_elevation)}–{formatBoundaryValue(layer.upper_elevation)} m</option>)}
+                {fabricationPreview.layers.map((layer) => <option key={layer.index} value={layer.index}>L{String(layer.index + 1).padStart(2, "0")} · {formatBoundaryValue(layer.lower_elevation)}–{formatBoundaryValue(layer.upper_elevation)} m</option>)}
               </select>
               <button onClick={() => setAssemblyLayerIndex(Math.min(filledLayerPreview.layers.length - 1, assemblyLayerIndex + 1))} disabled={assemblyLayerIndex === filledLayerPreview.layers.length - 1} aria-label="Next physical layer">→</button>
             </div>
@@ -2470,7 +2635,7 @@ export function MapWorkspace() {
           <div className="assembly-workspace">
             <div className="assembly-canvas-wrap">
               <AssemblyPreviewCanvas
-                preview={filledLayerPreview}
+                preview={fabricationPreview}
                 plan={assemblyPlan}
                 layerIndex={assemblyLayerIndex}
                 modelWidth={previewDimensions.width}
@@ -2509,7 +2674,51 @@ export function MapWorkspace() {
         </section>
       )}
 
-      {filledLayerPreview && assemblyPlan && selectedAssemblyLayer && workspaceView === "manufacturing" && (
+      {filledLayerPreview && fabricationPreview && originalSmoothingMetrics && smoothedSmoothingMetrics && workspaceView === "smoothing" && (
+        <section className="smoothing-preview" aria-labelledby="smoothing-preview-heading">
+          <div className="smoothing-preview-heading">
+            <div><span className="section-label">STAGE 9 · CUTTER-SCALE CLEANUP</span><strong id="smoothing-preview-heading">Smooth manufacturing outlines</strong></div>
+            <span>{(smoothingLevels[smoothingLayerIndex] ?? 0).toFixed(1)} mm cleanup</span>
+          </div>
+          <div className="smoothing-toolbar">
+            <div className="assembly-layer-control">
+              <button onClick={() => setSmoothingLayerIndex(Math.max(0, smoothingLayerIndex - 1))} disabled={smoothingLayerIndex === 0} aria-label="Previous smoothing layer">←</button>
+              <select value={smoothingLayerIndex} onChange={(event) => setSmoothingLayerIndex(Number(event.target.value))} aria-label="Layer to smooth">
+                {fabricationPreview.layers.map((layer) => <option key={layer.index} value={layer.index}>L{String(layer.index + 1).padStart(2, "0")} · {formatBoundaryValue(layer.lower_elevation)}–{formatBoundaryValue(layer.upper_elevation)} m</option>)}
+              </select>
+              <button onClick={() => setSmoothingLayerIndex(Math.min(fabricationPreview.layers.length - 1, smoothingLayerIndex + 1))} disabled={smoothingLayerIndex === fabricationPreview.layers.length - 1} aria-label="Next smoothing layer">→</button>
+            </div>
+            <label className="smoothing-range">Cleanup size <strong>{(smoothingLevels[smoothingLayerIndex] ?? 0).toFixed(1)} mm</strong><input type="range" min="0" max="12" step="0.5" value={smoothingLevels[smoothingLayerIndex] ?? 0} onChange={(event) => setLayerSmoothing(Number(event.target.value))} /></label>
+            <label className="smoothing-zoom">Zoom <select value={smoothingZoom} onChange={(event) => setSmoothingZoom(Number(event.target.value))}><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option><option value="8">8×</option></select></label>
+            <button onClick={applySmoothingToAll}>Apply to all</button>
+            <button onClick={() => setSmoothingLevels({})}>Reset all</button>
+          </div>
+          <div className="smoothing-workspace">
+            <div className="smoothing-canvas-wrap">
+              <SmoothingPreviewCanvas original={filledLayerPreview} smoothed={fabricationPreview} layerIndex={smoothingLayerIndex} modelWidth={previewDimensions.width} modelHeight={previewDimensions.height} zoom={smoothingZoom} />
+              <div className="smoothing-legend"><span><i className="original-edge" /> Original raster edge</span><span><i className="clean-edge" /> Smoothed cut edge</span></div>
+            </div>
+            <aside className="smoothing-details">
+              <p>Frame boundaries remain locked and dead straight. Increasing cleanup rounds raster steps and removes islands or holes smaller than the selected physical size.</p>
+              <div className="smoothing-comparison">
+                <span><small>Parts</small><b>{originalSmoothingMetrics.parts}</b><strong>{smoothedSmoothingMetrics.parts}</strong></span>
+                <span><small>Smallest part</small><b>{originalSmoothingMetrics.smallestPart.toFixed(1)} mm²</b><strong>{smoothedSmoothingMetrics.smallestPart.toFixed(1)} mm²</strong></span>
+                <span><small>Holes</small><b>{originalSmoothingMetrics.holes}</b><strong>{smoothedSmoothingMetrics.holes}</strong></span>
+                <span><small>Smallest hole</small><b>{originalSmoothingMetrics.smallestHole ? `${originalSmoothingMetrics.smallestHole.toFixed(1)} mm²` : "none"}</b><strong>{smoothedSmoothingMetrics.smallestHole ? `${smoothedSmoothingMetrics.smallestHole.toFixed(1)} mm²` : "none"}</strong></span>
+              </div>
+              <div className="comparison-key"><span>Original</span><strong>After cleanup</strong></div>
+              <ol className="smoothing-layer-list">
+                {fabricationPreview.layers.map((layer) => {
+                  const metrics = layerGeometryMetrics(fabricationPreview, layer.index, previewDimensions.width, previewDimensions.height);
+                  return <li key={layer.index} className={layer.index === smoothingLayerIndex ? "active" : ""}><button onClick={() => setSmoothingLayerIndex(layer.index)}><strong>L{String(layer.index + 1).padStart(2, "0")}</strong><span>{(smoothingLevels[layer.index] ?? 0).toFixed(1)} mm</span><small>{metrics.parts} parts · {metrics.holes} holes</small></button></li>;
+                })}
+              </ol>
+            </aside>
+          </div>
+        </section>
+      )}
+
+      {fabricationPreview && assemblyPlan && selectedAssemblyLayer && workspaceView === "manufacturing" && (
         <section className="manufacturing-preview" aria-labelledby="manufacturing-preview-heading">
           <div className="manufacturing-preview-heading">
             <div>
@@ -2523,7 +2732,7 @@ export function MapWorkspace() {
             <div className="assembly-layer-control">
               <button onClick={() => setAssemblyLayerIndex(Math.max(0, assemblyLayerIndex - 1))} disabled={assemblyLayerIndex === 0} aria-label="Previous manufacturing layer">←</button>
               <select value={assemblyLayerIndex} onChange={(event) => setAssemblyLayerIndex(Number(event.target.value))} aria-label="Manufacturing layer to inspect">
-                {filledLayerPreview.layers.map((layer) => <option key={layer.index} value={layer.index}>L{String(layer.index + 1).padStart(2, "0")} · {formatBoundaryValue(layer.lower_elevation)}–{formatBoundaryValue(layer.upper_elevation)} m</option>)}
+                {fabricationPreview.layers.map((layer) => <option key={layer.index} value={layer.index}>L{String(layer.index + 1).padStart(2, "0")} · {formatBoundaryValue(layer.lower_elevation)}–{formatBoundaryValue(layer.upper_elevation)} m</option>)}
               </select>
               <button onClick={() => setAssemblyLayerIndex(Math.min(filledLayerPreview.layers.length - 1, assemblyLayerIndex + 1))} disabled={assemblyLayerIndex === filledLayerPreview.layers.length - 1} aria-label="Next manufacturing layer">→</button>
             </div>
@@ -2557,7 +2766,7 @@ export function MapWorkspace() {
               <p className="waste-label-summary"><strong>{selectedWasteLabels.length}</strong> small-part ID{selectedWasteLabels.length === 1 ? "" : "s"} placed in nearby waste with leaders that stop before the cut edge.</p>
               <h3>Package contents</h3>
               <ul className="manufacturing-file-list">
-                <li><strong>{filledLayerPreview.layers.length} layer SVGs</strong><span>One finished-size file per sheet layer</span></li>
+                <li><strong>{fabricationPreview.layers.length} layer SVGs</strong><span>One finished-size file per sheet layer</span></li>
                 <li><strong>Assembly overview</strong><span>Every layer arranged at the same physical scale</span></li>
                 <li><strong>Manufacturing notes</strong><span>Dimensions, material, holes and warnings</span></li>
               </ul>

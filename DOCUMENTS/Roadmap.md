@@ -184,6 +184,8 @@ paper outlines align when stacked.
 
 ## Stage 9 — Fabrication Geometry Controls
 
+**Status: Initial implementation complete — acceptance test pending**
+
 ### Adds
 
 - Cutter diameter and minimum practical feature size.
@@ -191,14 +193,19 @@ paper outlines align when stacked.
 - Warnings for tiny islands, narrow bridges, and loose pieces.
 - Optional registration holes and alignment marks.
 - Choice to retain, enlarge, join, or omit impractical pieces.
+- Per-layer physical cleanup slider, original/cleaned overlay, zoom, and live
+  part/hole/minimum-area comparison.
+- Locked rectangular frame edges and cleaned geometry propagated into 3D,
+  assembly planning, manufacturing previews, and SVG files.
 
 Kerf compensation should normally remain a CAM operation unless testing proves
 that topomapper must own it.
 
 ### Acceptance Test
 
-Topomapper identifies deliberately troublesome small features, and registration
-holes align consistently across every exported layer.
+Topomapper identifies deliberately troublesome small features, frame edges stay
+straight, increasing cleanup removes sub-limit islands and holes, and
+registration holes align consistently across every exported layer.
 
 ## Stage 10 — Manual Sheet Layout
 

@@ -47,6 +47,10 @@ boundary.
   terrain correctly.
 - Allow optional simplification appropriate to CNC tool diameter and finished
   map scale.
+- Adjust cleanup independently per physical layer with immediate before/after
+  counts for parts, holes, smallest part area, and smallest hole area.
+- Preserve any edge coincident with the rectangular finished frame as a dead
+  straight line while smoothing terrain-derived edges.
 - Allow registration holes or alignment marks.
 - Label every exported layer with its elevation range, sequence, and side.
 - Preserve finished dimensions in millimetres and separate profile, drilling,

@@ -313,3 +313,23 @@
    engraving appear on the expected layer.
 5. Begin Stage 9 cutter-scale cleanup only after the exported geometry is
    accepted.
+
+### Stage 9 — Interactive Geometry Cleanup
+
+- Implemented 18 July 2026; awaiting Guy's multi-layer smoothing acceptance
+  test.
+- The header now always shows the product workflow. Unavailable future tools
+  remain visible as disabled buttons: Sheet Layout, G-code, Colour Chart, and
+  BOM.
+- Added a full-screen Smoothing workspace with independent 0–12 mm cleanup for
+  every physical layer, Apply to all, reset, and 1×–8× inspection.
+- The preview overlays the original raster-derived edge as a dotted red line
+  and the cleaned manufacturing edge as a solid green line.
+- Live statistics compare part count, smallest part area, hole count, and
+  smallest hole area before and after cleanup.
+- Cleanup is non-destructive. It smooths terrain edges, removes islands and
+  holes below the chosen physical-size threshold, and locks selection-boundary
+  vertices so rectangular frame edges remain straight.
+- Cleaned geometry feeds the 3D view, volcano-vent plan, Manufacture view, and
+  downloaded SVG package.
+- Frontend production build passes successfully.

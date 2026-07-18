@@ -220,6 +220,12 @@
 - Added rotatable 3D, direct side, and top viewpoints. The 3D model uses one
   common material thickness for every physical layer and respects the Stage 5
   visibility toggles.
+- After the initial Stage 6 test, replaced the small floating preview with a
+  full-screen 2D Map / 3D Model switch in the header. The model now occupies the
+  full workspace between the header and status bar.
+- Two-axis pointer dragging rotates the model horizontally and tilts it from a
+  direct side view through oblique angles to a top view. Named 3D, Side, and Top
+  buttons remain as quick reset viewpoints.
 - Added finished size, physical stack height, true scaled relief height, and
   vertical-exaggeration readouts. An optional dashed true-elevation reference
   makes Log/equal-sheet distortion visible.

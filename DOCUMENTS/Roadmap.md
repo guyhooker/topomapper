@@ -117,6 +117,8 @@ or CNC integration until this stage produces convincing geometry.
   both drawing and corner adjustment.
 - Equal-thickness material setting and finished stack-height calculation.
 - Rotatable 3D, direct side, and top views of the generated cumulative layers.
+- Full-screen 2D Map / 3D Model workspace switch after filled geometry exists;
+  free dragging changes both rotation and viewing angle.
 - Optional true-elevation reference for judging vertical exaggeration caused by
   the chosen physical sheet stack.
 
@@ -124,8 +126,8 @@ or CNC integration until this stage produces convincing geometry.
 
 An A2, 8 × 12 inch, square, or custom selection retains its ground aspect ratio
 without stretching. Ten 6 mm layers report a 60 mm physical height, the side
-view shows the complete stack, and rotating the model reveals plausible Mount
-Taranaki geometry.
+view shows the complete stack, and the full-screen model can be freely rotated
+and tilted to reveal plausible Mount Taranaki geometry.
 
 ## Stage 7 — SVG Export
 

@@ -77,6 +77,7 @@ type LayerDistribution = "log" | "linear";
 type OutputFormat = "free" | "12x8" | "a2" | "square" | "custom";
 type OutputOrientation = "landscape" | "portrait";
 type StackView = "three-dimensional" | "side" | "top";
+type WorkspaceView = "two-dimensional" | "three-dimensional";
 
 type FilledLayer = {
   index: number;
@@ -345,6 +346,8 @@ function StackPreviewCanvas({
   yaw,
   showTrueElevation,
   onYawChange,
+  pitch,
+  onViewChange,
 }: {
   preview: FilledLayerPreview;
   visibleLayers: number[];
@@ -356,9 +359,11 @@ function StackPreviewCanvas({
   yaw: number;
   showTrueElevation: boolean;
   onYawChange: (yaw: number) => void;
+  pitch: number;
+  onViewChange: (yaw: number, pitch: number) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const dragRef = useRef<{ x: number; yaw: number } | null>(null);
+  const dragRef = useRef<{ x: number; y: number; yaw: number; pitch: number } | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -373,7 +378,7 @@ function StackPreviewCanvas({
       context.scale(pixelRatio, pixelRatio);
       context.clearRect(0, 0, rectangle.width, rectangle.height);
 
-      const elevationAngle = view === "top" ? 90 : view === "side" ? 0 : 34;
+      const elevationAngle = pitch;
       const elevationRadians = toRadians(elevationAngle);
       const yawRadians = toRadians(yaw);
       const maximum = preview.boundaries[preview.boundaries.length - 1] || 1;
@@ -464,7 +469,7 @@ function StackPreviewCanvas({
         });
       });
 
-      if (showTrueElevation && view !== "top") {
+      if (showTrueElevation && pitch < 88) {
         preview.layers.forEach((layer) => {
           const z = groundWidth > 0 ? layer.lower_elevation * modelWidth / groundWidth : 0;
           preview.feature_collection.features
@@ -485,14 +490,20 @@ function StackPreviewCanvas({
     const observer = new ResizeObserver(draw);
     observer.observe(canvas);
     return () => observer.disconnect();
-  }, [preview, visibleLayers, modelWidth, modelHeight, materialThickness, groundWidth, view, yaw, showTrueElevation]);
+  }, [preview, visibleLayers, modelWidth, modelHeight, materialThickness, groundWidth, view, yaw, pitch, showTrueElevation]);
 
   return (
     <canvas
       ref={canvasRef}
       aria-label="Interactive three-dimensional preview of the equal-thickness physical layer stack"
-      onPointerDown={(event) => { dragRef.current = { x: event.clientX, yaw }; event.currentTarget.setPointerCapture(event.pointerId); }}
-      onPointerMove={(event) => { if (dragRef.current) onYawChange((dragRef.current.yaw + event.clientX - dragRef.current.x + 360) % 360); }}
+      onPointerDown={(event) => { dragRef.current = { x: event.clientX, y: event.clientY, yaw, pitch }; event.currentTarget.setPointerCapture(event.pointerId); }}
+      onPointerMove={(event) => {
+        if (!dragRef.current) return;
+        const nextYaw = (dragRef.current.yaw + event.clientX - dragRef.current.x + 360) % 360;
+        const nextPitch = Math.max(0, Math.min(90, dragRef.current.pitch - (event.clientY - dragRef.current.y) * 0.45));
+        onYawChange(nextYaw);
+        onViewChange(nextYaw, nextPitch);
+      }}
       onPointerUp={(event) => { dragRef.current = null; event.currentTarget.releasePointerCapture(event.pointerId); }}
       onPointerCancel={() => { dragRef.current = null; }}
     />
@@ -543,7 +554,9 @@ export function MapWorkspace() {
   const [materialThicknessMm, setMaterialThicknessMm] = useState(6);
   const [stackView, setStackView] = useState<StackView>("three-dimensional");
   const [stackYaw, setStackYaw] = useState(325);
+  const [stackPitch, setStackPitch] = useState(34);
   const [showTrueElevation, setShowTrueElevation] = useState(true);
+  const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("two-dimensional");
   const chosenOutput = outputDimensions(outputFormat, outputOrientation, customWidthMm, customHeightMm);
   aspectRatioRef.current = chosenOutput ? chosenOutput.width / chosenOutput.height : null;
 
@@ -661,6 +674,7 @@ export function MapWorkspace() {
     clearFilledLayerOverlay();
     setFilledLayerPreview(null);
     setVisibleLayerIndices([]);
+    setWorkspaceView("two-dimensional");
     setLayerGenerationStatus(message);
   }
 
@@ -1218,7 +1232,7 @@ export function MapWorkspace() {
       showFilledLayerOverlay(payload, visible);
       const pieces = payload.layers.reduce((total, layer) => total + layer.piece_count, 0);
       const holes = payload.layers.reduce((total, layer) => total + layer.hole_count, 0);
-      setLayerGenerationStatus(`${payload.layers.length} filled layers generated: ${pieces} polygon piece${pieces === 1 ? "" : "s"}${holes ? ` with ${holes} preserved hole${holes === 1 ? "" : "s"}` : ""}.`);
+      setLayerGenerationStatus(`${payload.layers.length} filled layers generated: ${pieces} polygon piece${pieces === 1 ? "" : "s"}${holes ? ` with ${holes} preserved hole${holes === 1 ? "" : "s"}` : ""}. Choose 3D Model in the header for the full-screen stack.`);
     } catch (error) {
       setLayerGenerationStatus(error instanceof Error ? error.message : "The filled layers could not be generated.");
     } finally {
@@ -1261,7 +1275,7 @@ export function MapWorkspace() {
   const verticalExaggeration = trueScaledHeight > 0 ? physicalStackHeight / trueScaledHeight : 0;
 
   return (
-    <main className={`workspace ${drawing ? "is-drawing" : ""}`}>
+    <main className={`workspace ${drawing ? "is-drawing" : ""} ${workspaceView === "three-dimensional" ? "view-three-dimensional" : "view-two-dimensional"}`}>
       <div ref={mapNode} className="map" aria-label="Interactive map of New Zealand" />
 
       <header className="topbar">
@@ -1269,7 +1283,15 @@ export function MapWorkspace() {
           <span className="brand-mark" aria-hidden="true"><i /><i /><i /></span>
           <span><strong>topo</strong>mapper</span>
         </button>
-        <div className="stage-pill"><span /> Stage 6 · Physical Preview</div>
+        <div className="topbar-actions">
+          {filledLayerPreview && (
+            <div className="workspace-view-toggle" aria-label="Workspace view">
+              <button className={workspaceView === "two-dimensional" ? "active" : ""} onClick={() => setWorkspaceView("two-dimensional")}>2D Map</button>
+              <button className={workspaceView === "three-dimensional" ? "active" : ""} onClick={() => setWorkspaceView("three-dimensional")}>3D Model</button>
+            </div>
+          )}
+          <div className="stage-pill"><span /> Stage 6 · Physical Preview</div>
+        </div>
       </header>
 
       <section className="search-panel" aria-label="Place search">
@@ -1610,20 +1632,20 @@ export function MapWorkspace() {
         )}
       </aside>
 
-      {filledLayerPreview && measurements && (
+      {filledLayerPreview && measurements && workspaceView === "three-dimensional" && (
         <section className="stack-preview" aria-labelledby="stack-preview-heading">
           <div className="stack-preview-heading">
             <div>
               <span className="section-label">STEP 5 · PHYSICAL STACK</span>
               <strong id="stack-preview-heading">Equal-thickness 3D preview</strong>
             </div>
-            <span>{previewDimensions.label}</span>
+              <span>{previewDimensions.label} · {Math.round(stackYaw)}° / {Math.round(stackPitch)}°</span>
           </div>
           <div className="stack-preview-toolbar">
             <div className="stack-view-buttons" aria-label="Stack viewpoint">
-              <button className={stackView === "three-dimensional" ? "active" : ""} onClick={() => setStackView("three-dimensional")}>3D</button>
-              <button className={stackView === "side" ? "active" : ""} onClick={() => setStackView("side")}>Side</button>
-              <button className={stackView === "top" ? "active" : ""} onClick={() => setStackView("top")}>Top</button>
+              <button className={stackView === "three-dimensional" ? "active" : ""} onClick={() => { setStackView("three-dimensional"); setStackPitch(34); }}>3D</button>
+              <button className={stackView === "side" ? "active" : ""} onClick={() => { setStackView("side"); setStackPitch(0); }}>Side</button>
+              <button className={stackView === "top" ? "active" : ""} onClick={() => { setStackView("top"); setStackPitch(90); }}>Top</button>
             </div>
             <label className="thickness-control">Material <span><input type="number" min="0.5" max="50" step="0.5" value={materialThicknessMm} onChange={(event) => setMaterialThicknessMm(Math.max(0.5, Number(event.target.value)))} /> mm</span></label>
             <label className="true-profile-toggle"><input type="checkbox" checked={showTrueElevation} onChange={(event) => setShowTrueElevation(event.target.checked)} disabled={stackView === "top"} /> True-elevation reference</label>
@@ -1638,10 +1660,12 @@ export function MapWorkspace() {
               groundWidth={measurements.width}
               view={stackView}
               yaw={stackYaw}
+              pitch={stackPitch}
               showTrueElevation={showTrueElevation}
               onYawChange={setStackYaw}
+              onViewChange={(nextYaw, nextPitch) => { setStackYaw(nextYaw); setStackPitch(nextPitch); setStackView("three-dimensional"); }}
             />
-            <span>Drag horizontally to rotate · dashed orange lines show true scaled elevations</span>
+            <span>Drag left/right to rotate and up/down to tilt · dashed orange lines show true scaled elevations</span>
           </div>
           <div className="stack-metrics">
             <span><small>Finished size</small><strong>{previewDimensions.width.toFixed(1)} × {previewDimensions.height.toFixed(1)} mm</strong></span>

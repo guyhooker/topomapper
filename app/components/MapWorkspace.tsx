@@ -392,7 +392,9 @@ function StackPreviewCanvas({
       });
       const projectRaw = (longitude: number, latitude: number, z: number) => {
         const x = ((longitude - preview.selection.west) / (preview.selection.east - preview.selection.west) - 0.5) * modelWidth;
-        const y = ((latitude - preview.selection.south) / (preview.selection.north - preview.selection.south) - 0.5) * modelHeight;
+        // Canvas Y grows downward, so latitude must be inverted to keep north
+        // at the top and east on the right, matching the 2D map.
+        const y = (0.5 - (latitude - preview.selection.south) / (preview.selection.north - preview.selection.south)) * modelHeight;
         const rotated = rotate(x, y);
         return { x: rotated.x, y: rotated.y * Math.sin(elevationRadians) - z * Math.cos(elevationRadians) };
       };
@@ -485,6 +487,21 @@ function StackPreviewCanvas({
             }));
         });
       }
+
+      const compassPoints = [
+        { label: "N", longitude: (base.west + base.east) / 2, latitude: base.north },
+        { label: "E", longitude: base.east, latitude: (base.south + base.north) / 2 },
+        { label: "S", longitude: (base.west + base.east) / 2, latitude: base.south },
+        { label: "W", longitude: base.west, latitude: (base.south + base.north) / 2 },
+      ];
+      context.fillStyle = "rgba(25,35,31,.78)";
+      context.font = "700 11px Inter, sans-serif";
+      context.textAlign = "center";
+      context.textBaseline = "middle";
+      compassPoints.forEach(({ label, longitude, latitude }) => {
+        const point = project(longitude, latitude, 0);
+        context.fillText(label, point.x, point.y);
+      });
     };
     draw();
     const observer = new ResizeObserver(draw);
@@ -553,7 +570,7 @@ export function MapWorkspace() {
   const [customHeightMm, setCustomHeightMm] = useState(400);
   const [materialThicknessMm, setMaterialThicknessMm] = useState(6);
   const [stackView, setStackView] = useState<StackView>("three-dimensional");
-  const [stackYaw, setStackYaw] = useState(325);
+  const [stackYaw, setStackYaw] = useState(0);
   const [stackPitch, setStackPitch] = useState(34);
   const [showTrueElevation, setShowTrueElevation] = useState(true);
   const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("two-dimensional");
@@ -1646,6 +1663,7 @@ export function MapWorkspace() {
               <button className={stackView === "three-dimensional" ? "active" : ""} onClick={() => { setStackView("three-dimensional"); setStackPitch(34); }}>3D</button>
               <button className={stackView === "side" ? "active" : ""} onClick={() => { setStackView("side"); setStackPitch(0); }}>Side</button>
               <button className={stackView === "top" ? "active" : ""} onClick={() => { setStackView("top"); setStackPitch(90); }}>Top</button>
+              <button onClick={() => { setStackView("three-dimensional"); setStackYaw(0); setStackPitch(34); }}>North up</button>
             </div>
             <label className="thickness-control">Material <span><input type="number" min="0.5" max="50" step="0.5" value={materialThicknessMm} onChange={(event) => setMaterialThicknessMm(Math.max(0.5, Number(event.target.value)))} /> mm</span></label>
             <label className="true-profile-toggle"><input type="checkbox" checked={showTrueElevation} onChange={(event) => setShowTrueElevation(event.target.checked)} disabled={stackView === "top"} /> True-elevation reference</label>

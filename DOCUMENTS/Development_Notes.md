@@ -226,6 +226,10 @@
 - Two-axis pointer dragging rotates the model horizontally and tilts it from a
   direct side view through oblique angles to a top view. Named 3D, Side, and Top
   buttons remain as quick reset viewpoints.
+- Corrected the canvas latitude axis after the New Plymouth test revealed that
+  the oblique model appeared back to front. North now starts at the top and east
+  at the right exactly as on the 2D map; N/E/S/W labels and a North up reset make
+  orientation explicit while rotating.
 - Added finished size, physical stack height, true scaled relief height, and
   vertical-exaggeration readouts. An optional dashed true-elevation reference
   makes Log/equal-sheet distortion visible.

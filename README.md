@@ -56,3 +56,4 @@ then displays the geometry as an equal-thickness physical stack. The preview can
 take over the workspace using the 2D Map / 3D Model switch, can be freely rotated
 and tilted or viewed directly from the side or top, and compares physical height
 with a true-elevation reference before SVG fabrication work begins in Stage 7.
+Compass labels and a North up reset keep its orientation aligned with the map.

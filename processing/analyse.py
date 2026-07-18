@@ -1,20 +1,20 @@
-"""GeoTIFF clipping, elevation analysis, and preview generation for topomapper."""
+"""GeoTIFF clipping, elevation analysis, and mosaic previews for topomapper."""
 
 from __future__ import annotations
 
 import base64
 import math
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 import numpy as np
 import rasterio
 from rasterio.enums import Resampling
 from rasterio.errors import RasterioIOError, WindowError
 from rasterio.io import MemoryFile
-from rasterio.warp import transform, transform_bounds
-from rasterio.windows import Window, bounds as window_bounds, from_bounds
+from rasterio.transform import from_bounds as output_transform
+from rasterio.warp import reproject, transform, transform_bounds
+from rasterio.windows import Window, from_bounds
 
 
 WGS84 = "EPSG:4326"
@@ -26,17 +26,25 @@ class AnalysisError(Exception):
     """A problem that can be explained directly in the interface."""
 
 
-@dataclass(frozen=True)
+class NoOverlapError(AnalysisError):
+    """A source raster does not intersect the selected area."""
+
+
+class NoDataError(AnalysisError):
+    """An intersecting source contains no valid elevation cells."""
+
+
 class Bounds:
-    west: float
-    south: float
-    east: float
-    north: float
+    def __init__(self, west: float, south: float, east: float, north: float):
+        self.west = float(west)
+        self.south = float(south)
+        self.east = float(east)
+        self.north = float(north)
 
     @classmethod
     def from_mapping(cls, value: dict[str, Any]) -> "Bounds":
         try:
-            bounds = cls(*(float(value[name]) for name in ("west", "south", "east", "north")))
+            bounds = cls(*(value[name] for name in ("west", "south", "east", "north")))
         except (KeyError, TypeError, ValueError) as error:
             raise AnalysisError("The selected map bounds are incomplete.") from error
         if not all(math.isfinite(number) for number in bounds.as_tuple()):
@@ -56,28 +64,36 @@ class Bounds:
             "north": self.north,
         }
 
+    def overlaps(self, other: "Bounds") -> bool:
+        return self.west < other.east and self.east > other.west and self.south < other.north and self.north > other.south
+
+
+def _source_bounds(dataset: rasterio.io.DatasetReader) -> Bounds:
+    if dataset.crs is None:
+        raise AnalysisError("A GeoTIFF has no coordinate reference system.")
+    return Bounds(*transform_bounds(dataset.crs, WGS84, *dataset.bounds, densify_pts=21))
+
 
 def _clip_window(dataset: rasterio.io.DatasetReader, selection: Bounds) -> Window:
     if dataset.crs is None:
-        raise AnalysisError("This GeoTIFF has no coordinate reference system.")
+        raise AnalysisError("A GeoTIFF has no coordinate reference system.")
     try:
         projected = transform_bounds(WGS84, dataset.crs, *selection.as_tuple(), densify_pts=21)
         requested = from_bounds(*projected, transform=dataset.transform)
-        full = Window(0, 0, dataset.width, dataset.height)
-        clipped = requested.intersection(full)
+        clipped = requested.intersection(Window(0, 0, dataset.width, dataset.height))
     except (ValueError, WindowError) as error:
-        raise AnalysisError("The GeoTIFF does not overlap the selected map area.") from error
+        raise NoOverlapError("The GeoTIFF does not overlap the selected map area.") from error
 
     col_start = max(0, math.floor(clipped.col_off))
     row_start = max(0, math.floor(clipped.row_off))
     col_stop = min(dataset.width, math.ceil(clipped.col_off + clipped.width))
     row_stop = min(dataset.height, math.ceil(clipped.row_off + clipped.height))
     if col_stop <= col_start or row_stop <= row_start:
-        raise AnalysisError("The GeoTIFF does not overlap the selected map area.")
+        raise NoOverlapError("The GeoTIFF does not overlap the selected map area.")
     return Window(col_start, row_start, col_stop - col_start, row_stop - row_start)
 
 
-def _extrema(dataset: rasterio.io.DatasetReader, window: Window) -> dict[str, Any]:
+def _extrema(dataset: rasterio.io.DatasetReader, window: Window, filename: str) -> dict[str, Any]:
     minimum = math.inf
     maximum = -math.inf
     minimum_cell: tuple[int, int] | None = None
@@ -93,8 +109,7 @@ def _extrema(dataset: rasterio.io.DatasetReader, window: Window) -> dict[str, An
         height = min(ANALYSIS_TILE_SIZE, row_stop - row)
         for col in range(col_start, col_stop, ANALYSIS_TILE_SIZE):
             width = min(ANALYSIS_TILE_SIZE, col_stop - col)
-            tile_window = Window(col, row, width, height)
-            values = dataset.read(1, window=tile_window, masked=True)
+            values = dataset.read(1, window=Window(col, row, width, height), masked=True)
             valid = values.compressed()
             if not valid.size:
                 continue
@@ -102,29 +117,26 @@ def _extrema(dataset: rasterio.io.DatasetReader, window: Window) -> dict[str, An
             tile_minimum = float(valid.min())
             tile_maximum = float(valid.max())
             if tile_minimum < minimum:
-                flat_index = int(np.argmin(values.filled(np.inf)))
-                local_row, local_col = np.unravel_index(flat_index, values.shape)
+                local_row, local_col = np.unravel_index(int(np.argmin(values.filled(np.inf))), values.shape)
                 minimum = tile_minimum
                 minimum_cell = row + int(local_row), col + int(local_col)
             if tile_maximum > maximum:
-                flat_index = int(np.argmax(values.filled(-np.inf)))
-                local_row, local_col = np.unravel_index(flat_index, values.shape)
+                local_row, local_col = np.unravel_index(int(np.argmax(values.filled(-np.inf))), values.shape)
                 maximum = tile_maximum
                 maximum_cell = row + int(local_row), col + int(local_col)
 
     if not valid_pixels or minimum_cell is None or maximum_cell is None:
-        raise AnalysisError("The selected part of the GeoTIFF contains only missing data.")
+        raise NoDataError(f"{filename} contains only missing data inside the selected area.")
 
-    def point(cell: tuple[int, int]) -> dict[str, float]:
+    def point(cell: tuple[int, int]) -> dict[str, float | str]:
         x, y = dataset.xy(*cell, offset="center")
         longitude, latitude = transform(dataset.crs, WGS84, [x], [y])
-        return {"longitude": longitude[0], "latitude": latitude[0]}
+        return {"longitude": longitude[0], "latitude": latitude[0], "source_filename": filename}
 
     return {
         "minimum": {"elevation": minimum, **point(minimum_cell)},
         "maximum": {"elevation": maximum, **point(maximum_cell)},
         "valid_pixels": valid_pixels,
-        "window_pixels": int(window.width * window.height),
     }
 
 
@@ -138,27 +150,46 @@ def _terrain_colours(normalised: np.ndarray) -> np.ndarray:
         [121, 105, 94],
         [245, 244, 237],
     ])
-    channels = [np.interp(normalised, stops, colours[:, index]) for index in range(3)]
-    return np.stack(channels, axis=0)
+    return np.stack([np.interp(normalised, stops, colours[:, index]) for index in range(3)], axis=0)
 
 
-def _preview(dataset: rasterio.io.DatasetReader, window: Window, minimum: float, maximum: float) -> str:
-    scale = min(1.0, PREVIEW_MAX_SIZE / max(window.width, window.height))
-    output_width = max(2, int(round(window.width * scale)))
-    output_height = max(2, int(round(window.height * scale)))
-    values = dataset.read(
-        1,
-        window=window,
-        out_shape=(output_height, output_width),
-        masked=True,
-        resampling=Resampling.bilinear,
-    ).astype("float32")
-    valid_mask = ~np.ma.getmaskarray(values)
+def _preview_shape(selection: Bounds) -> tuple[int, int]:
+    centre_latitude = math.radians((selection.south + selection.north) / 2)
+    width = (selection.east - selection.west) * max(0.1, math.cos(centre_latitude))
+    height = selection.north - selection.south
+    if width >= height:
+        return PREVIEW_MAX_SIZE, max(2, round(PREVIEW_MAX_SIZE * height / width))
+    return max(2, round(PREVIEW_MAX_SIZE * width / height)), PREVIEW_MAX_SIZE
+
+
+def _mark_rectangular_coverage(mask: np.ndarray, selection: Bounds, source: Bounds) -> None:
+    clipped_west = max(selection.west, source.west)
+    clipped_south = max(selection.south, source.south)
+    clipped_east = min(selection.east, source.east)
+    clipped_north = min(selection.north, source.north)
+    if clipped_west >= clipped_east or clipped_south >= clipped_north:
+        return
+    height, width = mask.shape
+    longitude_span = selection.east - selection.west
+    latitude_span = selection.north - selection.south
+    col_start = max(0, math.floor((clipped_west - selection.west) / longitude_span * width))
+    col_stop = min(width, math.ceil((clipped_east - selection.west) / longitude_span * width))
+    row_start = max(0, math.floor((selection.north - clipped_north) / latitude_span * height))
+    row_stop = min(height, math.ceil((selection.north - clipped_south) / latitude_span * height))
+    mask[row_start:row_stop, col_start:col_stop] = True
+
+
+def _encode_preview(
+    values: np.ndarray,
+    valid_mask: np.ndarray,
+    minimum: float,
+    maximum: float,
+    transform_value: rasterio.Affine,
+) -> str:
     span = maximum - minimum
-    normalised = np.clip((values.filled(minimum) - minimum) / (span if span else 1.0), 0, 1)
+    normalised = np.clip((np.where(valid_mask, values, minimum) - minimum) / (span if span else 1.0), 0, 1)
     colours = _terrain_colours(normalised)
-
-    filled = values.filled(float(values.mean()) if values.count() else minimum)
+    filled = np.where(valid_mask, values, float(values[valid_mask].mean()))
     gradient_y, gradient_x = np.gradient(filled)
     slope_strength = np.hypot(gradient_x, gradient_y)
     if float(slope_strength.max()) > 0:
@@ -168,82 +199,130 @@ def _preview(dataset: rasterio.io.DatasetReader, window: Window, minimum: float,
     colours = np.clip(colours * shade[np.newaxis, :, :], 0, 255).astype("uint8")
     alpha = np.where(valid_mask, 235, 0).astype("uint8")
     rgba = np.concatenate([colours, alpha[np.newaxis, :, :]], axis=0)
-
     with MemoryFile() as memory:
-        with memory.open(driver="PNG", width=output_width, height=output_height, count=4, dtype="uint8") as target:
+        with memory.open(
+            driver="PNG",
+            width=values.shape[1],
+            height=values.shape[0],
+            count=4,
+            dtype="uint8",
+            crs=WGS84,
+            transform=transform_value,
+        ) as target:
             target.write(rgba)
         encoded = base64.b64encode(memory.read()).decode("ascii")
     return f"data:image/png;base64,{encoded}"
 
 
-def _coverage(selection: Bounds, dataset_bounds: Bounds, valid_pixels: int, window_pixels: int) -> dict[str, float]:
-    overlap_west = max(selection.west, dataset_bounds.west)
-    overlap_south = max(selection.south, dataset_bounds.south)
-    overlap_east = min(selection.east, dataset_bounds.east)
-    overlap_north = min(selection.north, dataset_bounds.north)
-    if overlap_east <= overlap_west or overlap_north <= overlap_south:
-        spatial_fraction = 0.0
-    else:
-        selected_area = (selection.east - selection.west) * (selection.north - selection.south)
-        overlap_area = (overlap_east - overlap_west) * (overlap_north - overlap_south)
-        spatial_fraction = min(1.0, overlap_area / selected_area)
-    valid_fraction = valid_pixels / window_pixels if window_pixels else 0.0
-    usable_fraction = spatial_fraction * valid_fraction
+def _mosaic_preview(
+    inputs: Iterable[tuple[Path, str]],
+    selection: Bounds,
+    minimum: float,
+    maximum: float,
+) -> tuple[str, dict[str, float]]:
+    width, height = _preview_shape(selection)
+    destination_transform = output_transform(*selection.as_tuple(), width, height)
+    mosaic = np.full((height, width), np.nan, dtype="float32")
+    dataset_coverage = np.zeros((height, width), dtype=bool)
+
+    for path, _filename in inputs:
+        with rasterio.open(path) as dataset:
+            source_bounds = _source_bounds(dataset)
+            if not selection.overlaps(source_bounds):
+                continue
+            _mark_rectangular_coverage(dataset_coverage, selection, source_bounds)
+            tile = np.full((height, width), np.nan, dtype="float32")
+            reproject(
+                source=rasterio.band(dataset, 1),
+                destination=tile,
+                src_transform=dataset.transform,
+                src_crs=dataset.crs,
+                src_nodata=dataset.nodata,
+                dst_transform=destination_transform,
+                dst_crs=WGS84,
+                dst_nodata=np.nan,
+                resampling=Resampling.bilinear,
+                init_dest_nodata=True,
+            )
+            valid = np.isfinite(tile)
+            mosaic[valid] = tile[valid]
+
+    valid_mask = np.isfinite(mosaic)
+    if not valid_mask.any():
+        raise AnalysisError("The selected GeoTIFFs contain no usable elevation data in this area.")
+    total = valid_mask.size
+    overlap_percent = float(dataset_coverage.sum()) / total * 100
+    valid_percent = float(valid_mask.sum()) / total * 100
+    coverage = {
+        "dataset_overlap_percent": round(overlap_percent, 2),
+        "valid_data_percent": round(valid_percent, 2),
+        "missing_data_percent": round(100 - valid_percent, 2),
+    }
+    return _encode_preview(mosaic, valid_mask, minimum, maximum, destination_transform), coverage
+
+
+def _dataset_metadata(dataset: rasterio.io.DatasetReader, filename: str, selection: Bounds) -> dict[str, Any]:
+    tags = dataset.tags()
+    source_bounds = _source_bounds(dataset)
     return {
-        "dataset_overlap_percent": round(spatial_fraction * 100, 2),
-        "valid_data_percent": round(usable_fraction * 100, 2),
-        "missing_data_percent": round((1 - usable_fraction) * 100, 2),
+        "filename": filename,
+        "crs": dataset.crs.to_string(),
+        "width": dataset.width,
+        "height": dataset.height,
+        "resolution_x": abs(dataset.res[0]),
+        "resolution_y": abs(dataset.res[1]),
+        "nodata": dataset.nodata,
+        "vertical_datum": tags.get("VERTICAL_DATUM") or tags.get("VERT_DATUM") or "Not stated in GeoTIFF",
+        "bounds": source_bounds.as_dict(),
+        "overlaps_selection": selection.overlaps(source_bounds),
     }
 
 
-def analyse_geotiff(path: str | Path, filename: str, bounds_value: dict[str, Any]) -> dict[str, Any]:
+def analyse_geotiffs(
+    inputs: Iterable[tuple[str | Path, str]],
+    bounds_value: dict[str, Any],
+) -> dict[str, Any]:
     selection = Bounds.from_mapping(bounds_value)
+    prepared = [(Path(path), filename) for path, filename in inputs]
+    if not prepared:
+        raise AnalysisError("Choose at least one GeoTIFF elevation file.")
+
+    datasets: list[dict[str, Any]] = []
+    extrema_results: list[dict[str, Any]] = []
     try:
-        with rasterio.open(path) as dataset:
-            if dataset.count < 1:
-                raise AnalysisError("This GeoTIFF does not contain an elevation band.")
-            window = _clip_window(dataset, selection)
-            extrema = _extrema(dataset, window)
-            projected_preview_bounds = window_bounds(window, dataset.transform)
-            preview_bounds_tuple = transform_bounds(dataset.crs, WGS84, *projected_preview_bounds, densify_pts=21)
-            preview_bounds = Bounds(*preview_bounds_tuple)
-            source_bounds = Bounds(*transform_bounds(dataset.crs, WGS84, *dataset.bounds, densify_pts=21))
-            tags = dataset.tags()
-            vertical_datum = tags.get("VERTICAL_DATUM") or tags.get("VERT_DATUM") or "Not stated in GeoTIFF"
-            preview = _preview(
-                dataset,
-                window,
-                extrema["minimum"]["elevation"],
-                extrema["maximum"]["elevation"],
-            )
-            coverage = _coverage(
-                selection,
-                source_bounds,
-                extrema["valid_pixels"],
-                extrema["window_pixels"],
-            )
-            return {
-                "selection": selection.as_dict(),
-                "preview_bounds": preview_bounds.as_dict(),
-                "preview_png": preview,
-                "minimum": extrema["minimum"],
-                "maximum": extrema["maximum"],
-                "coverage": coverage,
-                "dataset": {
-                    "filename": filename,
-                    "crs": dataset.crs.to_string(),
-                    "width": dataset.width,
-                    "height": dataset.height,
-                    "resolution_x": abs(dataset.res[0]),
-                    "resolution_y": abs(dataset.res[1]),
-                    "nodata": dataset.nodata,
-                    "vertical_datum": vertical_datum,
-                    "bounds": source_bounds.as_dict(),
-                },
-            }
+        for path, filename in prepared:
+            with rasterio.open(path) as dataset:
+                if dataset.count < 1:
+                    raise AnalysisError(f"{filename} does not contain an elevation band.")
+                datasets.append(_dataset_metadata(dataset, filename, selection))
+                try:
+                    window = _clip_window(dataset, selection)
+                    extrema_results.append(_extrema(dataset, window, filename))
+                except (NoOverlapError, NoDataError):
+                    continue
+
+        if not extrema_results:
+            raise AnalysisError("None of the selected GeoTIFFs contains usable elevation data in this area.")
+        minimum = min((result["minimum"] for result in extrema_results), key=lambda point: point["elevation"])
+        maximum = max((result["maximum"] for result in extrema_results), key=lambda point: point["elevation"])
+        preview, coverage = _mosaic_preview(prepared, selection, minimum["elevation"], maximum["elevation"])
+        return {
+            "selection": selection.as_dict(),
+            "preview_bounds": selection.as_dict(),
+            "preview_png": preview,
+            "minimum": minimum,
+            "maximum": maximum,
+            "coverage": coverage,
+            "datasets": datasets,
+        }
     except AnalysisError:
         raise
     except RasterioIOError as error:
-        raise AnalysisError("The selected file is not a readable GeoTIFF elevation raster.") from error
+        raise AnalysisError("One of the selected files is not a readable GeoTIFF elevation raster.") from error
     except Exception as error:
-        raise AnalysisError(f"The GeoTIFF could not be analysed: {error}") from error
+        raise AnalysisError(f"The GeoTIFF mosaic could not be analysed: {error}") from error
+
+
+def analyse_geotiff(path: str | Path, filename: str, bounds_value: dict[str, Any]) -> dict[str, Any]:
+    """Backward-compatible single-file entry point used by older tests."""
+    return analyse_geotiffs([(path, filename)], bounds_value)

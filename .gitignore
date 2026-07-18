@@ -6,6 +6,7 @@
 /.wrangler
 /.venv
 /fixtures/*.tif
+/fixtures/*.tiff
 .DS_Store
 *.log
 .env*

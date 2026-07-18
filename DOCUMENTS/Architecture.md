@@ -42,6 +42,11 @@ provides GDAL-backed GeoTIFF access, window clipping, raster masks, and CRS
 transformation. Large selected windows are scanned in bounded chunks. Uploaded
 browser files are temporary and are deleted after each request.
 
+Multiple manually supplied tiles are scanned independently for exact extrema
+and reprojected onto a small common WGS84 preview grid. This avoids allocating a
+full-resolution in-memory mosaic while still exposing remaining gaps and mixed
+source metadata before later automatic dataset retrieval is attempted.
+
 ### Project and Export Formats
 
 - A readable JSON project file for settings and provenance.

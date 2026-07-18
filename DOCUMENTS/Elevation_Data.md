@@ -14,17 +14,23 @@ Cloud Optimised GeoTIFFs in the New Zealand Elevation open-data collection:
 - [New Zealand Elevation on the AWS Registry of Open Data](https://registry.opendata.aws/nz-elevation/)
 - [LINZ Data Service](https://data.linz.govt.nz/)
 
-For Stage 3, manually download or crop one `.tif` or `.tiff` file that overlaps
-the selected Mount Taranaki rectangle. Topomapper will clearly report partial
-coverage if the file contains only part of the selection.
+For Stage 3, manually download the `.tif` or `.tiff` tiles that overlap the
+selected Mount Taranaki rectangle. The file chooser accepts several files at
+once: use Command-click in the macOS chooser to select adjoining tiles such as
+BJ29 and BH29. Topomapper mosaics them and clearly reports any part of the
+selection that remains uncovered.
 
 ## What Topomapper reads
 
-- The first raster band as elevation.
+- The first raster band of each selected file as elevation.
 - The GeoTIFF coordinate reference system.
 - Horizontal cell size.
 - The GeoTIFF NODATA marker and mask.
 - `VERTICAL_DATUM` or `VERT_DATUM` metadata when present.
+
+Topomapper scans each tile at its original resolution to find extrema, then
+reprojects a reduced preview from every overlapping tile onto one WGS84 display
+grid. Transparent gaps are missing coverage, not zero elevation.
 
 An absent vertical datum is reported as unknown. It is never silently assumed,
 because later land and bathymetry datasets may use different height references.

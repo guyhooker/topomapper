@@ -108,6 +108,13 @@
 - Added a GeoTIFF chooser to the Stage 3 panel. Browser-selected files are sent
   only to the processor on the same Mac, copied to temporary storage for the
   analysis, and deleted immediately afterward.
+- Extended the chooser and processor to combine up to 24 adjoining GeoTIFF
+  tiles in one analysis. The files may use different supported coordinate
+  systems and are reprojected into one transparent preview mosaic.
+- Exact minimum and maximum scanning remains tile-based and uses the original
+  raster values; the visual mosaic is downsampled separately for display.
+- The results identify which source tile contains each extreme and report how
+  many supplied tiles overlap the selection.
 - Added coordinate-system transformation from the map's WGS84 selection to the
   source raster CRS, including NZTM2000 / EPSG:2193.
 - Clips processing to the selected area and scans large rasters in 1024-pixel
@@ -127,19 +134,26 @@
 - Linked the interface and documentation to LINZ's official elevation access
   guidance.
 - Frontend production build and Python syntax checks pass successfully.
-- Full raster runtime verification requires Rasterio installation during the
-  first normal Terminal start because the protected Codex environment cannot
-  download Python packages.
+- Rasterio was installed successfully by the first normal Terminal start. The
+  protected Codex environment could not download it independently, so later
+  regression checks reused Topomapper's isolated project environment.
+- Guy's first real-data test used BH29 alone over a larger national-park
+  selection. Topomapper correctly reported 36% coverage, a 1 m minimum, and a
+  997 m maximum part-way up the mountain rather than treating the absent summit
+  as zero elevation.
+- Processor regression with the real 8 m BJ29 and BH29 files together found a
+  2510.3 m maximum at 174.06380 E, 39.29629 S in BJ29, a plausible raster-cell
+  result beside the Mount Taranaki summit. The fixed Stage 2 reference rectangle
+  has about 76% coverage from those two north/south tiles because it also extends
+  beyond their shared east/west limits.
 
 ## Next Steps
 
 1. Restart Topomapper so its private Rasterio environment is installed and the
    local elevation service starts.
-2. Analyse the generated synthetic Taranaki fixture and confirm the preview,
-   high/low markers, and missing-data percentage appear.
-3. Download or crop one real LINZ bare-earth DEM GeoTIFF covering the selected
-   Mount Taranaki area.
-4. Confirm plausible minimum and maximum elevations and inspect the stated CRS,
-   resolution, vertical datum, and coverage.
-5. Mark Stage 3 complete only after the real LINZ acceptance test passes.
-6. Do not begin Stage 4 layer boundaries until Stage 3 is accepted.
+2. Select BJ29 and BH29 together in the multi-file chooser and analyse them as
+   one mosaic.
+3. Confirm a summit near 2510 m, inspect the combined coverage, and verify the
+   high/low cards name their source tiles.
+4. Mark Stage 3 complete after the combined real-tile interface test passes.
+5. Do not begin Stage 4 layer boundaries until Stage 3 is accepted.

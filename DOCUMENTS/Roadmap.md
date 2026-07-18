@@ -55,16 +55,16 @@ same numerical bounds after reopening a saved example.
 
 - Local Python processing service.
 - GDAL/Rasterio toolchain.
-- Import of one manually downloaded LINZ GeoTIFF.
+- Import of one or more manually downloaded LINZ GeoTIFF tiles.
 - Clip elevation data to the selected rectangle.
 - Display minimum and maximum elevation and their map locations.
 - Hillshade or coloured elevation preview.
 
 ### Acceptance Test
 
-For the Mount Taranaki selection, topomapper reports plausible minimum and
-maximum elevations, marks their locations, and distinguishes missing raster data
-from real elevation values.
+For the Mount Taranaki selection, topomapper combines adjoining tiles, reports
+plausible minimum and maximum elevations, marks their locations, and
+distinguishes missing raster data from real elevation values.
 
 ## Stage 4 — Layer Boundary Editor
 

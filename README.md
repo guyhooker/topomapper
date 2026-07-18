@@ -34,9 +34,9 @@ Open `http://localhost:3000` and leave Terminal running while using the app.
 
 ## Current prototype
 
-Stage 3 imports a local elevation GeoTIFF, clips it to the editable model-area
-selection, reports the lowest and highest elevations and their locations, and
-overlays a coloured terrain preview. Missing data is reported separately from
-real zero elevation. See
+Stage 3 imports one or more local elevation GeoTIFF tiles, clips and mosaics
+them to the editable model-area selection, reports the lowest and highest
+elevations and their source tiles, and overlays a coloured terrain preview.
+Missing data is reported separately from real zero elevation. See
 [`DOCUMENTS/Elevation_Data.md`](DOCUMENTS/Elevation_Data.md) for suitable LINZ
 sources and the included synthetic test fixture.

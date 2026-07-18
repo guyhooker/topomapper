@@ -35,6 +35,20 @@ type ElevationPoint = {
   elevation: number;
   longitude: number;
   latitude: number;
+  source_filename: string;
+};
+
+type ElevationDataset = {
+  filename: string;
+  crs: string;
+  width: number;
+  height: number;
+  resolution_x: number;
+  resolution_y: number;
+  nodata: number | null;
+  vertical_datum: string;
+  bounds: SelectionBounds;
+  overlaps_selection: boolean;
 };
 
 type ElevationAnalysis = {
@@ -48,17 +62,7 @@ type ElevationAnalysis = {
     valid_data_percent: number;
     missing_data_percent: number;
   };
-  dataset: {
-    filename: string;
-    crs: string;
-    width: number;
-    height: number;
-    resolution_x: number;
-    resolution_y: number;
-    nodata: number | null;
-    vertical_datum: string;
-    bounds: SelectionBounds;
-  };
+  datasets: ElevationDataset[];
 };
 
 type ProcessorStatus = "checking" | "ready" | "unavailable";
@@ -195,7 +199,7 @@ export function MapWorkspace() {
   const [hasSavedExample, setHasSavedExample] = useState(false);
   const [selectionStatus, setSelectionStatus] = useState("Find a place, then draw the area you want to model.");
   const [processorStatus, setProcessorStatus] = useState<ProcessorStatus>("checking");
-  const [elevationFile, setElevationFile] = useState<File | null>(null);
+  const [elevationFiles, setElevationFiles] = useState<File[]>([]);
   const [analysing, setAnalysing] = useState(false);
   const [analysis, setAnalysis] = useState<ElevationAnalysis | null>(null);
   const [analysisStatus, setAnalysisStatus] = useState("Choose a LINZ elevation GeoTIFF for this area.");
@@ -578,10 +582,10 @@ export function MapWorkspace() {
     }
   }
 
-  function chooseElevationFile(file: File | null) {
-    setElevationFile(file);
-    if (!file) {
-      setAnalysisStatus("Choose a LINZ elevation GeoTIFF for this area.");
+  function chooseElevationFiles(files: File[]) {
+    setElevationFiles(files);
+    if (!files.length) {
+      setAnalysisStatus("Choose one or more LINZ elevation GeoTIFFs for this area.");
       return;
     }
     if (analysisRef.current) {
@@ -589,7 +593,9 @@ export function MapWorkspace() {
       analysisRef.current = null;
       setAnalysis(null);
     }
-    setAnalysisStatus(`${file.name} is ready to analyse.`);
+    setAnalysisStatus(files.length === 1
+      ? `${files[0].name} is ready to analyse.`
+      : `${files.length} adjoining GeoTIFF tiles are ready to combine.`);
   }
 
   async function retryProcessor() {
@@ -598,7 +604,9 @@ export function MapWorkspace() {
       const response = await fetch(`${PROCESSOR_ENDPOINT}/health`);
       if (!response.ok) throw new Error("Processor unavailable");
       setProcessorStatus("ready");
-      setAnalysisStatus(elevationFile ? `${elevationFile.name} is ready to analyse.` : "Choose a LINZ elevation GeoTIFF for this area.");
+      setAnalysisStatus(elevationFiles.length
+        ? `${elevationFiles.length} GeoTIFF tile${elevationFiles.length === 1 ? " is" : "s are"} ready to analyse.`
+        : "Choose one or more LINZ elevation GeoTIFFs for this area.");
     } catch {
       setProcessorStatus("unavailable");
       setAnalysisStatus("The elevation processor is not running. Restart Topomapper from Terminal.");
@@ -607,12 +615,14 @@ export function MapWorkspace() {
 
   async function analyseElevation(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!selection || !elevationFile || analysing) return;
+    if (!selection || !elevationFiles.length || analysing) return;
     setAnalysing(true);
-    setAnalysisStatus("Clipping the GeoTIFF and finding its highest and lowest points…");
+    setAnalysisStatus(elevationFiles.length === 1
+      ? "Clipping the GeoTIFF and finding its highest and lowest points…"
+      : `Combining ${elevationFiles.length} tiles and finding the mosaic's highest and lowest points…`);
 
     const form = new FormData();
-    form.append("geotiff", elevationFile);
+    elevationFiles.forEach((file) => form.append("geotiff", file));
     form.append("bounds", JSON.stringify(selection));
 
     try {
@@ -746,7 +756,7 @@ export function MapWorkspace() {
           <div className="elevation-heading-row">
             <div>
               <span className="section-label">ELEVATION DATA</span>
-              <strong id="elevation-heading">Analyse GeoTIFF</strong>
+              <strong id="elevation-heading">Analyse GeoTIFF mosaic</strong>
             </div>
             <span className={`processor-state ${processorStatus}`}>
               <i aria-hidden="true" />
@@ -759,10 +769,16 @@ export function MapWorkspace() {
               <input
                 type="file"
                 accept=".tif,.tiff,image/tiff"
-                onChange={(event) => chooseElevationFile(event.target.files?.[0] ?? null)}
+                multiple
+                onChange={(event) => chooseElevationFiles(Array.from(event.target.files ?? []))}
               />
               <span aria-hidden="true">＋</span>
-              <span><strong>{elevationFile ? "Change GeoTIFF" : "Choose GeoTIFF"}</strong><small>{elevationFile?.name ?? "LINZ bare-earth elevation raster"}</small></span>
+              <span>
+                <strong>{elevationFiles.length ? "Change GeoTIFF selection" : "Choose GeoTIFFs"}</strong>
+                <small>{elevationFiles.length
+                  ? elevationFiles.length === 1 ? elevationFiles[0].name : `${elevationFiles.length} tiles: ${elevationFiles.map((file) => file.name).join(", ")}`
+                  : "Select all adjoining LINZ bare-earth tiles together"}</small>
+              </span>
             </label>
             {processorStatus === "unavailable" ? (
               <button type="button" className="processor-retry" onClick={retryProcessor}>Check processor again</button>
@@ -770,9 +786,9 @@ export function MapWorkspace() {
               <button
                 type="submit"
                 className="analyse-button"
-                disabled={!selection || !elevationFile || analysing || processorStatus !== "ready"}
+                disabled={!selection || !elevationFiles.length || analysing || processorStatus !== "ready"}
               >
-                {analysing ? "Analysing…" : "Analyse selected area"}
+                {analysing ? "Analysing…" : elevationFiles.length > 1 ? `Combine ${elevationFiles.length} tiles and analyse` : "Analyse selected area"}
               </button>
             )}
           </form>
@@ -792,12 +808,12 @@ export function MapWorkspace() {
                 <button onClick={() => focusElevationPoint(analysis.minimum)}>
                   <span><i className="low" aria-hidden="true" /> Lowest</span>
                   <strong>{formatElevation(analysis.minimum.elevation)}</strong>
-                  <small>{analysis.minimum.latitude.toFixed(5)}°, {analysis.minimum.longitude.toFixed(5)}°</small>
+                  <small>{analysis.minimum.latitude.toFixed(5)}°, {analysis.minimum.longitude.toFixed(5)}° · {analysis.minimum.source_filename}</small>
                 </button>
                 <button onClick={() => focusElevationPoint(analysis.maximum)}>
                   <span><i className="high" aria-hidden="true" /> Highest</span>
                   <strong>{formatElevation(analysis.maximum.elevation)}</strong>
-                  <small>{analysis.maximum.latitude.toFixed(5)}°, {analysis.maximum.longitude.toFixed(5)}°</small>
+                  <small>{analysis.maximum.latitude.toFixed(5)}°, {analysis.maximum.longitude.toFixed(5)}° · {analysis.maximum.source_filename}</small>
                 </button>
               </div>
               <div className="terrain-legend" aria-label="Elevation preview colour scale">
@@ -805,11 +821,12 @@ export function MapWorkspace() {
               </div>
               <dl className="dataset-summary">
                 <div><dt>Coverage</dt><dd>{analysis.coverage.valid_data_percent.toFixed(1)}%</dd></div>
-                <div><dt>Cell size</dt><dd>{analysis.dataset.resolution_x.toFixed(1)} × {analysis.dataset.resolution_y.toFixed(1)} m</dd></div>
-                <div><dt>Coordinates</dt><dd>{analysis.dataset.crs}</dd></div>
-                <div><dt>Vertical datum</dt><dd>{analysis.dataset.vertical_datum}</dd></div>
+                <div><dt>Tiles used</dt><dd>{analysis.datasets.filter((dataset) => dataset.overlaps_selection).length} of {analysis.datasets.length}</dd></div>
+                <div><dt>Cell size</dt><dd>{Array.from(new Set(analysis.datasets.map((dataset) => `${dataset.resolution_x.toFixed(1)} × ${dataset.resolution_y.toFixed(1)} m`))).join(", ")}</dd></div>
+                <div><dt>Coordinates</dt><dd>{Array.from(new Set(analysis.datasets.map((dataset) => dataset.crs))).join(", ")}</dd></div>
+                <div><dt>Vertical datum</dt><dd>{Array.from(new Set(analysis.datasets.map((dataset) => dataset.vertical_datum))).join(", ")}</dd></div>
               </dl>
-              <p className="dataset-name" title={analysis.dataset.filename}>{analysis.dataset.filename}</p>
+              <p className="dataset-name" title={analysis.datasets.map((dataset) => dataset.filename).join(", ")}>{analysis.datasets.map((dataset) => dataset.filename).join(" + ")}</p>
             </div>
           )}
         </section>

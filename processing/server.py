@@ -11,7 +11,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
-from analyse import AnalysisError, analyse_geotiff
+from analyse import AnalysisError, analyse_geotiffs
 
 
 HOST = "127.0.0.1"
@@ -75,7 +75,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": "The analysis request is not multipart form data."})
             return
 
-        temporary_path: Path | None = None
+        temporary_paths: list[Path] = []
         try:
             form = cgi.FieldStorage(
                 fp=self.rfile,
@@ -86,20 +86,27 @@ class RequestHandler(BaseHTTPRequestHandler):
                     "CONTENT_LENGTH": str(length),
                 },
             )
-            upload = form["geotiff"] if "geotiff" in form else None
+            upload_value = form["geotiff"] if "geotiff" in form else None
+            uploads = upload_value if isinstance(upload_value, list) else [upload_value] if upload_value is not None else []
             bounds_field = form["bounds"] if "bounds" in form else None
-            if upload is None or not getattr(upload, "file", None):
+            if not uploads or any(not getattr(upload, "file", None) for upload in uploads):
                 raise AnalysisError("Choose a GeoTIFF elevation file first.")
+            if len(uploads) > 24:
+                raise AnalysisError("Stage 3 can combine up to 24 GeoTIFF tiles at once.")
             if bounds_field is None:
                 raise AnalysisError("Draw or reset a map area before analysing elevation.")
-            filename = Path(getattr(upload, "filename", "elevation.tif") or "elevation.tif").name
-            if Path(filename).suffix.lower() not in {".tif", ".tiff"}:
-                raise AnalysisError("Choose a .tif or .tiff GeoTIFF elevation file.")
             bounds = json.loads(bounds_field.value)
-            with tempfile.NamedTemporaryFile(prefix="topomapper-", suffix=Path(filename).suffix, delete=False) as target:
-                temporary_path = Path(target.name)
-                shutil.copyfileobj(upload.file, target, length=1024 * 1024)
-            result = analyse_geotiff(temporary_path, filename, bounds)
+            inputs: list[tuple[Path, str]] = []
+            for upload in uploads:
+                filename = Path(getattr(upload, "filename", "elevation.tif") or "elevation.tif").name
+                if Path(filename).suffix.lower() not in {".tif", ".tiff"}:
+                    raise AnalysisError("Choose only .tif or .tiff GeoTIFF elevation files.")
+                with tempfile.NamedTemporaryFile(prefix="topomapper-", suffix=Path(filename).suffix, delete=False) as target:
+                    temporary_path = Path(target.name)
+                    temporary_paths.append(temporary_path)
+                    shutil.copyfileobj(upload.file, target, length=1024 * 1024)
+                inputs.append((temporary_path, filename))
+            result = analyse_geotiffs(inputs, bounds)
             self._send_json(200, result)
         except AnalysisError as error:
             self._send_json(422, {"error": str(error)})
@@ -108,7 +115,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         except Exception as error:
             self._send_json(500, {"error": f"The local processor failed: {error}"})
         finally:
-            if temporary_path:
+            for temporary_path in temporary_paths:
                 temporary_path.unlink(missing_ok=True)
 
 

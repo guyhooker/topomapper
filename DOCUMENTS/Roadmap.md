@@ -209,6 +209,8 @@ registration holes align consistently across every exported layer.
 
 ## Stage 10 — Manual Sheet Layout
 
+**Status: Initial implementation complete — acceptance test pending**
+
 ### Adds
 
 - Configurable stock sheet, initially 1200 × 600 × 3 mm MDF.
@@ -217,11 +219,16 @@ registration holes align consistently across every exported layer.
 - Per-part face/orientation instructions; rotation is unrestricted while
   mirroring is explicitly tracked.
 - Sheet count, used area, and waste estimate.
+- PCB-style live DRC with non-blocking sheet-edge and part-spacing warnings.
+- Searchable reusable parts library with duplicate copies and dedicated
+  replacement sheets.
+- Editable conservative Auto layout for currently unplaced original parts.
 
 ### Acceptance Test
 
 All retained model parts can be placed manually without overlap and the saved
-layout reopens with identical positions and orientations.
+layout retains identical positions and orientations. A selected part can be
+duplicated onto a replacement sheet without disturbing the production sheets.
 
 ## Stage 11 — Automatic Sheet Nesting
 

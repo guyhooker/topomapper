@@ -92,6 +92,12 @@ boundary.
 - Preview and validate every toolpath before G-code can be downloaded.
 - Require a named CNC/controller profile and a scrap-material test before
   treating generated G-code as production-ready.
+- Treat sheet-layout rules like PCB design rules: violations remain visible and
+  auditable but do not prevent intentional manual placement.
+- Keep the parts library reusable so selected lost or broken parts can be
+  duplicated onto a separate replacement sheet without rebuilding the full
+  model layout.
+- Keep Auto layout editable and preserve manual layout as a permanent workflow.
 
 ## Preview and Analysis
 

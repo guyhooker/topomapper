@@ -71,6 +71,11 @@ geometry at an explicitly chosen physical scale and simplification tolerance.
   cannot be rounded.
 - A sheet-layout document recording stock size, margins, clamp zones, part
   transforms, mirroring/face instructions, and nesting provenance.
+- Multiple named layouts may reference the same terrain model and part library;
+  production, test-cut, and replacement-part sheets must not require duplicate
+  terrain processing.
+- Design-rule violations are stored as reviewable warnings rather than silently
+  moving geometry or blocking deliberate exceptions.
 - Controller-specific G-code generated only from a validated manufacturing and
   sheet-layout plan; SVG remains the visual audit format.
 - G-code only through a later, explicitly configured CAM/postprocessor stage.

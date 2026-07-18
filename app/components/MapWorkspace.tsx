@@ -77,7 +77,7 @@ type LayerDistribution = "log" | "linear";
 type OutputFormat = "free" | "12x8" | "a2" | "square" | "custom";
 type OutputOrientation = "landscape" | "portrait";
 type StackView = "three-dimensional" | "side" | "top";
-type WorkspaceView = "two-dimensional" | "three-dimensional" | "assembly" | "manufacturing" | "smoothing";
+type WorkspaceView = "two-dimensional" | "three-dimensional" | "assembly" | "manufacturing" | "smoothing" | "sheet-layout";
 
 type FilledLayer = {
   index: number;
@@ -134,6 +134,38 @@ type AssemblyPlan = {
   holes: RegistrationHole[];
   ventComplete: boolean;
   warnings: string[];
+};
+
+type LayoutPart = {
+  id: string;
+  layerIndex: number;
+  width: number;
+  height: number;
+  areaMm2: number;
+  rings: { x: number; y: number }[][];
+  holes: { x: number; y: number; kind: "grid" | "vent" }[];
+};
+
+type SheetPlacement = {
+  id: string;
+  partId: string;
+  sheetIndex: number;
+  x: number;
+  y: number;
+  rotation: 0 | 90 | 180 | 270;
+};
+
+type SheetRules = {
+  width: number;
+  height: number;
+  thickness: number;
+  edgeMargin: number;
+  partSpacing: number;
+};
+
+type LayoutViolation = {
+  placementIds: string[];
+  message: string;
 };
 
 const QUICK_PLACES: Place[] = [
@@ -644,6 +676,74 @@ function buildAssemblyPlan(
   const unlabelled = parts.filter((part) => !part.machineLabel).length;
   if (unlabelled) warnings.push(`${unlabelled} small part${unlabelled === 1 ? " is" : "s are"} too small for reliable machining text; use the assembly sheet.`);
   return { parts, holes, ventComplete: vents.length > 0, warnings };
+}
+
+function buildLayoutParts(preview: FilledLayerPreview, plan: AssemblyPlan, modelWidth: number, modelHeight: number): LayoutPart[] {
+  return plan.parts.map((part) => {
+    const physicalRings = part.feature.geometry.coordinates.map((ring) => ring.map((point) => physicalPoint(preview, modelWidth, modelHeight, point)));
+    const points = physicalRings.flat();
+    const minimumX = Math.min(...points.map((point) => point.x));
+    const maximumX = Math.max(...points.map((point) => point.x));
+    const minimumY = Math.min(...points.map((point) => point.y));
+    const maximumY = Math.max(...points.map((point) => point.y));
+    return {
+      id: part.id,
+      layerIndex: part.layerIndex,
+      width: maximumX - minimumX,
+      height: maximumY - minimumY,
+      areaMm2: part.areaMm2,
+      rings: physicalRings.map((ring) => ring.map((point) => ({ x: point.x - minimumX, y: point.y - minimumY }))),
+      holes: plan.holes.filter((hole) => hole.partIds.includes(part.id)).map((hole) => ({ x: hole.xMm - minimumX, y: hole.yMm - minimumY, kind: hole.kind })),
+    };
+  });
+}
+
+function placementSize(placement: SheetPlacement, part: LayoutPart) {
+  return placement.rotation === 90 || placement.rotation === 270
+    ? { width: part.height, height: part.width }
+    : { width: part.width, height: part.height };
+}
+
+function placementBounds(placement: SheetPlacement, part: LayoutPart) {
+  const size = placementSize(placement, part);
+  return { left: placement.x, top: placement.y, right: placement.x + size.width, bottom: placement.y + size.height, ...size };
+}
+
+function checkLayoutRules(placements: SheetPlacement[], parts: LayoutPart[], rules: SheetRules): LayoutViolation[] {
+  const partMap = new Map(parts.map((part) => [part.id, part]));
+  const violations: LayoutViolation[] = [];
+  placements.forEach((placement) => {
+    const part = partMap.get(placement.partId);
+    if (!part) return;
+    const bounds = placementBounds(placement, part);
+    if (bounds.left < rules.edgeMargin || bounds.top < rules.edgeMargin || bounds.right > rules.width - rules.edgeMargin || bounds.bottom > rules.height - rules.edgeMargin) {
+      violations.push({ placementIds: [placement.id], message: `${placement.partId} enters the ${rules.edgeMargin} mm sheet-edge no-cut zone.` });
+    }
+  });
+  placements.forEach((left, index) => {
+    const leftPart = partMap.get(left.partId);
+    if (!leftPart) return;
+    const leftBounds = placementBounds(left, leftPart);
+    placements.slice(index + 1).forEach((right) => {
+      if (left.sheetIndex !== right.sheetIndex) return;
+      const rightPart = partMap.get(right.partId);
+      if (!rightPart) return;
+      const rightBounds = placementBounds(right, rightPart);
+      const separated = leftBounds.right + rules.partSpacing <= rightBounds.left
+        || rightBounds.right + rules.partSpacing <= leftBounds.left
+        || leftBounds.bottom + rules.partSpacing <= rightBounds.top
+        || rightBounds.bottom + rules.partSpacing <= leftBounds.top;
+      if (!separated) violations.push({ placementIds: [left.id, right.id], message: `${left.partId} and ${right.partId} are closer than ${rules.partSpacing} mm.` });
+    });
+  });
+  return violations;
+}
+
+function rotateLayoutPoint(point: { x: number; y: number }, part: LayoutPart, rotation: SheetPlacement["rotation"]) {
+  if (rotation === 90) return { x: part.height - point.y, y: point.x };
+  if (rotation === 180) return { x: part.width - point.x, y: part.height - point.y };
+  if (rotation === 270) return { x: point.y, y: part.width - point.x };
+  return point;
 }
 
 function svgNumber(value: number) {
@@ -1304,6 +1404,135 @@ function SmoothingPreviewCanvas({
   return <canvas ref={canvasRef} aria-label={`Original dotted outline and smoothed manufacturing outline for layer ${layerIndex + 1}`} />;
 }
 
+function SheetLayoutCanvas({
+  rules,
+  parts,
+  placements,
+  sheetIndex,
+  selectedId,
+  violations,
+  onSelect,
+  onMove,
+}: {
+  rules: SheetRules;
+  parts: LayoutPart[];
+  placements: SheetPlacement[];
+  sheetIndex: number;
+  selectedId: string | null;
+  violations: LayoutViolation[];
+  onSelect: (id: string | null) => void;
+  onMove: (id: string, x: number, y: number) => void;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const transformRef = useRef({ scale: 1, offsetX: 0, offsetY: 0 });
+  const dragRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null);
+  const partMap = useMemo(() => new Map(parts.map((part) => [part.id, part])), [parts]);
+  const sheetPlacements = placements.filter((placement) => placement.sheetIndex === sheetIndex);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const draw = () => {
+      const rectangle = canvas.getBoundingClientRect();
+      const ratio = Math.min(2, window.devicePixelRatio || 1);
+      canvas.width = Math.max(1, Math.round(rectangle.width * ratio));
+      canvas.height = Math.max(1, Math.round(rectangle.height * ratio));
+      const context = canvas.getContext("2d");
+      if (!context) return;
+      context.scale(ratio, ratio);
+      context.clearRect(0, 0, rectangle.width, rectangle.height);
+      const padding = 28;
+      const scale = Math.min((rectangle.width - padding * 2) / rules.width, (rectangle.height - padding * 2) / rules.height);
+      const offsetX = (rectangle.width - rules.width * scale) / 2;
+      const offsetY = (rectangle.height - rules.height * scale) / 2;
+      transformRef.current = { scale, offsetX, offsetY };
+      context.fillStyle = "#d9c7a6";
+      context.fillRect(offsetX, offsetY, rules.width * scale, rules.height * scale);
+      context.strokeStyle = "rgba(91,65,38,.3)";
+      context.lineWidth = 1;
+      for (let x = 100; x < rules.width; x += 100) {
+        context.beginPath(); context.moveTo(offsetX + x * scale, offsetY); context.lineTo(offsetX + x * scale, offsetY + rules.height * scale); context.stroke();
+      }
+      for (let y = 100; y < rules.height; y += 100) {
+        context.beginPath(); context.moveTo(offsetX, offsetY + y * scale); context.lineTo(offsetX + rules.width * scale, offsetY + y * scale); context.stroke();
+      }
+      context.strokeStyle = "#a6462e";
+      context.setLineDash([5, 4]);
+      context.strokeRect(offsetX + rules.edgeMargin * scale, offsetY + rules.edgeMargin * scale, (rules.width - rules.edgeMargin * 2) * scale, (rules.height - rules.edgeMargin * 2) * scale);
+      context.setLineDash([]);
+      const violating = new Set(violations.flatMap((violation) => violation.placementIds));
+      sheetPlacements.forEach((placement) => {
+        const part = partMap.get(placement.partId);
+        if (!part) return;
+        context.save();
+        context.translate(offsetX + placement.x * scale, offsetY + placement.y * scale);
+        part.rings.forEach((ring, ringIndex) => {
+          context.beginPath();
+          ring.forEach((point, index) => {
+            const rotated = rotateLayoutPoint(point, part, placement.rotation);
+            if (index === 0) context.moveTo(rotated.x * scale, rotated.y * scale); else context.lineTo(rotated.x * scale, rotated.y * scale);
+          });
+          context.closePath();
+          if (ringIndex === 0) {
+            context.fillStyle = `hsl(${112 - part.layerIndex * 4} 28% ${72 - Math.min(30, part.layerIndex * 2)}%)`;
+            context.fill();
+          }
+        });
+        context.strokeStyle = violating.has(placement.id) ? "#bd3c25" : placement.id === selectedId ? "#1d6f82" : "#214f3d";
+        context.lineWidth = placement.id === selectedId ? 2.5 : 1.2;
+        part.rings.forEach((ring) => {
+          context.beginPath();
+          ring.forEach((point, index) => {
+            const rotated = rotateLayoutPoint(point, part, placement.rotation);
+            if (index === 0) context.moveTo(rotated.x * scale, rotated.y * scale); else context.lineTo(rotated.x * scale, rotated.y * scale);
+          });
+          context.closePath(); context.stroke();
+        });
+        part.holes.forEach((hole) => {
+          const point = rotateLayoutPoint(hole, part, placement.rotation);
+          context.beginPath(); context.arc(point.x * scale, point.y * scale, Math.max(2, 2.1 * scale), 0, Math.PI * 2); context.stroke();
+        });
+        const size = placementSize(placement, part);
+        context.fillStyle = "#173c2f";
+        context.font = "700 10px Inter, sans-serif";
+        context.textAlign = "center";
+        context.fillText(`${part.id} · ${placement.rotation}°`, size.width * scale / 2, size.height * scale / 2);
+        context.restore();
+      });
+      context.strokeStyle = "#6e4d2f";
+      context.lineWidth = 1.5;
+      context.strokeRect(offsetX, offsetY, rules.width * scale, rules.height * scale);
+    };
+    draw();
+    const observer = new ResizeObserver(draw);
+    observer.observe(canvas);
+    return () => observer.disconnect();
+  }, [rules, partMap, sheetPlacements, selectedId, violations]);
+
+  const sheetPoint = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const rectangle = event.currentTarget.getBoundingClientRect();
+    const transform = transformRef.current;
+    return { x: (event.clientX - rectangle.left - transform.offsetX) / transform.scale, y: (event.clientY - rectangle.top - transform.offsetY) / transform.scale };
+  };
+  return <canvas
+    ref={canvasRef}
+    aria-label={`Manual part layout for material sheet ${sheetIndex + 1}`}
+    onPointerDown={(event) => {
+      const point = sheetPoint(event);
+      const hit = [...sheetPlacements].reverse().find((placement) => {
+        const part = partMap.get(placement.partId);
+        if (!part) return false;
+        const bounds = placementBounds(placement, part);
+        return point.x >= bounds.left && point.x <= bounds.right && point.y >= bounds.top && point.y <= bounds.bottom;
+      });
+      onSelect(hit?.id ?? null);
+      if (hit) { dragRef.current = { id: hit.id, offsetX: point.x - hit.x, offsetY: point.y - hit.y }; event.currentTarget.setPointerCapture(event.pointerId); }
+    }}
+    onPointerMove={(event) => { if (dragRef.current) { const point = sheetPoint(event); onMove(dragRef.current.id, point.x - dragRef.current.offsetX, point.y - dragRef.current.offsetY); } }}
+    onPointerUp={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); dragRef.current = null; }}
+    onPointerCancel={() => { dragRef.current = null; }}
+  />;
+}
+
 export function MapWorkspace() {
   const mapNode = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -1360,6 +1589,13 @@ export function MapWorkspace() {
   const [smoothingLayerIndex, setSmoothingLayerIndex] = useState(0);
   const [smoothingLevels, setSmoothingLevels] = useState<Record<number, number>>({});
   const [smoothingZoom, setSmoothingZoom] = useState(1);
+  const [sheetRules, setSheetRules] = useState<SheetRules>({ width: 1200, height: 600, thickness: 3, edgeMargin: 15, partSpacing: 8 });
+  const [sheetCount, setSheetCount] = useState(1);
+  const [activeSheetIndex, setActiveSheetIndex] = useState(0);
+  const [sheetPlacements, setSheetPlacements] = useState<SheetPlacement[]>([]);
+  const [selectedPlacementId, setSelectedPlacementId] = useState<string | null>(null);
+  const [partLibraryFilter, setPartLibraryFilter] = useState("");
+  const placementCounterRef = useRef(1);
   const chosenOutput = outputDimensions(outputFormat, outputOrientation, customWidthMm, customHeightMm);
   aspectRatioRef.current = chosenOutput ? chosenOutput.width / chosenOutput.height : null;
 
@@ -2135,6 +2371,11 @@ export function MapWorkspace() {
   ) : "", [fabricationPreview, assemblyPlan, selectedAssemblyLayer, assemblyLayerIndex, previewDimensions.width, previewDimensions.height, holeDiameterMm, materialThicknessMm, analysis]);
   const originalSmoothingMetrics = filledLayerPreview ? layerGeometryMetrics(filledLayerPreview, smoothingLayerIndex, previewDimensions.width, previewDimensions.height) : null;
   const smoothedSmoothingMetrics = fabricationPreview ? layerGeometryMetrics(fabricationPreview, smoothingLayerIndex, previewDimensions.width, previewDimensions.height) : null;
+  const layoutParts = useMemo(() => fabricationPreview && assemblyPlan ? buildLayoutParts(fabricationPreview, assemblyPlan, previewDimensions.width, previewDimensions.height) : [], [fabricationPreview, assemblyPlan, previewDimensions.width, previewDimensions.height]);
+  const layoutViolations = useMemo(() => checkLayoutRules(sheetPlacements, layoutParts, sheetRules), [sheetPlacements, layoutParts, sheetRules]);
+  const selectedPlacement = sheetPlacements.find((placement) => placement.id === selectedPlacementId) ?? null;
+  const placedArea = sheetPlacements.reduce((total, placement) => total + (layoutParts.find((part) => part.id === placement.partId)?.areaMm2 ?? 0), 0);
+  const sheetUtilisation = sheetCount > 0 ? placedArea / (sheetRules.width * sheetRules.height * sheetCount) * 100 : 0;
 
   function setLayerSmoothing(value: number) {
     setSmoothingLevels((current) => ({ ...current, [smoothingLayerIndex]: Math.max(0, Math.min(12, value)) }));
@@ -2144,6 +2385,68 @@ export function MapWorkspace() {
     if (!filledLayerPreview) return;
     const value = smoothingLevels[smoothingLayerIndex] ?? 0;
     setSmoothingLevels(Object.fromEntries(filledLayerPreview.layers.map((layer) => [layer.index, value])));
+  }
+
+  function nextPlacementId(partId: string) {
+    const id = `${partId}-${placementCounterRef.current}`;
+    placementCounterRef.current += 1;
+    return id;
+  }
+
+  function addPartToSheet(partId: string, sheetIndex = activeSheetIndex) {
+    const offset = sheetPlacements.filter((placement) => placement.sheetIndex === sheetIndex).length * 6;
+    const placement: SheetPlacement = { id: nextPlacementId(partId), partId, sheetIndex, x: sheetRules.edgeMargin + offset, y: sheetRules.edgeMargin + offset, rotation: 0 };
+    setSheetPlacements((current) => [...current, placement]);
+    setSelectedPlacementId(placement.id);
+  }
+
+  function updateSheetPlacement(id: string, update: Partial<SheetPlacement>) {
+    setSheetPlacements((current) => current.map((placement) => placement.id === id ? { ...placement, ...update } : placement));
+  }
+
+  function addReplacementSheet() {
+    setSheetCount((current) => current + 1);
+    setActiveSheetIndex(sheetCount);
+    setSelectedPlacementId(null);
+  }
+
+  function autoLayoutUnplaced() {
+    const placedPartIds = new Set(sheetPlacements.map((placement) => placement.partId));
+    const unplaced = layoutParts.filter((part) => !placedPartIds.has(part.id)).sort((left, right) => right.areaMm2 - left.areaMm2);
+    let working = [...sheetPlacements];
+    let workingSheetCount = sheetCount;
+    unplaced.forEach((part) => {
+      let fitted: SheetPlacement | null = null;
+      for (let sheetIndex = 0; sheetIndex < workingSheetCount && !fitted; sheetIndex += 1) {
+        const existing = working.filter((placement) => placement.sheetIndex === sheetIndex);
+        const xCandidates = [sheetRules.edgeMargin, ...existing.flatMap((placement) => {
+          const existingPart = layoutParts.find((candidate) => candidate.id === placement.partId);
+          return existingPart ? [placementBounds(placement, existingPart).right + sheetRules.partSpacing] : [];
+        })];
+        const yCandidates = [sheetRules.edgeMargin, ...existing.flatMap((placement) => {
+          const existingPart = layoutParts.find((candidate) => candidate.id === placement.partId);
+          return existingPart ? [placementBounds(placement, existingPart).bottom + sheetRules.partSpacing] : [];
+        })];
+        for (const rotation of [0, 90] as const) {
+          for (const y of [...new Set(yCandidates)].sort((left, right) => left - right)) {
+            for (const x of [...new Set(xCandidates)].sort((left, right) => left - right)) {
+              const candidate: SheetPlacement = { id: nextPlacementId(part.id), partId: part.id, sheetIndex, x, y, rotation };
+              if (!checkLayoutRules([...working, candidate], layoutParts, sheetRules).some((violation) => violation.placementIds.includes(candidate.id))) { fitted = candidate; break; }
+            }
+            if (fitted) break;
+          }
+          if (fitted) break;
+        }
+      }
+      if (!fitted) {
+        fitted = { id: nextPlacementId(part.id), partId: part.id, sheetIndex: workingSheetCount, x: sheetRules.edgeMargin, y: sheetRules.edgeMargin, rotation: 0 };
+        workingSheetCount += 1;
+      }
+      working.push(fitted);
+    });
+    setSheetCount(workingSheetCount);
+    setSheetPlacements(working);
+    if (unplaced.length) setActiveSheetIndex(working[working.length - 1].sheetIndex);
   }
 
   function downloadSelectedLayerSvg() {
@@ -2216,12 +2519,12 @@ export function MapWorkspace() {
             <button disabled={!filledLayerPreview} className={workspaceView === "assembly" ? "active" : ""} onClick={() => setWorkspaceView("assembly")}>Assembly</button>
             <button disabled={!filledLayerPreview} className={workspaceView === "manufacturing" ? "active" : ""} onClick={() => setWorkspaceView("manufacturing")}>Manufacture</button>
             <button disabled={!filledLayerPreview} className={workspaceView === "smoothing" ? "active" : ""} onClick={() => setWorkspaceView("smoothing")}>Smoothing</button>
-            <button disabled>Sheet Layout</button>
+            <button disabled={!filledLayerPreview} className={workspaceView === "sheet-layout" ? "active" : ""} onClick={() => setWorkspaceView("sheet-layout")}>Sheet Layout</button>
             <button disabled>G-code</button>
             <button disabled>Colour Chart</button>
             <button disabled>BOM</button>
           </div>
-          <div className="stage-pill"><span /> Stage 9 · Geometry Cleanup</div>
+          <div className="stage-pill"><span /> Stage 10 · Sheet Layout</div>
         </div>
       </header>
 
@@ -2713,6 +3016,63 @@ export function MapWorkspace() {
                   return <li key={layer.index} className={layer.index === smoothingLayerIndex ? "active" : ""}><button onClick={() => setSmoothingLayerIndex(layer.index)}><strong>L{String(layer.index + 1).padStart(2, "0")}</strong><span>{(smoothingLevels[layer.index] ?? 0).toFixed(1)} mm</span><small>{metrics.parts} parts · {metrics.holes} holes</small></button></li>;
                 })}
               </ol>
+            </aside>
+          </div>
+        </section>
+      )}
+
+      {fabricationPreview && assemblyPlan && workspaceView === "sheet-layout" && (
+        <section className="sheet-layout-preview" aria-labelledby="sheet-layout-heading">
+          <div className="sheet-layout-heading">
+            <div><span className="section-label">STAGE 10 · MANUAL SHEET LAYOUT</span><strong id="sheet-layout-heading">Place production or replacement parts</strong></div>
+            <span className={layoutViolations.length ? "warning" : "ready"}>{layoutViolations.length ? `${layoutViolations.length} DRC warning${layoutViolations.length === 1 ? "" : "s"}` : "DRC clear"}</span>
+          </div>
+          <div className="sheet-rules-toolbar">
+            <label>Sheet W <span><input type="number" min="100" step="10" value={sheetRules.width} onChange={(event) => setSheetRules((rules) => ({ ...rules, width: Math.max(100, Number(event.target.value)) }))} /> mm</span></label>
+            <label>Sheet H <span><input type="number" min="100" step="10" value={sheetRules.height} onChange={(event) => setSheetRules((rules) => ({ ...rules, height: Math.max(100, Number(event.target.value)) }))} /> mm</span></label>
+            <label>Material <span><input type="number" min="0.5" step="0.5" value={sheetRules.thickness} onChange={(event) => setSheetRules((rules) => ({ ...rules, thickness: Math.max(.5, Number(event.target.value)) }))} /> mm</span></label>
+            <label>Edge zone <span><input type="number" min="0" step="1" value={sheetRules.edgeMargin} onChange={(event) => setSheetRules((rules) => ({ ...rules, edgeMargin: Math.max(0, Number(event.target.value)) }))} /> mm</span></label>
+            <label>Part spacing <span><input type="number" min="0" step="1" value={sheetRules.partSpacing} onChange={(event) => setSheetRules((rules) => ({ ...rules, partSpacing: Math.max(0, Number(event.target.value)) }))} /> mm</span></label>
+            <button onClick={autoLayoutUnplaced}>Auto layout unplaced</button>
+            <button onClick={addReplacementSheet}>+ Replacement sheet</button>
+          </div>
+          <div className="sheet-tabs" aria-label="Material sheets">
+            {Array.from({ length: sheetCount }, (_, index) => <button key={index} className={index === activeSheetIndex ? "active" : ""} onClick={() => { setActiveSheetIndex(index); setSelectedPlacementId(null); }}>Sheet {index + 1}<small>{sheetPlacements.filter((placement) => placement.sheetIndex === index).length} parts</small></button>)}
+          </div>
+          <div className="sheet-layout-workspace">
+            <div className="sheet-canvas-wrap">
+              <SheetLayoutCanvas
+                rules={sheetRules}
+                parts={layoutParts}
+                placements={sheetPlacements}
+                sheetIndex={activeSheetIndex}
+                selectedId={selectedPlacementId}
+                violations={layoutViolations}
+                onSelect={setSelectedPlacementId}
+                onMove={(id, x, y) => updateSheetPlacement(id, { x: Math.round(x * 2) / 2, y: Math.round(y * 2) / 2 })}
+              />
+              <div className="sheet-scale-note">{sheetRules.width} × {sheetRules.height} mm sheet · grid every 100 mm · dashed red line is the edge no-cut boundary</div>
+            </div>
+            <aside className="sheet-layout-details">
+              <div className="sheet-layout-metrics"><span><small>Sheets</small><strong>{sheetCount}</strong></span><span><small>Instances</small><strong>{sheetPlacements.length}</strong></span><span><small>Area use</small><strong>{sheetUtilisation.toFixed(1)}%</strong></span></div>
+              {selectedPlacement && (
+                <div className="selected-placement-controls">
+                  <strong>{selectedPlacement.partId}</strong><span>Sheet {selectedPlacement.sheetIndex + 1} · {selectedPlacement.rotation}° · X {selectedPlacement.x.toFixed(1)}, Y {selectedPlacement.y.toFixed(1)} mm</span>
+                  <div><button onClick={() => updateSheetPlacement(selectedPlacement.id, { rotation: ((selectedPlacement.rotation + 90) % 360) as SheetPlacement["rotation"] })}>Rotate 90°</button><button onClick={() => { setSheetPlacements((current) => current.filter((placement) => placement.id !== selectedPlacement.id)); setSelectedPlacementId(null); }}>Remove</button></div>
+                </div>
+              )}
+              <label className="part-library-search">Parts library<input value={partLibraryFilter} onChange={(event) => setPartLibraryFilter(event.target.value)} placeholder="Find L06C…" /></label>
+              <ol className="part-library-list">
+                {layoutParts.filter((part) => part.id.toLowerCase().includes(partLibraryFilter.trim().toLowerCase())).map((part) => {
+                  const copies = sheetPlacements.filter((placement) => placement.partId === part.id).length;
+                  return <li key={part.id}><span><strong>{part.id}</strong><small>{part.width.toFixed(1)} × {part.height.toFixed(1)} mm · L{String(part.layerIndex + 1).padStart(2, "0")}</small></span><b>{copies} placed</b><button onClick={() => addPartToSheet(part.id)}>Add</button></li>;
+                })}
+              </ol>
+              <div className={`drc-panel ${layoutViolations.length ? "has-warnings" : ""}`}>
+                <strong>Design rule check</strong>
+                <p>Warnings do not block placement or saving. Clearance currently uses conservative part rectangles.</p>
+                {layoutViolations.length ? <ul>{layoutViolations.slice(0, 12).map((violation, index) => <li key={`${violation.message}-${index}`}>{violation.message}</li>)}</ul> : <span>No rule violations on placed parts.</span>}
+              </div>
             </aside>
           </div>
         </section>

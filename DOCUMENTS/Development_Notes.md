@@ -333,3 +333,23 @@
 - Cleaned geometry feeds the 3D view, volcano-vent plan, Manufacture view, and
   downloaded SVG package.
 - Frontend production build passes successfully.
+
+### Stage 10 — Manual Sheet Layout
+
+- Implemented 18 July 2026; awaiting Guy's placement and DRC acceptance test.
+- Enabled Sheet Layout in the always-visible product workflow.
+- Added configurable sheet width, height, thickness, edge no-cut zone, and
+  minimum part spacing, initially 1200 × 600 × 3 mm, 15 mm, and 8 mm.
+- Added multiple material sheets, actual-dimension 100 mm reference grid,
+  dragging snapped to 0.5 mm, 90-degree rotation, selection, and removal.
+- Added PCB-style DRC warnings for edge-zone and inter-part clearance. Warnings
+  colour affected parts red but never block placement.
+- The initial collision model uses conservative rotated bounding rectangles;
+  later polygon-offset DRC will recover usable space around concave coastlines.
+- Added a searchable parts library. Add can create duplicate replacement copies,
+  and Replacement sheet creates a clean sheet without changing prior layouts.
+- Added an editable first-fit Auto layout for unplaced original parts. It uses
+  0/90-degree rotations, respects current rules where possible, adds sheets when
+  needed, and leaves impossible fits as visible DRC exceptions.
+- Reports sheet count, placed instances, and approximate material area use.
+- Production build passes successfully.

@@ -79,3 +79,9 @@ interactive per-layer Smoothing workspace. A physical cleanup size rounds raster
 steps, removes smaller islands and holes, and reports before/after part and hole
 statistics. Frame-contact edges remain locked straight, and cleaned geometry
 feeds the 3D, Assembly, Manufacture, and SVG outputs.
+
+Stage 10 adds PCB-style manual sheet layout. It provides configurable stock,
+edge-zone and part-spacing rules; drag and 90-degree rotation; multiple sheets;
+live non-blocking DRC warnings; a reusable parts library; replacement copies;
+and an editable first-fit Auto layout. The initial DRC deliberately uses
+conservative part rectangles until polygon-offset nesting is added.

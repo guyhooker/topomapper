@@ -119,7 +119,7 @@ type PhysicalPart = {
 
 type RegistrationHole = {
   id: string;
-  kind: "grid" | "datum";
+  kind: "grid" | "vent";
   xMm: number;
   yMm: number;
   longitude: number;
@@ -132,7 +132,7 @@ type RegistrationHole = {
 type AssemblyPlan = {
   parts: PhysicalPart[];
   holes: RegistrationHole[];
-  datumComplete: boolean;
+  ventComplete: boolean;
   warnings: string[];
 };
 
@@ -502,16 +502,24 @@ function buildAssemblyPlan(
   const partsByLayer = preview.layers.map((layer) => parts.filter((part) => part.layerIndex === layer.index));
   const requiredClearance = holeDiameter / 2 + edgeClearance;
 
-  const validateHole = (xMm: number, yMm: number, kind: "grid" | "datum", id: string): RegistrationHole | null => {
+  const validateHole = (
+    xMm: number,
+    yMm: number,
+    kind: "grid" | "vent",
+    id: string,
+    maximumCapLayer?: number,
+  ): RegistrationHole | null => {
     if (xMm <= 0 || yMm <= 0 || xMm >= modelWidth || yMm >= modelHeight) return null;
     const point = geographicPoint(preview, modelWidth, modelHeight, xMm, yMm);
     const stack: PhysicalPart[] = [];
-    for (const layerParts of partsByLayer) {
+    const finalLayer = maximumCapLayer ?? partsByLayer.length - 1;
+    for (let layerIndex = 0; layerIndex <= finalLayer; layerIndex += 1) {
+      const layerParts = partsByLayer[layerIndex];
       const part = layerParts.find((candidate) => pointInFeature(point, candidate.feature));
       if (!part) break;
       stack.push(part);
     }
-    if (stack.length < 2) return null;
+    if (stack.length < 2 || (maximumCapLayer !== undefined && stack.length !== maximumCapLayer + 1)) return null;
     if (stack.some((part) => featureClearanceMm(preview, part.feature, modelWidth, modelHeight, point) < requiredClearance)) return null;
     const cap = stack[stack.length - 1];
     const drilled = stack.slice(0, -1);
@@ -537,27 +545,37 @@ function buildAssemblyPlan(
     }
   }
 
-  const partAnchors = [...parts]
-    .sort((left, right) => right.layerIndex - left.layerIndex || right.labelClearanceMm - left.labelClearanceMm)
-    .map((part) => physicalPoint(preview, modelWidth, modelHeight, part.labelPoint));
-  const anchorCandidates = [...regular].sort((left, right) => right.capLayer - left.capLayer).map((hole) => ({ x: hole.xMm, y: hole.yMm })).concat(partAnchors);
-  let datum: RegistrationHole[] = [];
-  const sizes = [36, 28, 20, 14];
-  for (const anchor of anchorCandidates) {
-    if (datum.length === 3) break;
-    for (const size of sizes) {
-      const offsets = [[0, 0], [size, size * 0.23], [-size * 0.41, size * 1.17]];
-      const candidate = offsets.map(([x, y], index) => validateHole(anchor.x + x, anchor.y + y, "datum", `D${index + 1}`));
-      if (candidate.every(Boolean)) { datum = candidate as RegistrationHole[]; break; }
+  // Every terminal contour is a separate peak branch. Start at its highest
+  // layer and descend until the same peak location has enough material for a
+  // covered hole. The resulting vent drills through every supporting layer to
+  // the base, while the chosen cap layer remains intact above it.
+  const peakParts = parts
+    .filter((part) => part.layerIndex > 0 && !parts.some((candidate) => (
+      candidate.layerIndex === part.layerIndex + 1
+      && pointInFeature(candidate.labelPoint, part.feature)
+    )))
+    .sort((left, right) => right.layerIndex - left.layerIndex || right.labelClearanceMm - left.labelClearanceMm);
+  const vents: RegistrationHole[] = [];
+  const minimumVentSpacing = Math.max(holeDiameter * 2, requiredClearance * 2);
+  for (const peak of peakParts) {
+    const position = physicalPoint(preview, modelWidth, modelHeight, peak.labelPoint);
+    if (vents.some((vent) => Math.hypot(vent.xMm - position.x, vent.yMm - position.y) < minimumVentSpacing)) continue;
+    for (let capLayer = peak.layerIndex; capLayer >= 1; capLayer -= 1) {
+      const vent = validateHole(position.x, position.y, "vent", `V${vents.length + 1}`, capLayer);
+      if (vent) {
+        vents.push(vent);
+        break;
+      }
     }
   }
-  const holes = [...datum, ...regular.filter((hole) => !datum.some((key) => Math.hypot(key.xMm - hole.xMm, key.yMm - hole.yMm) < holeDiameter * 2))];
+
+  const holes = [...vents, ...regular.filter((hole) => !vents.some((vent) => Math.hypot(vent.xMm - hole.xMm, vent.yMm - hole.yMm) < minimumVentSpacing))];
   const warnings: string[] = [];
-  if (datum.length !== 3) warnings.push("A complete asymmetric three-hole datum could not fit inside buried terrain.");
+  if (!vents.length) warnings.push("No peak-to-base vent could fit safely; use the north marks and buried grid holes for alignment.");
   if (!holes.length) warnings.push("No alignment hole has enough buried material and edge clearance.");
   const unlabelled = parts.filter((part) => !part.machineLabel).length;
   if (unlabelled) warnings.push(`${unlabelled} small part${unlabelled === 1 ? " is" : "s are"} too small for reliable machining text; use the assembly sheet.`);
-  return { parts, holes, datumComplete: datum.length === 3, warnings };
+  return { parts, holes, ventComplete: vents.length > 0, warnings };
 }
 
 function StackPreviewCanvas({
@@ -830,10 +848,10 @@ function AssemblyPreviewCanvas({
         const point = projectMm(hole.xMm, hole.yMm);
         context.beginPath();
         context.arc(point.x, point.y, Math.max(3, holeDiameter / 2 * scale), 0, Math.PI * 2);
-        context.fillStyle = hole.kind === "datum" ? "#d35a36" : "#f6f3eb";
+        context.fillStyle = hole.kind === "vent" ? "#d35a36" : "#f6f3eb";
         context.fill();
-        context.strokeStyle = hole.kind === "datum" ? "#8f3118" : "#214f3d";
-        context.lineWidth = hole.kind === "datum" ? 2 : 1.2;
+        context.strokeStyle = hole.kind === "vent" ? "#8f3118" : "#214f3d";
+        context.lineWidth = hole.kind === "vent" ? 2 : 1.2;
         context.stroke();
       });
 
@@ -2079,7 +2097,7 @@ export function MapWorkspace() {
               <span className="section-label">STAGE 7 · PARTS &amp; REGISTRATION</span>
               <strong id="assembly-preview-heading">Assembly machining plan</strong>
             </div>
-            <span className={assemblyPlan.datumComplete ? "ready" : "warning"}>{assemblyPlan.datumComplete ? "Keyed datum ready" : "Datum needs attention"}</span>
+            <span className={assemblyPlan.ventComplete ? "ready" : "warning"}>{assemblyPlan.ventComplete ? "Peak vents ready" : "Peak vents need attention"}</span>
           </div>
 
           <div className="assembly-toolbar">
@@ -2106,7 +2124,7 @@ export function MapWorkspace() {
                 modelHeight={previewDimensions.height}
                 holeDiameter={holeDiameterMm}
               />
-              <div className="assembly-legend"><span><i className="grid-hole" /> Buried grid hole</span><span><i className="datum-hole" /> Asymmetric datum</span><span><b>↑N</b> covered engraving</span></div>
+              <div className="assembly-legend"><span><i className="grid-hole" /> Buried grid hole</span><span><i className="vent-hole" /> Peak-to-base vent</span><span><b>↑N</b> covered engraving</span></div>
             </div>
 
             <aside className="assembly-details">
@@ -2115,7 +2133,7 @@ export function MapWorkspace() {
                 <span><small>Parts</small><strong>{selectedAssemblyParts.length}</strong></span>
                 <span><small>Drill holes</small><strong>{selectedAssemblyHoles.length}</strong></span>
               </div>
-              <p>Holes shown on this layer are covered by solid terrain higher in the local stack.</p>
+              <p>Orange peak vents pass through every supporting layer to the base and stop beneath a solid cap. White grid holes provide extra alignment where terrain permits.</p>
               <ol className="assembly-part-list">
                 {selectedAssemblyParts.map((part) => {
                   const partHoles = assemblyPlan.holes.filter((hole) => hole.partIds.includes(part.id)).length;
@@ -2125,7 +2143,7 @@ export function MapWorkspace() {
               <div className="assembly-plan-summary">
                 <span><strong>{assemblyPlan.parts.length}</strong> named parts</span>
                 <span><strong>{assemblyPlan.holes.filter((hole) => hole.kind === "grid").length}</strong> buried grid holes</span>
-                <span><strong>{assemblyPlan.holes.filter((hole) => hole.kind === "datum").length}/3</strong> keyed datum holes</span>
+                <span><strong>{assemblyPlan.holes.filter((hole) => hole.kind === "vent").length}</strong> peak-to-base vents</span>
               </div>
               {(holeDiameterMm <= dowelDiameterMm || assemblyPlan.warnings.length > 0) && (
                 <div className="assembly-warnings" role="status">

@@ -258,10 +258,13 @@
 - A proposed grid hole is accepted only if the location has at least two
   contiguous physical layers, retains clearance in every intersected part, and
   leaves the local uppermost layer solid as a cap.
-- The planner searches deep terrain for a scalene three-hole datum. Its unequal,
-  non-collinear spacing prevents north/south, east/west, 180-degree, and
-  face-flipped assembly from matching the hole pattern.
-- Grid holes, datum holes, north orientation, part areas, per-part hole counts,
+- The initial scalene three-hole datum proved too restrictive on Banks
+  Peninsula and could leave the model with virtually no useful alignment
+  points. The planner now identifies every terminal summit branch, works down
+  from its highest layer until a safe covered 4 mm location exists, and carries
+  that peak vent through all supporting layers to the base.
+- Grid holes remain as supplemental registration. Peak vents, grid holes, north
+  orientation, part areas, per-part hole counts,
   machining-label eligibility, and warnings are visible before export.
 - Assembly settings persist locally and changing them recalculates the plan
   without modifying the original terrain geometry.
@@ -272,6 +275,7 @@
 1. Open Assembly after generating the four-tile Taranaki layers.
 2. Review part names and the layer-by-layer north orientation.
 3. Confirm regular holes appear only on layers that have solid terrain above.
-4. Confirm three orange datum holes are reported and visibly asymmetric.
+4. On Banks Peninsula, confirm orange vents appear beneath the separate volcano
+   peaks and continue through every supporting layer to L01.
 5. Change grid pitch, hole diameter, and edge clearance and inspect the plan.
 6. Mark Stage 7 complete only after the assembly scheme looks practical.

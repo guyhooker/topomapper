@@ -60,6 +60,8 @@ Compass labels and a North up reset keep its orientation aligned with the map.
 
 Stage 7 adds a full-screen Assembly workspace. It names every disconnected part
 from the bottom upward, previews covered part-ID/north-arrow engraving, and
-places configurable dowel holes only beneath a solid local terrain cap. A
-scalene three-hole datum supplements the regular grid so flipped or rotated
-layers cannot match. SVG fabrication export follows in Stage 8.
+places configurable dowel holes only beneath a solid local terrain cap. For
+each separate summit branch it searches downward for the highest safe cap, then
+runs a peak-alignment "vent" through every supporting layer to the base. A
+supplemental buried grid and north marks make orientation unambiguous. SVG
+fabrication export follows in Stage 8.

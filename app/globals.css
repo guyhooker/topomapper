@@ -435,7 +435,7 @@ button { color: inherit; }
 .assembly-legend { position: absolute; left: 9px; bottom: 8px; display: flex; flex-wrap: wrap; gap: 9px; padding: 5px 7px; border-radius: 6px; background: rgba(250,248,242,.88); color: var(--muted); font-size: 8px; }
 .assembly-legend span { display: flex; align-items: center; gap: 4px; }
 .assembly-legend i { display: inline-block; width: 9px; height: 9px; border: 1px solid var(--forest); border-radius: 50%; background: var(--paper); }
-.assembly-legend i.datum-hole { border: 2px solid #8f3118; background: var(--clay); }
+.assembly-legend i.vent-hole { border: 2px solid #8f3118; background: var(--clay); }
 .assembly-legend b { color: var(--forest); }
 .assembly-details { min-height: 0; overflow: auto; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: rgba(252,250,244,.82); }
 .assembly-layer-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }

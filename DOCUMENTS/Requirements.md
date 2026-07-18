@@ -59,8 +59,12 @@ boundary.
   the finished terrain surface.
 - Generate alignment-dowel holes only through layers that have a solid local
   cap above them.
-- Use a deliberately asymmetric, non-collinear datum pattern so a layer cannot
-  be fitted north/south, east/west, or face-reversed by mistake.
+- Work downward from every separate summit branch until a safe hole position is
+  covered, then carry that alignment vent through all supporting layers to the
+  base.
+- Use the naturally distributed peak vents, supplemental buried grid holes,
+  and north marks so a layer cannot be fitted north/south, east/west, or
+  face-reversed by mistake.
 - Keep dowel diameter, machined-hole diameter, grid pitch, and edge clearance
   separately configurable for test-cut calibration.
 

@@ -145,16 +145,20 @@ and tilted to reveal plausible Mount Taranaki geometry.
   edge clearance.
 - Buried alignment-hole generation: each proposed hole passes through lower
   mating layers but is omitted from the local top/capping layer.
-- Three non-collinear, unequally spaced keyed datum holes to prevent rotated or
-  mirrored assembly.
-- Warnings when the datum cannot fit, no holes are safe, machining text is
+- Top-down peak-vent generation: each terminal summit branch descends to its
+  highest safe 4 mm covered location, then drills that location through every
+  supporting layer to the base.
+- Supplemental buried grid holes and north marks to prevent rotated or mirrored
+  assembly.
+- Warnings when no peak vent can fit, no holes are safe, machining text is
   impractical, or the finished hole does not clear the chosen dowel.
 
 ### Acceptance Test
 
 Every Taranaki polygon has a deterministic part name, ten layers can be reviewed
-individually, all proposed holes remain capped by terrain, and the three keyed
-datum holes cannot be matched after flipping or rotating the stack.
+individually, all proposed holes remain capped by terrain, and each viable peak
+branch has an orange alignment vent continuing through its supporting layers to
+the base. Banks Peninsula is the multi-peak acceptance case.
 
 ## Stage 8 — SVG Export
 

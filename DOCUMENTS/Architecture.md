@@ -76,6 +76,11 @@ geometry at an explicitly chosen physical scale and simplification tolerance.
   terrain processing.
 - Design-rule violations are stored as reviewable warnings rather than silently
   moving geometry or blocking deliberate exceptions.
+- Part-spacing DRC uses transformed polygon rings, segment intersection,
+  containment, and minimum segment distance after a bounding-box broad phase.
+- Automatic nesting is an anytime search: publish an editable left-to-right
+  result quickly, then retain better sheet-count/waste results until the user
+  stops the search or its time allowance expires.
 - Controller-specific G-code generated only from a validated manufacturing and
   sheet-layout plan; SVG remains the visual audit format.
 - G-code only through a later, explicitly configured CAM/postprocessor stage.

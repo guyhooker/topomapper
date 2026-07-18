@@ -102,6 +102,12 @@ boundary.
   pair colour and DRC text so collisions are not communicated by colour alone.
 - Keep tiny physical parts selectable with a minimum screen-space hit target,
   zoom/pan, library-based selection, and focus-on-selection.
+- Measure part-spacing rules between the true rotated outlines and draw the
+  corresponding coastline-shaped half-clearance halo around each part.
+- Permit manual rotation in 15-degree increments and cross-highlight a selected
+  part with every DRC warning that references it.
+- Prefer left-to-right rows for quick Auto layout, while allowing the later
+  optimiser to keep searching and retain every improved result until stopped.
 
 ## Preview and Analysis
 

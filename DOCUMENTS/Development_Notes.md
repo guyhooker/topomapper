@@ -344,8 +344,10 @@
   dragging snapped to 0.5 mm, 90-degree rotation, selection, and removal.
 - Added PCB-style DRC warnings for edge-zone and inter-part clearance. Warnings
   colour affected parts red but never block placement.
-- The initial collision model uses conservative rotated bounding rectangles;
-  later polygon-offset DRC will recover usable space around concave coastlines.
+- Replaced the initial rectangular collision approximation with transformed
+  polygon-ring clearance. A bounding-box broad phase preserves interactivity;
+  close candidates use segment intersection, containment, and minimum segment
+  distance around actual coastlines and holes.
 - Added a searchable parts library. Add can create duplicate replacement copies,
   and Replacement sheet creates a clean sheet without changing prior layouts.
 - Added an editable first-fit Auto layout for unplaced original parts. It uses
@@ -358,4 +360,10 @@
 - Tiny parts use a minimum 16-pixel invisible hit target. The sheet view now has
   1×, 2×, 4×, and 8× zoom, drag-to-pan on empty material, Fit, Focus selected,
   and selection through a placed part's library entry.
+- Clearance halos now follow the actual coastline and show half the required
+  spacing on each part, exactly like a PCB track halo. Violations remain red.
+- Manual rotation now offers −15°, +15°, and +90°. The quick Auto layout retains
+  its readable left-to-right row preference.
+- Clicking a DRC warning focuses and highlights its parts. Selecting a part
+  highlights every visible warning involving that placement.
 - Production build passes successfully.

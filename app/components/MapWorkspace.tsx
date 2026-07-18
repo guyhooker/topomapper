@@ -152,7 +152,7 @@ type SheetPlacement = {
   sheetIndex: number;
   x: number;
   y: number;
-  rotation: 0 | 90 | 180 | 270;
+  rotation: number;
 };
 
 type SheetRules = {
@@ -699,9 +699,12 @@ function buildLayoutParts(preview: FilledLayerPreview, plan: AssemblyPlan, model
 }
 
 function placementSize(placement: SheetPlacement, part: LayoutPart) {
-  return placement.rotation === 90 || placement.rotation === 270
-    ? { width: part.height, height: part.width }
-    : { width: part.width, height: part.height };
+  const radians = placement.rotation * Math.PI / 180;
+  const cosine = Math.cos(radians);
+  const sine = Math.sin(radians);
+  const corners = [{ x: 0, y: 0 }, { x: part.width, y: 0 }, { x: part.width, y: part.height }, { x: 0, y: part.height }]
+    .map((point) => ({ x: point.x * cosine - point.y * sine, y: point.x * sine + point.y * cosine }));
+  return { width: Math.max(...corners.map((point) => point.x)) - Math.min(...corners.map((point) => point.x)), height: Math.max(...corners.map((point) => point.y)) - Math.min(...corners.map((point) => point.y)) };
 }
 
 function placementBounds(placement: SheetPlacement, part: LayoutPart) {
@@ -729,21 +732,77 @@ function checkLayoutRules(placements: SheetPlacement[], parts: LayoutPart[], rul
       const rightPart = partMap.get(right.partId);
       if (!rightPart) return;
       const rightBounds = placementBounds(right, rightPart);
-      const separated = leftBounds.right + rules.partSpacing <= rightBounds.left
+      const broadlySeparated = leftBounds.right + rules.partSpacing <= rightBounds.left
         || rightBounds.right + rules.partSpacing <= leftBounds.left
         || leftBounds.bottom + rules.partSpacing <= rightBounds.top
         || rightBounds.bottom + rules.partSpacing <= leftBounds.top;
-      if (!separated) violations.push({ placementIds: [left.id, right.id], message: `${left.partId} and ${right.partId} are closer than ${rules.partSpacing} mm.` });
+      if (broadlySeparated) return;
+      const clearance = layoutPartClearance(left, leftPart, right, rightPart);
+      if (clearance < rules.partSpacing) violations.push({ placementIds: [left.id, right.id], message: `${left.partId} and ${right.partId} have ${clearance.toFixed(1)} mm clearance; the rule requires ${rules.partSpacing} mm.` });
     });
   });
   return violations;
 }
 
 function rotateLayoutPoint(point: { x: number; y: number }, part: LayoutPart, rotation: SheetPlacement["rotation"]) {
-  if (rotation === 90) return { x: part.height - point.y, y: point.x };
-  if (rotation === 180) return { x: part.width - point.x, y: part.height - point.y };
-  if (rotation === 270) return { x: point.y, y: part.width - point.x };
-  return point;
+  const radians = rotation * Math.PI / 180;
+  const cosine = Math.cos(radians);
+  const sine = Math.sin(radians);
+  const corners = [{ x: 0, y: 0 }, { x: part.width, y: 0 }, { x: part.width, y: part.height }, { x: 0, y: part.height }]
+    .map((corner) => ({ x: corner.x * cosine - corner.y * sine, y: corner.x * sine + corner.y * cosine }));
+  const minimumX = Math.min(...corners.map((corner) => corner.x));
+  const minimumY = Math.min(...corners.map((corner) => corner.y));
+  return { x: point.x * cosine - point.y * sine - minimumX, y: point.x * sine + point.y * cosine - minimumY };
+}
+
+function placedPartRings(placement: SheetPlacement, part: LayoutPart) {
+  return part.rings.map((ring) => ring.map((point) => {
+    const rotated = rotateLayoutPoint(point, part, placement.rotation);
+    return [rotated.x + placement.x, rotated.y + placement.y];
+  }));
+}
+
+function segmentsIntersect(a: number[], b: number[], c: number[], d: number[]) {
+  const cross = (p: number[], q: number[], r: number[]) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+  const onSegment = (p: number[], q: number[], r: number[]) => q[0] >= Math.min(p[0], r[0]) - 1e-9 && q[0] <= Math.max(p[0], r[0]) + 1e-9 && q[1] >= Math.min(p[1], r[1]) - 1e-9 && q[1] <= Math.max(p[1], r[1]) + 1e-9;
+  const first = cross(a, b, c);
+  const second = cross(a, b, d);
+  const third = cross(c, d, a);
+  const fourth = cross(c, d, b);
+  if (((first < 0 && second > 0) || (first > 0 && second < 0)) && ((third < 0 && fourth > 0) || (third > 0 && fourth < 0))) return true;
+  return (Math.abs(first) < 1e-9 && onSegment(a, c, b))
+    || (Math.abs(second) < 1e-9 && onSegment(a, d, b))
+    || (Math.abs(third) < 1e-9 && onSegment(c, a, d))
+    || (Math.abs(fourth) < 1e-9 && onSegment(c, b, d));
+}
+
+function layoutPartClearance(leftPlacement: SheetPlacement, leftPart: LayoutPart, rightPlacement: SheetPlacement, rightPart: LayoutPart) {
+  const leftRings = placedPartRings(leftPlacement, leftPart);
+  const rightRings = placedPartRings(rightPlacement, rightPart);
+  if (pointInRing(leftRings[0][0] as [number, number], rightRings[0]) && !rightRings.slice(1).some((ring) => pointInRing(leftRings[0][0] as [number, number], ring))) return 0;
+  if (pointInRing(rightRings[0][0] as [number, number], leftRings[0]) && !leftRings.slice(1).some((ring) => pointInRing(rightRings[0][0] as [number, number], ring))) return 0;
+  let minimum = Number.POSITIVE_INFINITY;
+  for (const leftRing of leftRings) {
+    for (let leftIndex = 1; leftIndex < leftRing.length; leftIndex += 1) {
+      const leftStart = leftRing[leftIndex - 1];
+      const leftEnd = leftRing[leftIndex];
+      for (const rightRing of rightRings) {
+        for (let rightIndex = 1; rightIndex < rightRing.length; rightIndex += 1) {
+          const rightStart = rightRing[rightIndex - 1];
+          const rightEnd = rightRing[rightIndex];
+          if (segmentsIntersect(leftStart, leftEnd, rightStart, rightEnd)) return 0;
+          minimum = Math.min(
+            minimum,
+            distanceToSegment({ x: leftStart[0], y: leftStart[1] }, { x: rightStart[0], y: rightStart[1] }, { x: rightEnd[0], y: rightEnd[1] }),
+            distanceToSegment({ x: leftEnd[0], y: leftEnd[1] }, { x: rightStart[0], y: rightStart[1] }, { x: rightEnd[0], y: rightEnd[1] }),
+            distanceToSegment({ x: rightStart[0], y: rightStart[1] }, { x: leftStart[0], y: leftStart[1] }, { x: leftEnd[0], y: leftEnd[1] }),
+            distanceToSegment({ x: rightEnd[0], y: rightEnd[1] }, { x: leftStart[0], y: leftStart[1] }, { x: leftEnd[0], y: leftEnd[1] }),
+          );
+        }
+      }
+    }
+  }
+  return minimum;
 }
 
 function svgNumber(value: number) {
@@ -1411,6 +1470,7 @@ function SheetLayoutCanvas({
   sheetIndex,
   selectedId,
   violations,
+  highlightedIds,
   zoom,
   viewCenter,
   onSelect,
@@ -1423,6 +1483,7 @@ function SheetLayoutCanvas({
   sheetIndex: number;
   selectedId: string | null;
   violations: LayoutViolation[];
+  highlightedIds: string[];
   zoom: number;
   viewCenter: { x: number; y: number };
   onSelect: (id: string | null) => void;
@@ -1470,17 +1531,17 @@ function SheetLayoutCanvas({
       sheetPlacements.forEach((placement) => {
         const part = partMap.get(placement.partId);
         if (!part) return;
-        const bounds = placementBounds(placement, part);
-        const halo = rules.partSpacing / 2;
-        context.fillStyle = violating.has(placement.id) ? "rgba(189,60,37,.16)" : "rgba(29,111,130,.09)";
-        context.strokeStyle = violating.has(placement.id) ? "rgba(189,60,37,.72)" : "rgba(29,111,130,.4)";
-        context.lineWidth = 1;
-        context.setLineDash([3, 3]);
-        context.fillRect(offsetX + (bounds.left - halo) * scale, offsetY + (bounds.top - halo) * scale, (bounds.width + halo * 2) * scale, (bounds.height + halo * 2) * scale);
-        context.strokeRect(offsetX + (bounds.left - halo) * scale, offsetY + (bounds.top - halo) * scale, (bounds.width + halo * 2) * scale, (bounds.height + halo * 2) * scale);
-        context.setLineDash([]);
         context.save();
         context.translate(offsetX + placement.x * scale, offsetY + placement.y * scale);
+        context.beginPath();
+        part.rings[0].forEach((point, index) => {
+          const rotated = rotateLayoutPoint(point, part, placement.rotation);
+          if (index === 0) context.moveTo(rotated.x * scale, rotated.y * scale); else context.lineTo(rotated.x * scale, rotated.y * scale);
+        });
+        context.closePath();
+        context.strokeStyle = violating.has(placement.id) ? "rgba(189,60,37,.45)" : "rgba(29,111,130,.24)";
+        context.lineWidth = Math.max(2, rules.partSpacing * scale);
+        context.stroke();
         part.rings.forEach((ring, ringIndex) => {
           context.beginPath();
           ring.forEach((point, index) => {
@@ -1493,8 +1554,8 @@ function SheetLayoutCanvas({
             context.fill();
           }
         });
-        context.strokeStyle = violating.has(placement.id) ? "#bd3c25" : placement.id === selectedId ? "#1d6f82" : "#214f3d";
-        context.lineWidth = placement.id === selectedId ? 2.5 : 1.2;
+        context.strokeStyle = placement.id === selectedId ? "#1d6f82" : highlightedIds.includes(placement.id) ? "#d18a18" : violating.has(placement.id) ? "#bd3c25" : "#214f3d";
+        context.lineWidth = placement.id === selectedId || highlightedIds.includes(placement.id) ? 2.8 : 1.2;
         part.rings.forEach((ring) => {
           context.beginPath();
           ring.forEach((point, index) => {
@@ -1522,7 +1583,7 @@ function SheetLayoutCanvas({
     const observer = new ResizeObserver(draw);
     observer.observe(canvas);
     return () => observer.disconnect();
-  }, [rules, partMap, sheetPlacements, selectedId, violations, zoom, viewCenter]);
+  }, [rules, partMap, sheetPlacements, selectedId, violations, highlightedIds, zoom, viewCenter]);
 
   const sheetPoint = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const rectangle = event.currentTarget.getBoundingClientRect();
@@ -1624,6 +1685,7 @@ export function MapWorkspace() {
   const [partLibraryFilter, setPartLibraryFilter] = useState("");
   const [sheetZoom, setSheetZoom] = useState(1);
   const [sheetViewCenter, setSheetViewCenter] = useState({ x: 600, y: 300 });
+  const [selectedViolationIndex, setSelectedViolationIndex] = useState<number | null>(null);
   const placementCounterRef = useRef(1);
 
   useEffect(() => {
@@ -2407,6 +2469,7 @@ export function MapWorkspace() {
   const smoothedSmoothingMetrics = fabricationPreview ? layerGeometryMetrics(fabricationPreview, smoothingLayerIndex, previewDimensions.width, previewDimensions.height) : null;
   const layoutParts = useMemo(() => fabricationPreview && assemblyPlan ? buildLayoutParts(fabricationPreview, assemblyPlan, previewDimensions.width, previewDimensions.height) : [], [fabricationPreview, assemblyPlan, previewDimensions.width, previewDimensions.height]);
   const layoutViolations = useMemo(() => checkLayoutRules(sheetPlacements, layoutParts, sheetRules), [sheetPlacements, layoutParts, sheetRules]);
+  const highlightedPlacementIds = selectedViolationIndex !== null ? (layoutViolations[selectedViolationIndex]?.placementIds ?? []) : [];
   const selectedPlacement = sheetPlacements.find((placement) => placement.id === selectedPlacementId) ?? null;
   const placedArea = sheetPlacements.reduce((total, placement) => total + (layoutParts.find((part) => part.id === placement.partId)?.areaMm2 ?? 0), 0);
   const sheetUtilisation = sheetCount > 0 ? placedArea / (sheetRules.width * sheetRules.height * sheetCount) * 100 : 0;
@@ -2446,12 +2509,13 @@ export function MapWorkspace() {
     setSheetViewCenter({ x: sheetRules.width / 2, y: sheetRules.height / 2 });
   }
 
-  function focusSheetPlacement(placement: SheetPlacement) {
+  function focusSheetPlacement(placement: SheetPlacement, violationIndex: number | null = null) {
     const part = layoutParts.find((candidate) => candidate.id === placement.partId);
     if (!part) return;
     const bounds = placementBounds(placement, part);
     setActiveSheetIndex(placement.sheetIndex);
     setSelectedPlacementId(placement.id);
+    setSelectedViolationIndex(violationIndex);
     setSheetZoom((current) => Math.max(2, current));
     setSheetViewCenter({ x: (bounds.left + bounds.right) / 2, y: (bounds.top + bounds.bottom) / 2 });
   }
@@ -3095,10 +3159,11 @@ export function MapWorkspace() {
                 sheetIndex={activeSheetIndex}
                 selectedId={selectedPlacementId}
                 violations={layoutViolations}
+                highlightedIds={highlightedPlacementIds}
                 zoom={sheetZoom}
                 viewCenter={sheetViewCenter}
-                onSelect={setSelectedPlacementId}
-                onMove={(id, x, y) => updateSheetPlacement(id, { x: Math.round(x * 2) / 2, y: Math.round(y * 2) / 2 })}
+                onSelect={(id) => { setSelectedPlacementId(id); setSelectedViolationIndex(null); }}
+                onMove={(id, x, y) => { setSelectedViolationIndex(null); updateSheetPlacement(id, { x: Math.round(x * 2) / 2, y: Math.round(y * 2) / 2 }); }}
                 onPan={setSheetViewCenter}
               />
               <div className="sheet-scale-note">{sheetRules.width} × {sheetRules.height} mm · {sheetZoom}× view · drag empty sheet to pan · blue halos show {sheetRules.partSpacing} mm clearance</div>
@@ -3108,7 +3173,7 @@ export function MapWorkspace() {
               {selectedPlacement && (
                 <div className="selected-placement-controls">
                   <strong>{selectedPlacement.partId}</strong><span>Sheet {selectedPlacement.sheetIndex + 1} · {selectedPlacement.rotation}° · X {selectedPlacement.x.toFixed(1)}, Y {selectedPlacement.y.toFixed(1)} mm</span>
-                  <div><button onClick={() => updateSheetPlacement(selectedPlacement.id, { rotation: ((selectedPlacement.rotation + 90) % 360) as SheetPlacement["rotation"] })}>Rotate 90°</button><button onClick={() => { setSheetPlacements((current) => current.filter((placement) => placement.id !== selectedPlacement.id)); setSelectedPlacementId(null); }}>Remove</button></div>
+                  <div><button onClick={() => updateSheetPlacement(selectedPlacement.id, { rotation: (selectedPlacement.rotation + 345) % 360 })}>−15°</button><button onClick={() => updateSheetPlacement(selectedPlacement.id, { rotation: (selectedPlacement.rotation + 15) % 360 })}>+15°</button><button onClick={() => updateSheetPlacement(selectedPlacement.id, { rotation: (selectedPlacement.rotation + 90) % 360 })}>+90°</button><button onClick={() => { setSheetPlacements((current) => current.filter((placement) => placement.id !== selectedPlacement.id)); setSelectedPlacementId(null); }}>Remove</button></div>
                 </div>
               )}
               <label className="part-library-search">Parts library<input value={partLibraryFilter} onChange={(event) => setPartLibraryFilter(event.target.value)} placeholder="Find L06C…" /></label>
@@ -3122,7 +3187,7 @@ export function MapWorkspace() {
               <div className={`drc-panel ${layoutViolations.length ? "has-warnings" : ""}`}>
                 <strong>Design rule check</strong>
                 <p>Warnings do not block placement or saving. Clearance currently uses conservative part rectangles.</p>
-                {layoutViolations.length ? <ul>{layoutViolations.slice(0, 12).map((violation, index) => <li key={`${violation.message}-${index}`}>{violation.message}</li>)}</ul> : <span>No rule violations on placed parts.</span>}
+                {layoutViolations.length ? <ul>{layoutViolations.slice(0, 12).map((violation, index) => <li key={`${violation.message}-${index}`} className={selectedViolationIndex === index || Boolean(selectedPlacementId && violation.placementIds.includes(selectedPlacementId)) ? "active" : ""}><button onClick={() => { const placement = sheetPlacements.find((candidate) => candidate.id === violation.placementIds[0]); if (placement) focusSheetPlacement(placement, index); }}>{violation.message}</button></li>)}</ul> : <span>No rule violations on placed parts.</span>}
               </div>
             </aside>
           </div>

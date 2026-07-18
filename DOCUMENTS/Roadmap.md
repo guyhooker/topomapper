@@ -225,6 +225,8 @@ registration holes align consistently across every exported layer.
 - Editable conservative Auto layout for currently unplaced original parts.
 - Visible clearance halos, enlarged tiny-part hit targets, 1×–8× zoom, panning,
   parts-library selection, and Focus selected.
+- Coastline-shaped clearance DRC, 15° manual rotation, and two-way highlighting
+  between placed parts and their rule warnings.
 
 ### Acceptance Test
 
@@ -240,6 +242,10 @@ duplicated onto a replacement sheet without disturbing the production sheets.
 - Multiple attempts and a visible comparison of sheet count and waste.
 - Manual adjustment of the automatically generated result.
 - Reproducible placement settings and seed.
+- An anytime optimisation mode that reports an early editable result, continues
+  searching for fewer sheets or lower waste, and retains every improvement for
+  as long as the user permits.
+- A left-to-right placement preference for readable machining order.
 
 ### Acceptance Test
 

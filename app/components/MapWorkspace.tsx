@@ -1411,8 +1411,11 @@ function SheetLayoutCanvas({
   sheetIndex,
   selectedId,
   violations,
+  zoom,
+  viewCenter,
   onSelect,
   onMove,
+  onPan,
 }: {
   rules: SheetRules;
   parts: LayoutPart[];
@@ -1420,12 +1423,15 @@ function SheetLayoutCanvas({
   sheetIndex: number;
   selectedId: string | null;
   violations: LayoutViolation[];
+  zoom: number;
+  viewCenter: { x: number; y: number };
   onSelect: (id: string | null) => void;
   onMove: (id: string, x: number, y: number) => void;
+  onPan: (centre: { x: number; y: number }) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const transformRef = useRef({ scale: 1, offsetX: 0, offsetY: 0 });
-  const dragRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null);
+  const dragRef = useRef<({ kind: "part"; id: string; offsetX: number; offsetY: number } | { kind: "pan"; clientX: number; clientY: number; centreX: number; centreY: number }) | null>(null);
   const partMap = useMemo(() => new Map(parts.map((part) => [part.id, part])), [parts]);
   const sheetPlacements = placements.filter((placement) => placement.sheetIndex === sheetIndex);
   useEffect(() => {
@@ -1441,9 +1447,10 @@ function SheetLayoutCanvas({
       context.scale(ratio, ratio);
       context.clearRect(0, 0, rectangle.width, rectangle.height);
       const padding = 28;
-      const scale = Math.min((rectangle.width - padding * 2) / rules.width, (rectangle.height - padding * 2) / rules.height);
-      const offsetX = (rectangle.width - rules.width * scale) / 2;
-      const offsetY = (rectangle.height - rules.height * scale) / 2;
+      const fitScale = Math.min((rectangle.width - padding * 2) / rules.width, (rectangle.height - padding * 2) / rules.height);
+      const scale = fitScale * zoom;
+      const offsetX = rectangle.width / 2 - viewCenter.x * scale;
+      const offsetY = rectangle.height / 2 - viewCenter.y * scale;
       transformRef.current = { scale, offsetX, offsetY };
       context.fillStyle = "#d9c7a6";
       context.fillRect(offsetX, offsetY, rules.width * scale, rules.height * scale);
@@ -1463,6 +1470,15 @@ function SheetLayoutCanvas({
       sheetPlacements.forEach((placement) => {
         const part = partMap.get(placement.partId);
         if (!part) return;
+        const bounds = placementBounds(placement, part);
+        const halo = rules.partSpacing / 2;
+        context.fillStyle = violating.has(placement.id) ? "rgba(189,60,37,.16)" : "rgba(29,111,130,.09)";
+        context.strokeStyle = violating.has(placement.id) ? "rgba(189,60,37,.72)" : "rgba(29,111,130,.4)";
+        context.lineWidth = 1;
+        context.setLineDash([3, 3]);
+        context.fillRect(offsetX + (bounds.left - halo) * scale, offsetY + (bounds.top - halo) * scale, (bounds.width + halo * 2) * scale, (bounds.height + halo * 2) * scale);
+        context.strokeRect(offsetX + (bounds.left - halo) * scale, offsetY + (bounds.top - halo) * scale, (bounds.width + halo * 2) * scale, (bounds.height + halo * 2) * scale);
+        context.setLineDash([]);
         context.save();
         context.translate(offsetX + placement.x * scale, offsetY + placement.y * scale);
         part.rings.forEach((ring, ringIndex) => {
@@ -1506,7 +1522,7 @@ function SheetLayoutCanvas({
     const observer = new ResizeObserver(draw);
     observer.observe(canvas);
     return () => observer.disconnect();
-  }, [rules, partMap, sheetPlacements, selectedId, violations]);
+  }, [rules, partMap, sheetPlacements, selectedId, violations, zoom, viewCenter]);
 
   const sheetPoint = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const rectangle = event.currentTarget.getBoundingClientRect();
@@ -1522,12 +1538,23 @@ function SheetLayoutCanvas({
         const part = partMap.get(placement.partId);
         if (!part) return false;
         const bounds = placementBounds(placement, part);
-        return point.x >= bounds.left && point.x <= bounds.right && point.y >= bounds.top && point.y <= bounds.bottom;
+        const minimumHitSizeMm = 16 / transformRef.current.scale;
+        const paddingX = Math.max(0, (minimumHitSizeMm - bounds.width) / 2);
+        const paddingY = Math.max(0, (minimumHitSizeMm - bounds.height) / 2);
+        return point.x >= bounds.left - paddingX && point.x <= bounds.right + paddingX && point.y >= bounds.top - paddingY && point.y <= bounds.bottom + paddingY;
       });
       onSelect(hit?.id ?? null);
-      if (hit) { dragRef.current = { id: hit.id, offsetX: point.x - hit.x, offsetY: point.y - hit.y }; event.currentTarget.setPointerCapture(event.pointerId); }
+      if (hit) dragRef.current = { kind: "part", id: hit.id, offsetX: point.x - hit.x, offsetY: point.y - hit.y };
+      else if (zoom > 1) dragRef.current = { kind: "pan", clientX: event.clientX, clientY: event.clientY, centreX: viewCenter.x, centreY: viewCenter.y };
+      if (dragRef.current) event.currentTarget.setPointerCapture(event.pointerId);
     }}
-    onPointerMove={(event) => { if (dragRef.current) { const point = sheetPoint(event); onMove(dragRef.current.id, point.x - dragRef.current.offsetX, point.y - dragRef.current.offsetY); } }}
+    onPointerMove={(event) => {
+      if (dragRef.current?.kind === "part") { const point = sheetPoint(event); onMove(dragRef.current.id, point.x - dragRef.current.offsetX, point.y - dragRef.current.offsetY); }
+      if (dragRef.current?.kind === "pan") {
+        const scale = transformRef.current.scale;
+        onPan({ x: dragRef.current.centreX - (event.clientX - dragRef.current.clientX) / scale, y: dragRef.current.centreY - (event.clientY - dragRef.current.clientY) / scale });
+      }
+    }}
     onPointerUp={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); dragRef.current = null; }}
     onPointerCancel={() => { dragRef.current = null; }}
   />;
@@ -1595,7 +1622,14 @@ export function MapWorkspace() {
   const [sheetPlacements, setSheetPlacements] = useState<SheetPlacement[]>([]);
   const [selectedPlacementId, setSelectedPlacementId] = useState<string | null>(null);
   const [partLibraryFilter, setPartLibraryFilter] = useState("");
+  const [sheetZoom, setSheetZoom] = useState(1);
+  const [sheetViewCenter, setSheetViewCenter] = useState({ x: 600, y: 300 });
   const placementCounterRef = useRef(1);
+
+  useEffect(() => {
+    setSheetViewCenter({ x: sheetRules.width / 2, y: sheetRules.height / 2 });
+    setSheetZoom(1);
+  }, [sheetRules.width, sheetRules.height]);
   const chosenOutput = outputDimensions(outputFormat, outputOrientation, customWidthMm, customHeightMm);
   aspectRatioRef.current = chosenOutput ? chosenOutput.width / chosenOutput.height : null;
 
@@ -2408,6 +2442,18 @@ export function MapWorkspace() {
     setSheetCount((current) => current + 1);
     setActiveSheetIndex(sheetCount);
     setSelectedPlacementId(null);
+    setSheetZoom(1);
+    setSheetViewCenter({ x: sheetRules.width / 2, y: sheetRules.height / 2 });
+  }
+
+  function focusSheetPlacement(placement: SheetPlacement) {
+    const part = layoutParts.find((candidate) => candidate.id === placement.partId);
+    if (!part) return;
+    const bounds = placementBounds(placement, part);
+    setActiveSheetIndex(placement.sheetIndex);
+    setSelectedPlacementId(placement.id);
+    setSheetZoom((current) => Math.max(2, current));
+    setSheetViewCenter({ x: (bounds.left + bounds.right) / 2, y: (bounds.top + bounds.bottom) / 2 });
   }
 
   function autoLayoutUnplaced() {
@@ -3037,7 +3083,8 @@ export function MapWorkspace() {
             <button onClick={addReplacementSheet}>+ Replacement sheet</button>
           </div>
           <div className="sheet-tabs" aria-label="Material sheets">
-            {Array.from({ length: sheetCount }, (_, index) => <button key={index} className={index === activeSheetIndex ? "active" : ""} onClick={() => { setActiveSheetIndex(index); setSelectedPlacementId(null); }}>Sheet {index + 1}<small>{sheetPlacements.filter((placement) => placement.sheetIndex === index).length} parts</small></button>)}
+            {Array.from({ length: sheetCount }, (_, index) => <button key={index} className={index === activeSheetIndex ? "active" : ""} onClick={() => { setActiveSheetIndex(index); setSelectedPlacementId(null); setSheetZoom(1); setSheetViewCenter({ x: sheetRules.width / 2, y: sheetRules.height / 2 }); }}>Sheet {index + 1}<small>{sheetPlacements.filter((placement) => placement.sheetIndex === index).length} parts</small></button>)}
+            <div className="sheet-view-controls"><span>View</span>{[1, 2, 4, 8].map((value) => <button key={value} className={sheetZoom === value ? "active" : ""} onClick={() => setSheetZoom(value)}>{value}×</button>)}<button onClick={() => { setSheetZoom(1); setSheetViewCenter({ x: sheetRules.width / 2, y: sheetRules.height / 2 }); }}>Fit</button><button disabled={!selectedPlacement} onClick={() => selectedPlacement && focusSheetPlacement(selectedPlacement)}>Focus selected</button></div>
           </div>
           <div className="sheet-layout-workspace">
             <div className="sheet-canvas-wrap">
@@ -3048,10 +3095,13 @@ export function MapWorkspace() {
                 sheetIndex={activeSheetIndex}
                 selectedId={selectedPlacementId}
                 violations={layoutViolations}
+                zoom={sheetZoom}
+                viewCenter={sheetViewCenter}
                 onSelect={setSelectedPlacementId}
                 onMove={(id, x, y) => updateSheetPlacement(id, { x: Math.round(x * 2) / 2, y: Math.round(y * 2) / 2 })}
+                onPan={setSheetViewCenter}
               />
-              <div className="sheet-scale-note">{sheetRules.width} × {sheetRules.height} mm sheet · grid every 100 mm · dashed red line is the edge no-cut boundary</div>
+              <div className="sheet-scale-note">{sheetRules.width} × {sheetRules.height} mm · {sheetZoom}× view · drag empty sheet to pan · blue halos show {sheetRules.partSpacing} mm clearance</div>
             </div>
             <aside className="sheet-layout-details">
               <div className="sheet-layout-metrics"><span><small>Sheets</small><strong>{sheetCount}</strong></span><span><small>Instances</small><strong>{sheetPlacements.length}</strong></span><span><small>Area use</small><strong>{sheetUtilisation.toFixed(1)}%</strong></span></div>
@@ -3065,7 +3115,8 @@ export function MapWorkspace() {
               <ol className="part-library-list">
                 {layoutParts.filter((part) => part.id.toLowerCase().includes(partLibraryFilter.trim().toLowerCase())).map((part) => {
                   const copies = sheetPlacements.filter((placement) => placement.partId === part.id).length;
-                  return <li key={part.id}><span><strong>{part.id}</strong><small>{part.width.toFixed(1)} × {part.height.toFixed(1)} mm · L{String(part.layerIndex + 1).padStart(2, "0")}</small></span><b>{copies} placed</b><button onClick={() => addPartToSheet(part.id)}>Add</button></li>;
+                  const activeCopy = sheetPlacements.find((placement) => placement.partId === part.id && placement.sheetIndex === activeSheetIndex);
+                  return <li key={part.id}><button className="part-library-focus" disabled={!activeCopy} onClick={() => activeCopy && focusSheetPlacement(activeCopy)}><strong>{part.id}</strong><small>{part.width.toFixed(1)} × {part.height.toFixed(1)} mm · L{String(part.layerIndex + 1).padStart(2, "0")}</small></button><b>{copies} placed</b><button onClick={() => addPartToSheet(part.id)}>Add</button></li>;
                 })}
               </ol>
               <div className={`drc-panel ${layoutViolations.length ? "has-warnings" : ""}`}>

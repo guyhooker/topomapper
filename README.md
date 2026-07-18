@@ -85,3 +85,6 @@ edge-zone and part-spacing rules; drag and 90-degree rotation; multiple sheets;
 live non-blocking DRC warnings; a reusable parts library; replacement copies;
 and an editable first-fit Auto layout. The initial DRC deliberately uses
 conservative part rectangles until polygon-offset nesting is added.
+Visible clearance halos turn red on collision, tiny parts retain a practical
+screen hit target, and 1×–8× zoom, empty-sheet panning, library selection, and
+Focus selected make small replacement pieces manageable.

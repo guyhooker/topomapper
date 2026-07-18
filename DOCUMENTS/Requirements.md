@@ -98,6 +98,10 @@ boundary.
   duplicated onto a separate replacement sheet without rebuilding the full
   model layout.
 - Keep Auto layout editable and preserve manual layout as a permanent workflow.
+- Draw the active part-spacing rule as a visible halo around every placed part;
+  pair colour and DRC text so collisions are not communicated by colour alone.
+- Keep tiny physical parts selectable with a minimum screen-space hit target,
+  zoom/pan, library-based selection, and focus-on-selection.
 
 ## Preview and Analysis
 

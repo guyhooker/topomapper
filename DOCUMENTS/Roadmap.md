@@ -223,6 +223,8 @@ registration holes align consistently across every exported layer.
 - Searchable reusable parts library with duplicate copies and dedicated
   replacement sheets.
 - Editable conservative Auto layout for currently unplaced original parts.
+- Visible clearance halos, enlarged tiny-part hit targets, 1×–8× zoom, panning,
+  parts-library selection, and Focus selected.
 
 ### Acceptance Test
 

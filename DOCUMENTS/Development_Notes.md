@@ -352,4 +352,10 @@
   0/90-degree rotations, respects current rules where possible, adds sheets when
   needed, and leaves impossible fits as visible DRC exceptions.
 - Reports sheet count, placed instances, and approximate material area use.
+- Displays the conservative part-spacing rule as a half-spacing halo on each
+  part. Two touching halos correspond to the full required clearance; affected
+  halos and outlines turn red when DRC reports a clash.
+- Tiny parts use a minimum 16-pixel invisible hit target. The sheet view now has
+  1×, 2×, 4×, and 8× zoom, drag-to-pan on empty material, Fit, Focus selected,
+  and selection through a placed part's library entry.
 - Production build passes successfully.

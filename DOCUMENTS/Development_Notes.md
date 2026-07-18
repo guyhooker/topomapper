@@ -279,3 +279,37 @@
    peaks and continue through every supporting layer to L01.
 5. Change grid pitch, hole diameter, and edge clearance and inspect the plan.
 6. Mark Stage 7 complete only after the assembly scheme looks practical.
+
+### Stage 8 — Manufacturing SVG Geometry
+
+- Implemented 18 July 2026; awaiting Guy's finished-size export acceptance
+  test.
+- Added Manufacture as a fourth full-screen workspace beside 2D Map, 3D Model,
+  and Assembly.
+- Generates one SVG per physical layer at the exact selected millimetre width
+  and height. North remains at the top.
+- Separates red `CUT_OUTLINES`, blue `DRILL_HOLES`, and green `ENGRAVE` groups
+  so the intended operations are inspectable and machine-readable.
+- Exports only safe covered part labels and north arrows; small-part names
+  are engraved in nearby waste with a short leader that never crosses the part
+  outline. If no safe waste area exists, the name remains on the assembly
+  sheet.
+- Waste labels are provisional in Stage 8 and must be recalculated from the
+  final waste geometry after manual or automatic sheet nesting.
+- Offers a selected-layer download and a dependency-free ZIP containing every
+  layer, a same-scale overview, and manufacturing notes.
+- Records layer elevations, dimensions, material thickness, and source
+  filenames in SVG metadata.
+- Deliberately does not add cutter compensation, smoothing, tabs, nesting, or
+  toolpaths. These remain visible fabrication stages before direct G-code.
+- Frontend production build passes successfully.
+
+## Revised Next Steps
+
+1. Download the Stage 8 package for a known Taranaki or Banks Peninsula model.
+2. Confirm the ZIP opens and contains every layer plus the overview and notes.
+3. Open or print one layer without scaling and measure its physical dimensions.
+4. Confirm red outlines, blue volcano vents/grid holes, and green covered
+   engraving appear on the expected layer.
+5. Begin Stage 9 cutter-scale cleanup only after the exported geometry is
+   accepted.

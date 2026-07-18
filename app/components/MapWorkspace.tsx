@@ -77,7 +77,7 @@ type LayerDistribution = "log" | "linear";
 type OutputFormat = "free" | "12x8" | "a2" | "square" | "custom";
 type OutputOrientation = "landscape" | "portrait";
 type StackView = "three-dimensional" | "side" | "top";
-type WorkspaceView = "two-dimensional" | "three-dimensional" | "assembly";
+type WorkspaceView = "two-dimensional" | "three-dimensional" | "assembly" | "manufacturing";
 
 type FilledLayer = {
   index: number;
@@ -578,6 +578,286 @@ function buildAssemblyPlan(
   return { parts, holes, ventComplete: vents.length > 0, warnings };
 }
 
+function svgNumber(value: number) {
+  return Number(value.toFixed(3));
+}
+
+function xmlText(value: string) {
+  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+}
+
+function svgPathForFeature(preview: FilledLayerPreview, feature: FilledLayerFeature, modelWidth: number, modelHeight: number) {
+  return feature.geometry.coordinates.map((ring) => ring.map((point, index) => {
+    const physical = physicalPoint(preview, modelWidth, modelHeight, point);
+    return `${index === 0 ? "M" : "L"}${svgNumber(physical.x)} ${svgNumber(physical.y)}`;
+  }).join(" ") + " Z").join(" ");
+}
+
+type WasteLabel = {
+  partId: string;
+  x: number;
+  y: number;
+  leaderStartX: number;
+  leaderStartY: number;
+  leaderEndX: number;
+  leaderEndY: number;
+};
+
+function findWasteLabels(
+  preview: FilledLayerPreview,
+  plan: AssemblyPlan,
+  layerIndex: number,
+  modelWidth: number,
+  modelHeight: number,
+) {
+  const layerParts = plan.parts.filter((part) => part.layerIndex === layerIndex);
+  const labels: WasteLabel[] = [];
+  const radii = [14, 20, 28, 38, 50, 65];
+  const angles = Array.from({ length: 24 }, (_, index) => index * Math.PI * 2 / 24);
+  layerParts.filter((part) => !part.machineLabel).sort((left, right) => right.areaMm2 - left.areaMm2).forEach((part) => {
+    const centre = physicalPoint(preview, modelWidth, modelHeight, part.labelPoint);
+    const labelRadius = Math.max(6, part.id.length * 1.35);
+    let placed: WasteLabel | null = null;
+    for (const radius of radii) {
+      if (placed) break;
+      for (const angle of angles) {
+        const x = centre.x + Math.cos(angle) * radius;
+        const y = centre.y + Math.sin(angle) * radius;
+        if (x < labelRadius + 2 || x > modelWidth - labelRadius - 2 || y < 6 || y > modelHeight - 6) continue;
+        if (labels.some((label) => Math.hypot(label.x - x, label.y - y) < labelRadius * 2.4)) continue;
+        const geographic = geographicPoint(preview, modelWidth, modelHeight, x, y);
+        if (layerParts.some((candidate) => pointInFeature(geographic, candidate.feature))) continue;
+        const clearance = Math.min(...layerParts.map((candidate) => featureClearanceMm(preview, candidate.feature, modelWidth, modelHeight, geographic)));
+        if (clearance < labelRadius) continue;
+
+        // Find the first edge of this part on the line from the waste label to
+        // the part centre. The leader deliberately stops outside the cut path.
+        let outside = 0;
+        let inside = 1;
+        for (let step = 0; step < 18; step += 1) {
+          const position = (outside + inside) / 2;
+          const sampleX = x + (centre.x - x) * position;
+          const sampleY = y + (centre.y - y) * position;
+          const sample = geographicPoint(preview, modelWidth, modelHeight, sampleX, sampleY);
+          if (pointInFeature(sample, part.feature)) inside = position;
+          else outside = position;
+        }
+        const distance = Math.hypot(centre.x - x, centre.y - y);
+        const directionX = (centre.x - x) / distance;
+        const directionY = (centre.y - y) / distance;
+        const edgeX = x + (centre.x - x) * outside;
+        const edgeY = y + (centre.y - y) * outside;
+        const leaderBlocked = layerParts.some((candidate) => candidate !== part && Array.from({ length: 12 }, (_, index) => (index + 1) / 13 * outside).some((position) => pointInFeature(
+          geographicPoint(preview, modelWidth, modelHeight, x + (centre.x - x) * position, y + (centre.y - y) * position),
+          candidate.feature,
+        )));
+        if (leaderBlocked) continue;
+        placed = {
+          partId: part.id,
+          x,
+          y,
+          leaderStartX: x + directionX * labelRadius * 0.8,
+          leaderStartY: y + directionY * labelRadius * 0.8,
+          leaderEndX: edgeX - directionX,
+          leaderEndY: edgeY - directionY,
+        };
+        break;
+      }
+    }
+    if (placed) labels.push(placed);
+  });
+  return labels;
+}
+
+function buildLayerSvgBody(
+  preview: FilledLayerPreview,
+  plan: AssemblyPlan,
+  layerIndex: number,
+  modelWidth: number,
+  modelHeight: number,
+  holeDiameter: number,
+) {
+  const parts = plan.parts.filter((part) => part.layerIndex === layerIndex);
+  const holes = plan.holes.filter((hole) => hole.drilledLayers.includes(layerIndex));
+  const wasteLabels = findWasteLabels(preview, plan, layerIndex, modelWidth, modelHeight);
+  const cuts = parts.map((part) => `<path data-part-id="${part.id}" d="${svgPathForFeature(preview, part.feature, modelWidth, modelHeight)}" />`).join("\n    ");
+  const drills = holes.map((hole) => `<circle data-hole-id="${hole.id}" data-hole-kind="${hole.kind}" cx="${svgNumber(hole.xMm)}" cy="${svgNumber(hole.yMm)}" r="${svgNumber(holeDiameter / 2)}" />`).join("\n    ");
+  const engraving = parts.filter((part) => part.machineLabel).map((part) => {
+    const position = physicalPoint(preview, modelWidth, modelHeight, part.labelPoint);
+    const x = svgNumber(position.x);
+    const y = svgNumber(position.y);
+    return `<g data-part-id="${part.id}" transform="translate(${x} ${y})">
+      <text x="0" y="2" text-anchor="middle">${part.id}</text>
+      <path d="M0 -4 L0 -10 M0 -10 L-2 -7 M0 -10 L2 -7" />
+    </g>`;
+  }).join("\n    ");
+  const wasteEngraving = wasteLabels.map((label) => `<g data-part-id="${label.partId}">
+      <text x="${svgNumber(label.x)}" y="${svgNumber(label.y + 1.5)}" text-anchor="middle">${label.partId}</text>
+      <path d="M${svgNumber(label.leaderStartX)} ${svgNumber(label.leaderStartY)} L${svgNumber(label.leaderEndX)} ${svgNumber(label.leaderEndY)}" />
+    </g>`).join("\n    ");
+  return `<g id="CUT_OUTLINES" data-operation="profile-cut" fill="none" stroke="#c9492a" stroke-width="0.2">
+    ${cuts}
+  </g>
+  <g id="DRILL_HOLES" data-operation="drill" fill="none" stroke="#187c91" stroke-width="0.2">
+    ${drills}
+  </g>
+  <g id="ENGRAVE" data-operation="engrave" fill="none" stroke="#214f3d" stroke-width="0.3" font-family="Arial, sans-serif" font-size="4">
+    ${engraving}
+  </g>
+  <g id="WASTE_LABELS" data-operation="engrave-waste" fill="none" stroke="#61736a" stroke-width="0.25" font-family="Arial, sans-serif" font-size="4">
+    ${wasteEngraving}
+  </g>`;
+}
+
+function buildLayerSvg(
+  preview: FilledLayerPreview,
+  plan: AssemblyPlan,
+  layerIndex: number,
+  modelWidth: number,
+  modelHeight: number,
+  holeDiameter: number,
+  materialThickness: number,
+  sourceFiles: string[],
+) {
+  const layer = preview.layers[layerIndex];
+  const layerName = `L${String(layerIndex + 1).padStart(2, "0")}`;
+  const metadata = JSON.stringify({
+    layer: layerName,
+    lower_elevation_m: layer.lower_elevation,
+    upper_elevation_m: layer.upper_elevation,
+    finished_width_mm: svgNumber(modelWidth),
+    finished_height_mm: svgNumber(modelHeight),
+    material_thickness_mm: svgNumber(materialThickness),
+    source_files: sourceFiles,
+    north: "top",
+  });
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${svgNumber(modelWidth)}mm" height="${svgNumber(modelHeight)}mm" viewBox="0 0 ${svgNumber(modelWidth)} ${svgNumber(modelHeight)}">
+  <title>Topomapper ${layerName} manufacturing geometry</title>
+  <desc>North is at the top. Red paths are profile cuts, blue circles are drilled holes, and green paths are covered engraving.</desc>
+  <metadata>${xmlText(metadata)}</metadata>
+  ${buildLayerSvgBody(preview, plan, layerIndex, modelWidth, modelHeight, holeDiameter)}
+</svg>`;
+}
+
+function buildOverviewSvg(
+  preview: FilledLayerPreview,
+  plan: AssemblyPlan,
+  modelWidth: number,
+  modelHeight: number,
+  holeDiameter: number,
+) {
+  const gap = 12;
+  const heading = 10;
+  const columns = preview.layers.length > 1 ? 2 : 1;
+  const rows = Math.ceil(preview.layers.length / columns);
+  const width = columns * modelWidth + (columns - 1) * gap;
+  const height = rows * (modelHeight + heading) + Math.max(0, rows - 1) * gap;
+  const layers = preview.layers.map((layer) => {
+    const column = layer.index % columns;
+    const row = Math.floor(layer.index / columns);
+    const x = column * (modelWidth + gap);
+    const y = row * (modelHeight + heading + gap);
+    const name = `L${String(layer.index + 1).padStart(2, "0")}`;
+    return `<g id="${name}" transform="translate(${svgNumber(x)} ${svgNumber(y)})">
+    <text x="0" y="6" font-family="Arial, sans-serif" font-size="5" fill="#214f3d">${name} · ${svgNumber(layer.lower_elevation)}–${svgNumber(layer.upper_elevation)} m · North ↑</text>
+    <g transform="translate(0 ${heading})">
+      <rect id="REFERENCE_${name}" width="${svgNumber(modelWidth)}" height="${svgNumber(modelHeight)}" fill="none" stroke="#9ca89f" stroke-width="0.2" stroke-dasharray="2 2" />
+      ${buildLayerSvgBody(preview, plan, layer.index, modelWidth, modelHeight, holeDiameter)}
+    </g>
+  </g>`;
+  }).join("\n  ");
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${svgNumber(width)}mm" height="${svgNumber(height)}mm" viewBox="0 0 ${svgNumber(width)} ${svgNumber(height)}">
+  <title>Topomapper manufacturing overview</title>
+  <desc>All physical layers shown at finished scale. This overview is for checking and assembly reference, not direct cutting.</desc>
+  ${layers}
+</svg>`;
+}
+
+function crc32(data: Uint8Array) {
+  let crc = 0xffffffff;
+  for (const byte of data) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function createZipArchive(files: { name: string; contents: string }[]) {
+  const encoder = new TextEncoder();
+  const localParts: Uint8Array[] = [];
+  const centralParts: Uint8Array[] = [];
+  let localOffset = 0;
+  const write16 = (view: DataView, offset: number, value: number) => view.setUint16(offset, value, true);
+  const write32 = (view: DataView, offset: number, value: number) => view.setUint32(offset, value, true);
+  files.forEach((file) => {
+    const name = encoder.encode(file.name);
+    const data = encoder.encode(file.contents);
+    const checksum = crc32(data);
+    const local = new Uint8Array(30 + name.length + data.length);
+    const localView = new DataView(local.buffer);
+    write32(localView, 0, 0x04034b50);
+    write16(localView, 4, 20);
+    write16(localView, 6, 0x0800);
+    write16(localView, 8, 0);
+    write16(localView, 10, 0);
+    write16(localView, 12, 33);
+    write32(localView, 14, checksum);
+    write32(localView, 18, data.length);
+    write32(localView, 22, data.length);
+    write16(localView, 26, name.length);
+    write16(localView, 28, 0);
+    local.set(name, 30);
+    local.set(data, 30 + name.length);
+    localParts.push(local);
+
+    const central = new Uint8Array(46 + name.length);
+    const centralView = new DataView(central.buffer);
+    write32(centralView, 0, 0x02014b50);
+    write16(centralView, 4, 20);
+    write16(centralView, 6, 20);
+    write16(centralView, 8, 0x0800);
+    write16(centralView, 10, 0);
+    write16(centralView, 12, 0);
+    write16(centralView, 14, 33);
+    write32(centralView, 16, checksum);
+    write32(centralView, 20, data.length);
+    write32(centralView, 24, data.length);
+    write16(centralView, 28, name.length);
+    write16(centralView, 30, 0);
+    write16(centralView, 32, 0);
+    write16(centralView, 34, 0);
+    write16(centralView, 36, 0);
+    write32(centralView, 38, 0);
+    write32(centralView, 42, localOffset);
+    central.set(name, 46);
+    centralParts.push(central);
+    localOffset += local.length;
+  });
+  const centralSize = centralParts.reduce((total, part) => total + part.length, 0);
+  const end = new Uint8Array(22);
+  const endView = new DataView(end.buffer);
+  write32(endView, 0, 0x06054b50);
+  write16(endView, 4, 0);
+  write16(endView, 6, 0);
+  write16(endView, 8, files.length);
+  write16(endView, 10, files.length);
+  write32(endView, 12, centralSize);
+  write32(endView, 16, localOffset);
+  write16(endView, 20, 0);
+  return new Blob([...localParts, ...centralParts, end], { type: "application/zip" });
+}
+
+function downloadFile(contents: BlobPart, type: string, filename: string) {
+  const url = URL.createObjectURL(new Blob([contents], { type }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 function StackPreviewCanvas({
   preview,
   visibleLayers,
@@ -935,6 +1215,7 @@ export function MapWorkspace() {
   const [dowelDiameterMm, setDowelDiameterMm] = useState(4);
   const [holeDiameterMm, setHoleDiameterMm] = useState(4.2);
   const [holeEdgeClearanceMm, setHoleEdgeClearanceMm] = useState(6);
+  const [exportStatus, setExportStatus] = useState("Manufacturing files are ready to inspect.");
   const chosenOutput = outputDimensions(outputFormat, outputOrientation, customWidthMm, customHeightMm);
   aspectRatioRef.current = chosenOutput ? chosenOutput.width / chosenOutput.height : null;
 
@@ -1685,6 +1966,77 @@ export function MapWorkspace() {
   const selectedAssemblyLayer = filledLayerPreview?.layers[assemblyLayerIndex] ?? null;
   const selectedAssemblyParts = assemblyPlan?.parts.filter((part) => part.layerIndex === assemblyLayerIndex) ?? [];
   const selectedAssemblyHoles = assemblyPlan?.holes.filter((hole) => hole.drilledLayers.includes(assemblyLayerIndex)) ?? [];
+  const selectedWasteLabels = useMemo(() => filledLayerPreview && assemblyPlan ? findWasteLabels(
+    filledLayerPreview,
+    assemblyPlan,
+    assemblyLayerIndex,
+    previewDimensions.width,
+    previewDimensions.height,
+  ) : [], [filledLayerPreview, assemblyPlan, assemblyLayerIndex, previewDimensions.width, previewDimensions.height]);
+  const selectedManufacturingSvg = useMemo(() => filledLayerPreview && assemblyPlan && selectedAssemblyLayer ? buildLayerSvg(
+    filledLayerPreview,
+    assemblyPlan,
+    assemblyLayerIndex,
+    previewDimensions.width,
+    previewDimensions.height,
+    holeDiameterMm,
+    materialThicknessMm,
+    analysis?.datasets.map((dataset) => dataset.filename) ?? [],
+  ) : "", [filledLayerPreview, assemblyPlan, selectedAssemblyLayer, assemblyLayerIndex, previewDimensions.width, previewDimensions.height, holeDiameterMm, materialThicknessMm, analysis]);
+
+  function downloadSelectedLayerSvg() {
+    if (!selectedManufacturingSvg) return;
+    const layerName = `L${String(assemblyLayerIndex + 1).padStart(2, "0")}`;
+    downloadFile(selectedManufacturingSvg, "image/svg+xml;charset=utf-8", `topomapper-${layerName}.svg`);
+    setExportStatus(`${layerName} downloaded at ${previewDimensions.width.toFixed(1)} × ${previewDimensions.height.toFixed(1)} mm.`);
+  }
+
+  function downloadManufacturingPackage() {
+    if (!filledLayerPreview || !assemblyPlan) return;
+    const files = filledLayerPreview.layers.map((layer) => ({
+      name: `layers/topomapper-L${String(layer.index + 1).padStart(2, "0")}.svg`,
+      contents: buildLayerSvg(
+        filledLayerPreview,
+        assemblyPlan,
+        layer.index,
+        previewDimensions.width,
+        previewDimensions.height,
+        holeDiameterMm,
+        materialThicknessMm,
+        analysis?.datasets.map((dataset) => dataset.filename) ?? [],
+      ),
+    }));
+    files.push({
+      name: "topomapper-overview.svg",
+      contents: buildOverviewSvg(filledLayerPreview, assemblyPlan, previewDimensions.width, previewDimensions.height, holeDiameterMm),
+    });
+    files.push({
+      name: "manufacturing-notes.txt",
+      contents: [
+        "TOPOMAPPER MANUFACTURING GEOMETRY",
+        "",
+        `Finished model: ${previewDimensions.width.toFixed(1)} x ${previewDimensions.height.toFixed(1)} mm`,
+        `Material: ${materialThicknessMm.toFixed(1)} mm`,
+        `Layers: ${filledLayerPreview.layers.length}`,
+        `Dowel: ${dowelDiameterMm.toFixed(1)} mm`,
+        `Finished holes: ${holeDiameterMm.toFixed(1)} mm`,
+        `Elevation sources: ${analysis?.datasets.map((dataset) => dataset.filename).join(", ") || "not recorded"}`,
+        "North is at the top of every layer SVG.",
+        "",
+        "SVG GROUPS",
+        "CUT_OUTLINES = red profile paths",
+        "DRILL_HOLES = blue volcano-vent and buried-grid circles",
+        "ENGRAVE = green covered part IDs and north arrows",
+        "WASTE_LABELS = grey small-part IDs and leaders engraved in surrounding waste",
+        "",
+        "These are finished-size geometry files. Cutter compensation, tabs, nesting and G-code are added in later fabrication stages.",
+        ...assemblyPlan.warnings.map((warning) => `WARNING: ${warning}`),
+      ].join("\n"),
+    });
+    const archive = createZipArchive(files);
+    downloadFile(archive, "application/zip", "topomapper-svg-package.zip");
+    setExportStatus(`${files.length} manufacturing files downloaded as one package.`);
+  }
 
   return (
     <main className={`workspace ${drawing ? "is-drawing" : ""} view-${workspaceView}`}>
@@ -1701,9 +2053,10 @@ export function MapWorkspace() {
               <button className={workspaceView === "two-dimensional" ? "active" : ""} onClick={() => setWorkspaceView("two-dimensional")}>2D Map</button>
               <button className={workspaceView === "three-dimensional" ? "active" : ""} onClick={() => setWorkspaceView("three-dimensional")}>3D Model</button>
               <button className={workspaceView === "assembly" ? "active" : ""} onClick={() => setWorkspaceView("assembly")}>Assembly</button>
+              <button className={workspaceView === "manufacturing" ? "active" : ""} onClick={() => setWorkspaceView("manufacturing")}>Manufacture</button>
             </div>
           )}
-          <div className="stage-pill"><span /> Stage 7 · Assembly Plan</div>
+          <div className="stage-pill"><span /> Stage 8 · Manufacturing SVG</div>
         </div>
       </header>
 
@@ -2151,6 +2504,67 @@ export function MapWorkspace() {
                   {assemblyPlan.warnings.map((warning) => <p key={warning}>{warning}</p>)}
                 </div>
               )}
+            </aside>
+          </div>
+        </section>
+      )}
+
+      {filledLayerPreview && assemblyPlan && selectedAssemblyLayer && workspaceView === "manufacturing" && (
+        <section className="manufacturing-preview" aria-labelledby="manufacturing-preview-heading">
+          <div className="manufacturing-preview-heading">
+            <div>
+              <span className="section-label">STAGE 8 · MANUFACTURING GEOMETRY</span>
+              <strong id="manufacturing-preview-heading">Finished-size SVG files</strong>
+            </div>
+            <span className="ready">Scale verified in millimetres</span>
+          </div>
+
+          <div className="manufacturing-toolbar">
+            <div className="assembly-layer-control">
+              <button onClick={() => setAssemblyLayerIndex(Math.max(0, assemblyLayerIndex - 1))} disabled={assemblyLayerIndex === 0} aria-label="Previous manufacturing layer">←</button>
+              <select value={assemblyLayerIndex} onChange={(event) => setAssemblyLayerIndex(Number(event.target.value))} aria-label="Manufacturing layer to inspect">
+                {filledLayerPreview.layers.map((layer) => <option key={layer.index} value={layer.index}>L{String(layer.index + 1).padStart(2, "0")} · {formatBoundaryValue(layer.lower_elevation)}–{formatBoundaryValue(layer.upper_elevation)} m</option>)}
+              </select>
+              <button onClick={() => setAssemblyLayerIndex(Math.min(filledLayerPreview.layers.length - 1, assemblyLayerIndex + 1))} disabled={assemblyLayerIndex === filledLayerPreview.layers.length - 1} aria-label="Next manufacturing layer">→</button>
+            </div>
+            <button className="download-layer-button" onClick={downloadSelectedLayerSvg}>Download L{String(assemblyLayerIndex + 1).padStart(2, "0")} SVG</button>
+            <button className="download-package-button" onClick={downloadManufacturingPackage}>Download all SVGs</button>
+          </div>
+
+          <div className="manufacturing-workspace">
+            <div className="manufacturing-canvas-wrap">
+              <div className="manufacturing-svg-preview" role="img" aria-label={`Finished-size manufacturing geometry for layer ${assemblyLayerIndex + 1}`} dangerouslySetInnerHTML={{ __html: selectedManufacturingSvg }} />
+              <div className="manufacturing-legend">
+                <span><i className="cut-path" /> Profile cut</span>
+                <span><i className="drill-path" /> Drill</span>
+                <span><i className="engrave-path" /> Covered engraving</span>
+                <span><i className="waste-label-path" /> Waste ID + leader</span>
+              </div>
+            </div>
+
+            <aside className="manufacturing-details">
+              <div className="manufacturing-dimensions">
+                <span><small>Width</small><strong>{previewDimensions.width.toFixed(1)} mm</strong></span>
+                <span><small>Height</small><strong>{previewDimensions.height.toFixed(1)} mm</strong></span>
+                <span><small>Material</small><strong>{materialThicknessMm.toFixed(1)} mm</strong></span>
+              </div>
+              <p className="manufacturing-status" role="status">{exportStatus}</p>
+              <div className="manufacturing-operation-list">
+                <span><i className="cut-path" /><b>{selectedAssemblyParts.length}</b><small>part profile{selectedAssemblyParts.length === 1 ? "" : "s"}</small></span>
+                <span><i className="drill-path" /><b>{selectedAssemblyHoles.length}</b><small>drill hole{selectedAssemblyHoles.length === 1 ? "" : "s"}</small></span>
+                <span><i className="engrave-path" /><b>{selectedAssemblyParts.filter((part) => part.machineLabel).length}</b><small>safe engraving{selectedAssemblyParts.filter((part) => part.machineLabel).length === 1 ? "" : "s"}</small></span>
+              </div>
+              <p className="waste-label-summary"><strong>{selectedWasteLabels.length}</strong> small-part ID{selectedWasteLabels.length === 1 ? "" : "s"} placed in nearby waste with leaders that stop before the cut edge.</p>
+              <h3>Package contents</h3>
+              <ul className="manufacturing-file-list">
+                <li><strong>{filledLayerPreview.layers.length} layer SVGs</strong><span>One finished-size file per sheet layer</span></li>
+                <li><strong>Assembly overview</strong><span>Every layer arranged at the same physical scale</span></li>
+                <li><strong>Manufacturing notes</strong><span>Dimensions, material, holes and warnings</span></li>
+              </ul>
+              <div className="manufacturing-note">
+                <strong>Geometry only</strong>
+                <p>These paths do not yet include cutter compensation, smoothing, tabs or sheet nesting. Those remain visible future steps before G-code is produced.</p>
+              </div>
             </aside>
           </div>
         </section>

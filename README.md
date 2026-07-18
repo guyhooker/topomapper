@@ -65,3 +65,11 @@ each separate summit branch it searches downward for the highest safe cap, then
 runs a peak-alignment "vent" through every supporting layer to the base. A
 supplemental buried grid and north marks make orientation unambiguous. SVG
 fabrication export follows in Stage 8.
+
+Stage 8 adds a full-screen Manufacture workspace and exports finished-size SVG
+geometry. Each physical layer separates red profile cuts, blue drill holes, and
+green covered engraving into named operation groups. Parts too small to engrave
+receive a nearby grey ID and leader in waste material. A single download package
+contains every layer, a scale-preserving assembly overview, and manufacturing
+notes. Cutter cleanup, sheet nesting, and direct G-code follow as explicit
+stages rather than depending on subscription CAM software.

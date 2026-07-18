@@ -160,18 +160,27 @@ individually, all proposed holes remain capped by terrain, and each viable peak
 branch has an orange alignment vent continuing through its supporting layers to
 the base. Banks Peninsula is the multi-peak acceptance case.
 
-## Stage 8 — SVG Export
+## Stage 8 — Manufacturing SVG Geometry
+
+**Status: Implementation complete — acceptance test pending**
 
 ### Adds
 
-- One labelled SVG file per physical layer.
-- Combined registration/overview SVG.
-- Finished dimensions, scale, source, layer order, and elevation metadata.
+- Full-screen Manufacture workspace with a layer-by-layer geometry preview.
+- One finished-size SVG file per physical layer.
+- Named profile-cut, drill, and covered-engraving operation groups.
+- Small-part IDs engraved in nearby waste with leaders that stop outside the
+  profile cut; final positions will be recalculated after nesting.
+- A single ZIP download containing all layer SVGs, a scale-preserving assembly
+  overview, and manufacturing notes.
+- Finished dimensions, material thickness, elevation sources, layer order, and
+  elevation metadata.
 
 ### Acceptance Test
 
 The SVGs open at the requested physical dimensions in a vector editor and CAM
-software. Printed paper outlines align when stacked.
+software. The ZIP opens normally, every expected layer is present, and printed
+paper outlines align when stacked.
 
 ## Stage 9 — Fabrication Geometry Controls
 
@@ -191,7 +200,54 @@ that topomapper must own it.
 Topomapper identifies deliberately troublesome small features, and registration
 holes align consistently across every exported layer.
 
-## Stage 10 — Coast and Bathymetry
+## Stage 10 — Manual Sheet Layout
+
+### Adds
+
+- Configurable stock sheet, initially 1200 × 600 × 3 mm MDF.
+- Actual-scale drag, rotate, snap, collision, spacing, margin, and clamp-zone
+  controls.
+- Per-part face/orientation instructions; rotation is unrestricted while
+  mirroring is explicitly tracked.
+- Sheet count, used area, and waste estimate.
+
+### Acceptance Test
+
+All retained model parts can be placed manually without overlap and the saved
+layout reopens with identical positions and orientations.
+
+## Stage 11 — Automatic Sheet Nesting
+
+### Adds
+
+- Polygon-aware nesting across as few stock sheets as practical.
+- Multiple attempts and a visible comparison of sheet count and waste.
+- Manual adjustment of the automatically generated result.
+- Reproducible placement settings and seed.
+
+### Acceptance Test
+
+The automatic layout uses no more sheets than a careful manual layout for the
+Taranaki regression model and has no collisions or boundary violations.
+
+## Stage 12 — Toolpaths and Direct G-code
+
+### Adds
+
+- Explicit CNC machine/controller profile.
+- Tool diameter, feeds, spindle control, depth passes, tabs, safe height, work
+  origin, and postprocessor.
+- Safe operation ordering: engraving, drilling, internal cuts, then tabbed
+  external profiles.
+- Toolpath preview, time estimate, safety checks, G-code download, and setup
+  sheet.
+
+### Acceptance Test
+
+G-code is independently reviewed, simulated, air-cut, and tested on scrap MDF
+before any project sheet is machined.
+
+## Stage 13 — Coast and Bathymetry
 
 ### Adds
 
@@ -208,22 +264,20 @@ A Banks Peninsula selection shows land, coastline, and seabed bands without a
 gap or silent zero-level mismatch. Low-resolution offshore geometry is visibly
 identified.
 
-## Stage 11 — DXF and Physical Test Cut
+## Stage 14 — Physical Test Model
 
 ### Adds
 
-- DXF export.
-- Layer naming compatible with the chosen CAM workflow.
-- Fabrication report listing material, dimensions, order, and warnings.
-- Regression comparison between SVG and DXF geometry.
+- Fabrication report listing material, dimensions, sheet order, and warnings.
+- Small plywood or MDF model cut directly from Topomapper G-code.
+- Recorded measurements for hole fit, tabs, paint allowance, and assembly.
 
 ### Acceptance Test
 
-Produce a small plywood test map through existing CAM software and the CNC
-machine. Record fit, loose-piece problems, useful simplification, tolerances,
-paint allowance, and assembly experience.
+Produce a small test map on the CNC machine. Record fit, loose-piece problems,
+useful simplification, tolerances, paint allowance, and assembly experience.
 
-## Stage 12 — Packaged Mac Application
+## Stage 15 — Packaged Mac Application
 
 ### Adds
 
@@ -238,28 +292,12 @@ paint allowance, and assembly experience.
 Install and run topomapper on a clean Mac user account without manually starting
 Python, a terminal, or a development server.
 
-## Stage 13 — Optional Direct G-code
-
-Only undertake this stage if the SVG/DXF-to-CAM workflow is genuinely
-inconvenient.
-
-### Adds
-
-- Explicit CNC machine/controller profile.
-- Tool library, feeds, speeds, depth passes, tabs, safe height, work origin, and
-  postprocessor.
-- Toolpath preview and safety checks.
-
-### Acceptance Test
-
-G-code is independently reviewed, simulated, air-cut, and then tested on scrap
-material before any project sheet is machined.
-
 ## Suggested Release Milestones
 
 - **Prototype A — Terrain analyser:** Stages 1–4.
 - **Prototype B — Visual land model:** Stages 5–6.
-- **Prototype C — Cuttable land map:** Stages 7–9.
-- **Prototype D — Coastal model:** Stage 10.
-- **Version 1.0 — Proven Mac fabrication tool:** Stages 11–12.
-- **Optional CNC-native version:** Stage 13.
+- **Prototype C — Manufacturing geometry:** Stages 7–9.
+- **Prototype D — Manually nested sheets:** Stage 10.
+- **Prototype E — Automatically nested direct G-code:** Stages 11–12.
+- **Prototype F — Coastal model:** Stage 13.
+- **Version 1.0 — Proven Mac fabrication tool:** Stages 14–15.

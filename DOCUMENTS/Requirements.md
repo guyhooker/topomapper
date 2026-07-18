@@ -22,7 +22,10 @@ and Mount Taranaki. International support, such as central Paris, may follow.
    exaggeration.
 8. Review named parts, hidden alignment holes, and assembly orientation.
 9. Export one labelled, cut-ready shape per physical layer.
-10. Eventually produce machine-specific CNC G-code.
+10. Arrange physical parts onto standard material sheets manually or by
+    automatic nesting.
+11. Produce machine-specific CNC G-code without requiring external CAM
+    software.
 
 ## Elevation Layers
 
@@ -46,6 +49,11 @@ boundary.
   map scale.
 - Allow registration holes or alignment marks.
 - Label every exported layer with its elevation range, sequence, and side.
+- Preserve finished dimensions in millimetres and separate profile, drilling,
+  and engraving operations in every manufacturing file.
+- When a part is too small for safe engraving, place its ID in nearby waste
+  material with a leader that stops outside the part's cut edge. Recalculate
+  these waste labels after sheet nesting.
 - Warn about pieces smaller than the selected cutter or practical material
   limit.
 
@@ -67,6 +75,19 @@ boundary.
   face-reversed by mistake.
 - Keep dowel diameter, machined-hole diameter, grid pitch, and edge clearance
   separately configurable for test-cut calibration.
+
+## Sheet Layout and G-code
+
+- Support a configurable stock sheet such as 1200 × 600 × 3 mm MDF, including
+  usable margins and clamp exclusion areas.
+- Provide manual placement before automatic polygon nesting is introduced.
+- Permit rotation; permit mirroring only when the required physical flip and
+  engraving face are explicitly recorded.
+- Respect cutter diameter, part spacing, cut order, tabs, safe height, depth
+  passes, feed rate, spindle control, and the chosen work origin.
+- Preview and validate every toolpath before G-code can be downloaded.
+- Require a named CNC/controller profile and a scrap-material test before
+  treating generated G-code as production-ready.
 
 ## Preview and Analysis
 

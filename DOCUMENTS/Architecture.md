@@ -63,7 +63,12 @@ geometry at an explicitly chosen physical scale and simplification tolerance.
   covered engraving eligibility.
 - GeoTIFF cache for clipped elevation data.
 - GeoPackage or GeoJSON for intermediate polygons.
-- SVG first and DXF second for CNC/CAM interchange.
+- Finished-size SVG as the inspectable manufacturing-geometry source, with
+  separate profile, drilling, and engraving groups.
+- A sheet-layout document recording stock size, margins, clamp zones, part
+  transforms, mirroring/face instructions, and nesting provenance.
+- Controller-specific G-code generated only from a validated manufacturing and
+  sheet-layout plan; SVG remains the visual audit format.
 - G-code only through a later, explicitly configured CAM/postprocessor stage.
 
 ## New Zealand Data Strategy

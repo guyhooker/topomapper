@@ -114,6 +114,10 @@ boundary.
   settings locally, with a downloadable/importable backup for work resumed on
   another day. The same terrain inputs must be regenerated before a restored
   layout can display its referenced parts.
+- Apply sheet-edge rules and pointer hit-testing to the true rotated outline so
+  empty corners of a part's bounding rectangle neither cause false warnings nor
+  prevent deselection and empty-sheet panning. Retain an enlarged hit target for
+  genuinely tiny parts.
 
 ## Preview and Analysis
 

@@ -94,3 +94,6 @@ Precise coastline DRC pauses while a part is being dragged and recalculates on
 release, keeping pointer movement responsive without weakening the final check.
 Save layout retains the current plan in this browser; Backup file and Restore
 file provide a portable JSON copy for resuming later.
+Rotated sheet-edge checks and pointer selection follow the actual part outline,
+not the empty corners of its enclosing rectangle. A Deselect control also makes
+it possible to return directly to empty-sheet panning.

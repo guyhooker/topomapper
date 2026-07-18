@@ -719,7 +719,7 @@ function checkLayoutRules(placements: SheetPlacement[], parts: LayoutPart[], rul
   placements.forEach((placement) => {
     const part = partMap.get(placement.partId);
     if (!part) return;
-    const bounds = placementBounds(placement, part);
+    const bounds = placedPartBounds(placement, part);
     if (bounds.left < rules.edgeMargin || bounds.top < rules.edgeMargin || bounds.right > rules.width - rules.edgeMargin || bounds.bottom > rules.height - rules.edgeMargin) {
       violations.push({ placementIds: [placement.id], message: `${placement.partId} enters the ${rules.edgeMargin} mm sheet-edge no-cut zone.` });
     }
@@ -727,12 +727,12 @@ function checkLayoutRules(placements: SheetPlacement[], parts: LayoutPart[], rul
   placements.forEach((left, index) => {
     const leftPart = partMap.get(left.partId);
     if (!leftPart) return;
-    const leftBounds = placementBounds(left, leftPart);
+    const leftBounds = placedPartBounds(left, leftPart);
     placements.slice(index + 1).forEach((right) => {
       if (left.sheetIndex !== right.sheetIndex) return;
       const rightPart = partMap.get(right.partId);
       if (!rightPart) return;
-      const rightBounds = placementBounds(right, rightPart);
+      const rightBounds = placedPartBounds(right, rightPart);
       const broadlySeparated = leftBounds.right + rules.partSpacing <= rightBounds.left
         || rightBounds.right + rules.partSpacing <= leftBounds.left
         || leftBounds.bottom + rules.partSpacing <= rightBounds.top
@@ -778,6 +778,30 @@ function placedPartRings(placement: SheetPlacement, part: LayoutPart) {
     const rotated = rotateLayoutPoint(point, part, placement.rotation);
     return [rotated.x + placement.x, rotated.y + placement.y];
   }));
+}
+
+function placedPartBounds(placement: SheetPlacement, part: LayoutPart) {
+  const points = placedPartRings(placement, part).flat();
+  const left = Math.min(...points.map((point) => point[0]));
+  const top = Math.min(...points.map((point) => point[1]));
+  const right = Math.max(...points.map((point) => point[0]));
+  const bottom = Math.max(...points.map((point) => point[1]));
+  return { left, top, right, bottom, width: right - left, height: bottom - top };
+}
+
+function pointHitsPlacedPart(point: { x: number; y: number }, placement: SheetPlacement, part: LayoutPart, minimumHitSizeMm: number) {
+  const rings = placedPartRings(placement, part);
+  const coordinates: [number, number] = [point.x, point.y];
+  if (pointInRing(coordinates, rings[0]) && !rings.slice(1).some((ring) => pointInRing(coordinates, ring))) return true;
+  const bounds = placedPartBounds(placement, part);
+  if (bounds.width >= minimumHitSizeMm && bounds.height >= minimumHitSizeMm) return false;
+  const hitRadius = minimumHitSizeMm / 2;
+  if (point.x < bounds.left - hitRadius || point.x > bounds.right + hitRadius || point.y < bounds.top - hitRadius || point.y > bounds.bottom + hitRadius) return false;
+  const outer = rings[0];
+  for (let index = 1; index < outer.length; index += 1) {
+    if (distanceToSegment(point, { x: outer[index - 1][0], y: outer[index - 1][1] }, { x: outer[index][0], y: outer[index][1] }) <= hitRadius) return true;
+  }
+  return false;
 }
 
 function segmentsIntersect(a: number[], b: number[], c: number[], d: number[]) {
@@ -1633,11 +1657,8 @@ function SheetLayoutCanvas({
       const hit = [...sheetPlacements].reverse().find((placement) => {
         const part = partMap.get(placement.partId);
         if (!part) return false;
-        const bounds = placementBounds(placement, part);
         const minimumHitSizeMm = 16 / transformRef.current.scale;
-        const paddingX = Math.max(0, (minimumHitSizeMm - bounds.width) / 2);
-        const paddingY = Math.max(0, (minimumHitSizeMm - bounds.height) / 2);
-        return point.x >= bounds.left - paddingX && point.x <= bounds.right + paddingX && point.y >= bounds.top - paddingY && point.y <= bounds.bottom + paddingY;
+        return pointHitsPlacedPart(point, placement, part, minimumHitSizeMm);
       });
       onSelect(hit?.id ?? null);
       if (hit) { dragRef.current = { kind: "part", id: hit.id, offsetX: point.x - hit.x, offsetY: point.y - hit.y }; onDragStateChange(true); }
@@ -2653,7 +2674,7 @@ export function MapWorkspace() {
   function focusSheetPlacement(placement: SheetPlacement, violationIndex: number | null = null) {
     const part = layoutParts.find((candidate) => candidate.id === placement.partId);
     if (!part) return;
-    const bounds = placementBounds(placement, part);
+    const bounds = placedPartBounds(placement, part);
     setActiveSheetIndex(placement.sheetIndex);
     setSelectedPlacementId(placement.id);
     setSelectedViolationIndex(violationIndex);
@@ -3293,7 +3314,7 @@ export function MapWorkspace() {
           </div>
           <div className="sheet-tabs" aria-label="Material sheets">
             {Array.from({ length: sheetCount }, (_, index) => <button key={index} className={index === activeSheetIndex ? "active" : ""} onClick={() => { setActiveSheetIndex(index); setSelectedPlacementId(null); setSheetZoom(1); setSheetViewCenter({ x: sheetRules.width / 2, y: sheetRules.height / 2 }); }}>Sheet {index + 1}<small>{sheetPlacements.filter((placement) => placement.sheetIndex === index).length} parts</small></button>)}
-            <div className="sheet-view-controls"><span>View</span>{[1, 2, 4, 8].map((value) => <button key={value} className={sheetZoom === value ? "active" : ""} onClick={() => setSheetZoom(value)}>{value}×</button>)}<button onClick={() => { setSheetZoom(1); setSheetViewCenter({ x: sheetRules.width / 2, y: sheetRules.height / 2 }); }}>Fit</button><button disabled={!selectedPlacement} onClick={() => selectedPlacement && focusSheetPlacement(selectedPlacement)}>Focus selected</button></div>
+            <div className="sheet-view-controls"><span>View</span>{[1, 2, 4, 8].map((value) => <button key={value} className={sheetZoom === value ? "active" : ""} onClick={() => setSheetZoom(value)}>{value}×</button>)}<button onClick={() => { setSheetZoom(1); setSheetViewCenter({ x: sheetRules.width / 2, y: sheetRules.height / 2 }); }}>Fit</button><button disabled={!selectedPlacement} onClick={() => selectedPlacement && focusSheetPlacement(selectedPlacement)}>Focus selected</button><button disabled={!selectedPlacement} onClick={() => { setSelectedPlacementId(null); setSelectedViolationIndex(null); }}>Deselect</button></div>
           </div>
           <div className="sheet-layout-workspace">
             <div className="sheet-canvas-wrap">

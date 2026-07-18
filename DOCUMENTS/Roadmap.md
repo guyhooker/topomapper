@@ -229,6 +229,8 @@ registration holes align consistently across every exported layer.
   between placed parts and their rule warnings.
 - Responsive drag preview with exact transformed-outline DRC on release.
 - Explicit local save plus JSON backup and restore for multi-session layout.
+- Exact rotated-outline sheet-edge checks and selection, with a dedicated
+  Deselect control for reliable panning.
 
 ### Acceptance Test
 

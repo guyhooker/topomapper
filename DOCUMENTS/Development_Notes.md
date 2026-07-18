@@ -377,4 +377,10 @@
   for a portable, versioned JSON copy. Positions, rotations, sheets, rules,
   smoothing, output size, and assembly settings are retained. Elevation source
   files are not embedded and must be loaded again to regenerate the same parts.
+- Fixed false sheet-edge warnings on irregular rotated parts such as L02A. Edge
+  DRC now measures the transformed coastline rather than the unused corners of
+  its enclosing rotated rectangle.
+- Replaced rectangular canvas hit-testing with exact rotated-outline selection,
+  while preserving an enlarged target for genuinely tiny parts. Added an
+  explicit Deselect button so empty-sheet panning is always accessible.
 - Production build passes successfully.

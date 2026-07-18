@@ -83,6 +83,9 @@ geometry at an explicitly chosen physical scale and simplification tolerance.
 - The current layout document is stored in browser-local storage and can be
   exported/imported as versioned JSON. It references generated part identifiers,
   so terrain source files remain external and must be regenerated separately.
+- Sheet-edge DRC and normal pointer selection use transformed polygon bounds and
+  point-in-polygon tests. Only physically tiny parts receive an additional
+  screen-space proximity target.
 - Automatic nesting is an anytime search: publish an editable left-to-right
   result quickly, then retain better sheet-count/waste results until the user
   stops the search or its time allowance expires.

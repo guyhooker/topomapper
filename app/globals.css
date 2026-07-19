@@ -549,6 +549,11 @@ button { color: inherit; }
 .sheet-layout-metrics small { color: var(--muted); font-size: 6px; text-transform: uppercase; }
 .sheet-layout-metrics strong { margin-top: 1px; color: var(--forest); font-size: 12px; }
 .layout-save-status { margin: 6px 0 0; color: var(--muted); font-size: 7px; }
+.sheet-export-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-top: 7px; }
+.sheet-export-actions button { min-height: 29px; padding: 5px 7px; border: 1px solid rgba(33,79,61,.24); border-radius: 6px; background: var(--forest); color: #fff; font-size: 8px; font-weight: 760; cursor: pointer; }
+.sheet-export-actions button:last-child { background: #fff; color: var(--forest); }
+.sheet-export-actions button:disabled { opacity: .35; cursor: default; }
+.sheet-export-status { margin: 5px 0 0; color: var(--muted); font-size: 7px; line-height: 1.35; }
 .selected-placement-controls { margin-top: 7px; padding: 7px; border-radius: 7px; background: rgba(29,111,130,.08); }
 .selected-placement-controls > strong, .selected-placement-controls > span { display: block; }
 .selected-placement-controls > strong { color: #1d6f82; font-size: 10px; }

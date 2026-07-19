@@ -234,6 +234,9 @@ registration holes align consistently across every exported layer.
 - Named project library with editable default names, 1.5-second autosave,
   New/Open/Save/Close, and portable `.topomapper` import/export. Project
   documents include processed geometry and all settings through sheet layout.
+- Finished-size active-sheet SVG and all-sheets ZIP export. Named machining
+  layers separate through-cuts, drilling, 0.5 mm vector IDs, transformed north
+  arrows, and small-part labels placed in waste.
 
 ### Acceptance Test
 
@@ -243,6 +246,8 @@ duplicated onto a replacement sheet without disturbing the production sheets.
 A saved project can be restored after restarting Topomapper with its processed
 terrain and identical sheet positions. Source GeoTIFFs are only required when
 the terrain must be regenerated.
+Every populated sheet opens at the configured stock dimensions in a vector
+editor, and its machining operations can be selected independently by layer.
 
 ## Stage 11 — Automatic Sheet Nesting
 

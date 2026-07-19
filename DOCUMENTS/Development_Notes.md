@@ -395,4 +395,17 @@
   GeoTIFFs remain external, with filenames retained for later regeneration.
 - Existing selection, output, layer, assembly, and sheet-layout saves are
   migrated into a first recovered project when the library is initially empty.
+- Added finished-size SVG export directly from Sheet Layout. The active sheet
+  downloads individually; all populated sheets and manufacturing notes can be
+  downloaded as one ZIP.
+- Added named SVG layers for profile cuts, drilled holes, part IDs, north marks,
+  waste labels, and non-machining stock references. Through operations carry
+  material-depth metadata; engraving groups specify 0.5 mm depth.
+- Abbreviated sheet IDs (`L04A` → `4A`) are generated as single-line vector
+  strokes so CAM import does not depend on fonts. On-part IDs and north arrows
+  use the existing covered-engraving safety decision and inherit every nesting
+  rotation.
+- Small parts receive a combined ID, north mark, and leader in available waste.
+  Candidate positions avoid sheet margins, part bounds, prior labels, and
+  blocked leader routes; any label that cannot fit is reported after export.
 - Production build passes successfully.

@@ -142,6 +142,8 @@ type LayoutPart = {
   width: number;
   height: number;
   areaMm2: number;
+  labelPoint: { x: number; y: number };
+  machineLabel: boolean;
   rings: { x: number; y: number }[][];
   holes: { x: number; y: number; kind: "grid" | "vent" }[];
 };
@@ -783,12 +785,15 @@ function buildLayoutParts(preview: FilledLayerPreview, plan: AssemblyPlan, model
     const maximumX = Math.max(...points.map((point) => point.x));
     const minimumY = Math.min(...points.map((point) => point.y));
     const maximumY = Math.max(...points.map((point) => point.y));
+    const physicalLabel = physicalPoint(preview, modelWidth, modelHeight, part.labelPoint);
     return {
       id: part.id,
       layerIndex: part.layerIndex,
       width: maximumX - minimumX,
       height: maximumY - minimumY,
       areaMm2: part.areaMm2,
+      labelPoint: { x: physicalLabel.x - minimumX, y: physicalLabel.y - minimumY },
+      machineLabel: part.machineLabel,
       rings: physicalRings.map((ring) => ring.map((point) => ({ x: point.x - minimumX, y: point.y - minimumY }))),
       holes: plan.holes.filter((hole) => hole.partIds.includes(part.id)).map((hole) => ({ x: hole.xMm - minimumX, y: hole.yMm - minimumY, kind: hole.kind })),
     };
@@ -949,6 +954,197 @@ function svgNumber(value: number) {
 
 function xmlText(value: string) {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+}
+
+const VECTOR_SEGMENTS: Record<string, [number, number, number, number]> = {
+  a: [0, 0, 1, 0], b: [1, 0, 1, .5], c: [1, .5, 1, 1], d: [0, 1, 1, 1], e: [0, .5, 0, 1], f: [0, 0, 0, .5],
+  g1: [0, .5, .5, .5], g2: [.5, .5, 1, .5], h: [0, 0, .5, .5], i: [1, 0, .5, .5], j: [0, 1, .5, .5], k: [.5, .5, 1, 1],
+  l: [.5, 0, .5, .5], m: [.5, .5, .5, 1],
+};
+
+const VECTOR_GLYPHS: Record<string, string[]> = {
+  "0": ["a", "b", "c", "d", "e", "f"], "1": ["b", "c"], "2": ["a", "b", "g1", "g2", "e", "d"],
+  "3": ["a", "b", "c", "d", "g1", "g2"], "4": ["f", "g1", "g2", "b", "c"], "5": ["a", "f", "g1", "g2", "c", "d"],
+  "6": ["a", "f", "e", "d", "c", "g1", "g2"], "7": ["a", "b", "c"], "8": ["a", "b", "c", "d", "e", "f", "g1", "g2"],
+  "9": ["a", "b", "c", "d", "f", "g1", "g2"], A: ["a", "b", "c", "e", "f", "g1", "g2"], B: ["f", "e", "d", "c", "g1", "g2", "l", "m"],
+  C: ["a", "f", "e", "d"], D: ["a", "b", "c", "d", "e", "f"], E: ["a", "f", "e", "d", "g1", "g2"], F: ["a", "f", "e", "g1", "g2"],
+  G: ["a", "f", "e", "d", "c", "g2"], H: ["f", "e", "b", "c", "g1", "g2"], I: ["a", "d", "l", "m"], J: ["b", "c", "d", "e"],
+  K: ["f", "e", "i", "k"], L: ["f", "e", "d"], M: ["f", "b", "h", "i"], N: ["f", "e", "b", "c", "h", "k"],
+  O: ["a", "b", "c", "d", "e", "f"], P: ["a", "b", "f", "e", "g1", "g2"], Q: ["a", "b", "c", "d", "e", "f", "k"],
+  R: ["a", "b", "f", "e", "g1", "g2", "k"], S: ["a", "f", "g1", "g2", "c", "d"], T: ["a", "l", "m"],
+  U: ["f", "e", "d", "c", "b"], V: ["f", "j", "k", "b"], W: ["f", "e", "b", "c", "j", "k"], X: ["h", "i", "j", "k"],
+  Y: ["h", "i", "m"], Z: ["a", "i", "j", "d"], "-": ["g1", "g2"],
+};
+
+function abbreviatedPartId(partId: string) {
+  return partId.replace(/^L0*/i, "") || partId;
+}
+
+function vectorTextWidth(text: string, height: number) {
+  return Math.max(0, text.length * height * .72 - height * .14);
+}
+
+function vectorTextPath(text: string, centreX: number, centreY: number, height = 4) {
+  const content = text.toUpperCase();
+  const advance = height * .72;
+  const glyphWidth = height * .58;
+  const startX = centreX - vectorTextWidth(content, height) / 2;
+  const startY = centreY - height / 2;
+  const commands: string[] = [];
+  [...content].forEach((character, index) => {
+    const offsetX = startX + index * advance;
+    (VECTOR_GLYPHS[character] ?? ["a", "b", "c", "d", "e", "f"]).forEach((segmentName) => {
+      const segment = VECTOR_SEGMENTS[segmentName];
+      commands.push(`M${svgNumber(offsetX + segment[0] * glyphWidth)} ${svgNumber(startY + segment[1] * height)} L${svgNumber(offsetX + segment[2] * glyphWidth)} ${svgNumber(startY + segment[3] * height)}`);
+    });
+  });
+  return commands.join(" ");
+}
+
+function layoutRingSvgPath(ring: { x: number; y: number }[]) {
+  return ring.map((point, index) => `${index === 0 ? "M" : "L"}${svgNumber(point.x)} ${svgNumber(point.y)}`).join(" ") + " Z";
+}
+
+function sheetPlacementTransform(placement: SheetPlacement, part: LayoutPart) {
+  const radians = placement.rotation * Math.PI / 180;
+  const cosine = Math.cos(radians);
+  const sine = Math.sin(radians);
+  const corners = [{ x: 0, y: 0 }, { x: part.width, y: 0 }, { x: part.width, y: part.height }, { x: 0, y: part.height }]
+    .map((corner) => ({ x: corner.x * cosine - corner.y * sine, y: corner.x * sine + corner.y * cosine }));
+  const minimumX = Math.min(...corners.map((corner) => corner.x));
+  const minimumY = Math.min(...corners.map((corner) => corner.y));
+  return `translate(${svgNumber(placement.x - minimumX)} ${svgNumber(placement.y - minimumY)}) rotate(${svgNumber(placement.rotation)})`;
+}
+
+type SheetWasteLabel = WasteLabel & { placementId: string; shortId: string; width: number; height: number };
+
+function findSheetWasteLabels(placements: SheetPlacement[], parts: LayoutPart[], rules: SheetRules) {
+  const partMap = new Map(parts.map((part) => [part.id, part]));
+  const labels: SheetWasteLabel[] = [];
+  const missing: string[] = [];
+  const radii = [14, 20, 28, 38, 50, 65, 85];
+  const angles = Array.from({ length: 24 }, (_, index) => index * Math.PI * 2 / 24);
+  placements.filter((placement) => !partMap.get(placement.partId)?.machineLabel).forEach((placement) => {
+    const part = partMap.get(placement.partId);
+    if (!part) return;
+    const rotatedLabel = rotateLayoutPoint(part.labelPoint, part, placement.rotation);
+    const anchor = { x: rotatedLabel.x + placement.x, y: rotatedLabel.y + placement.y };
+    const shortId = abbreviatedPartId(part.id);
+    const labelWidth = vectorTextWidth(shortId, 4) + 9;
+    const labelHeight = 7;
+    let found: SheetWasteLabel | null = null;
+    for (const radius of radii) {
+      if (found) break;
+      for (const angle of angles) {
+        const x = anchor.x + Math.cos(angle) * radius;
+        const y = anchor.y + Math.sin(angle) * radius;
+        if (x - labelWidth / 2 < rules.edgeMargin || x + labelWidth / 2 > rules.width - rules.edgeMargin || y - labelHeight / 2 < rules.edgeMargin || y + labelHeight / 2 > rules.height - rules.edgeMargin) continue;
+        if (labels.some((label) => Math.abs(label.x - x) < (label.width + labelWidth) / 2 + 2 && Math.abs(label.y - y) < (label.height + labelHeight) / 2 + 2)) continue;
+        if (placements.some((candidate) => {
+          const candidatePart = partMap.get(candidate.partId);
+          if (!candidatePart) return false;
+          const bounds = placedPartBounds(candidate, candidatePart);
+          return x + labelWidth / 2 + 2 > bounds.left && x - labelWidth / 2 - 2 < bounds.right && y + labelHeight / 2 + 2 > bounds.top && y - labelHeight / 2 - 2 < bounds.bottom;
+        })) continue;
+        if (placements.some((candidate) => {
+          if (candidate.id === placement.id) return false;
+          const candidatePart = partMap.get(candidate.partId);
+          return candidatePart && Array.from({ length: 16 }, (_, index) => (index + 1) / 18).some((position) => pointHitsPlacedPart({ x: x + (anchor.x - x) * position, y: y + (anchor.y - y) * position }, candidate, candidatePart, 0));
+        })) continue;
+        let outside = 0;
+        let inside = 1;
+        for (let step = 0; step < 20; step += 1) {
+          const position = (outside + inside) / 2;
+          if (pointHitsPlacedPart({ x: x + (anchor.x - x) * position, y: y + (anchor.y - y) * position }, placement, part, 0)) inside = position;
+          else outside = position;
+        }
+        const distance = Math.max(.001, Math.hypot(anchor.x - x, anchor.y - y));
+        const directionX = (anchor.x - x) / distance;
+        const directionY = (anchor.y - y) / distance;
+        found = {
+          partId: part.id,
+          placementId: placement.id,
+          shortId,
+          x,
+          y,
+          width: labelWidth,
+          height: labelHeight,
+          leaderStartX: x + directionX * labelWidth * .36,
+          leaderStartY: y + directionY * labelHeight * .36,
+          leaderEndX: x + (anchor.x - x) * outside - directionX,
+          leaderEndY: y + (anchor.y - y) * outside - directionY,
+        };
+        break;
+      }
+    }
+    if (found) labels.push(found); else missing.push(part.id);
+  });
+  return { labels, missing };
+}
+
+function buildSheetSvg(projectName: string, sheetIndex: number, rules: SheetRules, allParts: LayoutPart[], allPlacements: SheetPlacement[], holeDiameter: number) {
+  const placements = allPlacements.filter((placement) => placement.sheetIndex === sheetIndex);
+  const partMap = new Map(allParts.map((part) => [part.id, part]));
+  const waste = findSheetWasteLabels(placements, allParts, rules);
+  const cuts = placements.map((placement) => {
+    const part = partMap.get(placement.partId);
+    if (!part) return "";
+    const paths = part.rings.map((ring) => `<path d="${layoutRingSvgPath(ring)}" />`).join("\n      ");
+    return `<g data-placement-id="${xmlText(placement.id)}" data-part-id="${xmlText(part.id)}" transform="${sheetPlacementTransform(placement, part)}">
+      ${paths}
+    </g>`;
+  }).join("\n    ");
+  const drills = placements.map((placement) => {
+    const part = partMap.get(placement.partId);
+    if (!part || !part.holes.length) return "";
+    return `<g data-placement-id="${xmlText(placement.id)}" data-part-id="${xmlText(part.id)}" transform="${sheetPlacementTransform(placement, part)}">
+      ${part.holes.map((hole) => `<circle data-hole-kind="${hole.kind}" cx="${svgNumber(hole.x)}" cy="${svgNumber(hole.y)}" r="${svgNumber(holeDiameter / 2)}" />`).join("\n      ")}
+    </g>`;
+  }).join("\n    ");
+  const onPartIds = placements.map((placement) => {
+    const part = partMap.get(placement.partId);
+    if (!part?.machineLabel) return "";
+    return `<g data-placement-id="${xmlText(placement.id)}" data-part-id="${xmlText(part.id)}" transform="${sheetPlacementTransform(placement, part)}"><path d="${vectorTextPath(abbreviatedPartId(part.id), part.labelPoint.x, part.labelPoint.y + 2, 4)}" /></g>`;
+  }).join("\n    ");
+  const northMarks = placements.map((placement) => {
+    const part = partMap.get(placement.partId);
+    if (!part?.machineLabel) return "";
+    const x = part.labelPoint.x;
+    const y = part.labelPoint.y - 3;
+    return `<g data-placement-id="${xmlText(placement.id)}" data-part-id="${xmlText(part.id)}" transform="${sheetPlacementTransform(placement, part)}"><path d="M${svgNumber(x)} ${svgNumber(y)} L${svgNumber(x)} ${svgNumber(y - 6)} M${svgNumber(x)} ${svgNumber(y - 6)} L${svgNumber(x - 2)} ${svgNumber(y - 3.5)} M${svgNumber(x)} ${svgNumber(y - 6)} L${svgNumber(x + 2)} ${svgNumber(y - 3.5)}" /></g>`;
+  }).join("\n    ");
+  const wasteLabels = waste.labels.map((label) => `<g data-placement-id="${xmlText(label.placementId)}" data-part-id="${xmlText(label.partId)}">
+      <path data-label="${xmlText(label.shortId)}" d="${vectorTextPath(label.shortId, label.x - 3, label.y, 4)}" />
+      <path data-north-mark="true" d="M${svgNumber(label.x + label.width / 2 - 4)} ${svgNumber(label.y + 2)} L${svgNumber(label.x + label.width / 2 - 4)} ${svgNumber(label.y - 3)} M${svgNumber(label.x + label.width / 2 - 4)} ${svgNumber(label.y - 3)} L${svgNumber(label.x + label.width / 2 - 5.5)} ${svgNumber(label.y - 1)} M${svgNumber(label.x + label.width / 2 - 4)} ${svgNumber(label.y - 3)} L${svgNumber(label.x + label.width / 2 - 2.5)} ${svgNumber(label.y - 1)}" />
+      <path data-leader="true" d="M${svgNumber(label.leaderStartX)} ${svgNumber(label.leaderStartY)} L${svgNumber(label.leaderEndX)} ${svgNumber(label.leaderEndY)}" />
+    </g>`).join("\n    ");
+  const metadata = JSON.stringify({ project: projectName, sheet: sheetIndex + 1, sheet_width_mm: rules.width, sheet_height_mm: rules.height, material_thickness_mm: rules.thickness, engraving_depth_mm: .5, part_instances: placements.length, missing_waste_labels: waste.missing, north: "Arrow on each part indicates assembly north; sheet orientation is arbitrary." });
+  const svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" width="${svgNumber(rules.width)}mm" height="${svgNumber(rules.height)}mm" viewBox="0 0 ${svgNumber(rules.width)} ${svgNumber(rules.height)}">
+  <title>${xmlText(projectName)} · Sheet ${sheetIndex + 1}</title>
+  <desc>Finished-size sheet layout. CUT_OUTLINES is through-cut. DRILL_HOLES is through-drill. ENGRAVE_PART_IDS, ENGRAVE_NORTH and WASTE_LABELS are shallow 0.5 mm engraving. Text is exported as machine-ready vector strokes.</desc>
+  <metadata>${xmlText(metadata)}</metadata>
+  <g id="SHEET_REFERENCE" inkscape:groupmode="layer" inkscape:label="REFERENCE — DO NOT MACHINE" data-operation="reference" fill="none" stroke="#8a8174" stroke-width="0.2" stroke-dasharray="4 3">
+    <rect x="0" y="0" width="${svgNumber(rules.width)}" height="${svgNumber(rules.height)}" />
+    <rect x="${svgNumber(rules.edgeMargin)}" y="${svgNumber(rules.edgeMargin)}" width="${svgNumber(rules.width - rules.edgeMargin * 2)}" height="${svgNumber(rules.height - rules.edgeMargin * 2)}" />
+  </g>
+  <g id="ENGRAVE_PART_IDS" inkscape:groupmode="layer" inkscape:label="ENGRAVE 0.5mm — PART IDs" data-operation="engrave" data-depth-mm="0.5" fill="none" stroke="#214f3d" stroke-width="0.3" stroke-linecap="round" stroke-linejoin="round">
+    ${onPartIds}
+  </g>
+  <g id="ENGRAVE_NORTH" inkscape:groupmode="layer" inkscape:label="ENGRAVE 0.5mm — NORTH" data-operation="engrave" data-depth-mm="0.5" fill="none" stroke="#6d4c8f" stroke-width="0.3" stroke-linecap="round" stroke-linejoin="round">
+    ${northMarks}
+  </g>
+  <g id="WASTE_LABELS" inkscape:groupmode="layer" inkscape:label="ENGRAVE 0.5mm — WASTE LABELS" data-operation="engrave-waste" data-depth-mm="0.5" fill="none" stroke="#61736a" stroke-width="0.3" stroke-linecap="round" stroke-linejoin="round">
+    ${wasteLabels}
+  </g>
+  <g id="DRILL_HOLES" inkscape:groupmode="layer" inkscape:label="DRILL — THROUGH" data-operation="drill-through" data-depth-mm="${svgNumber(rules.thickness)}" fill="none" stroke="#187c91" stroke-width="0.2">
+    ${drills}
+  </g>
+  <g id="CUT_OUTLINES" inkscape:groupmode="layer" inkscape:label="CUT — PROFILE THROUGH (RUN LAST)" data-operation="profile-cut" data-depth-mm="${svgNumber(rules.thickness)}" fill="none" stroke="#c9492a" stroke-width="0.2">
+    ${cuts}
+  </g>
+</svg>`;
+  return { svg, partCount: placements.length, onPartLabelCount: placements.filter((placement) => partMap.get(placement.partId)?.machineLabel).length, wasteLabelCount: waste.labels.length, missingLabels: waste.missing };
 }
 
 function svgPathForFeature(preview: FilledLayerPreview, feature: FilledLayerFeature, modelWidth: number, modelHeight: number) {
@@ -1830,6 +2026,7 @@ export function MapWorkspace() {
   const [holeDiameterMm, setHoleDiameterMm] = useState(4.2);
   const [holeEdgeClearanceMm, setHoleEdgeClearanceMm] = useState(6);
   const [exportStatus, setExportStatus] = useState("Manufacturing files are ready to inspect.");
+  const [sheetExportStatus, setSheetExportStatus] = useState("Export a finished-size SVG after arranging the parts.");
   const [smoothingLayerIndex, setSmoothingLayerIndex] = useState(0);
   const [smoothingLevels, setSmoothingLevels] = useState<Record<number, number>>({});
   const [smoothingZoom, setSmoothingZoom] = useState(1);
@@ -3094,6 +3291,49 @@ export function MapWorkspace() {
     if (unplaced.length) setActiveSheetIndex(working[working.length - 1].sheetIndex);
   }
 
+  function sheetSvgExport(sheetIndex: number) {
+    return buildSheetSvg(projectName || "Topomapper project", sheetIndex, sheetRules, layoutParts, sheetPlacements, holeDiameterMm);
+  }
+
+  function downloadActiveSheetSvg() {
+    const result = sheetSvgExport(activeSheetIndex);
+    if (!result.partCount) { setSheetExportStatus(`Sheet ${activeSheetIndex + 1} has no parts to export.`); return; }
+    const stem = projectFilename(projectName || "topomapper-project").replace(/\.topomapper$/i, "");
+    downloadFile(result.svg, "image/svg+xml;charset=utf-8", `${stem}-sheet-${activeSheetIndex + 1}.svg`);
+    const missing = result.missingLabels.length ? ` ${result.missingLabels.length} small part label${result.missingLabels.length === 1 ? "" : "s"} could not fit safely in waste.` : "";
+    const warnings = layoutViolations.filter((violation) => violation.placementIds.some((id) => sheetPlacements.find((placement) => placement.id === id)?.sheetIndex === activeSheetIndex)).length;
+    setSheetExportStatus(`Sheet ${activeSheetIndex + 1} SVG downloaded with ${result.partCount} parts, ${result.onPartLabelCount} on-part IDs and ${result.wasteLabelCount} waste labels.${missing}${warnings ? ` Review ${warnings} DRC warning${warnings === 1 ? "" : "s"}.` : ""}`);
+  }
+
+  function downloadAllSheetSvgs() {
+    const populatedSheets = Array.from({ length: sheetCount }, (_, index) => index).filter((index) => sheetPlacements.some((placement) => placement.sheetIndex === index));
+    if (!populatedSheets.length) { setSheetExportStatus("There are no placed parts to export."); return; }
+    const stem = projectFilename(projectName || "topomapper-project").replace(/\.topomapper$/i, "");
+    const results = populatedSheets.map((sheetIndex) => ({ sheetIndex, result: sheetSvgExport(sheetIndex) }));
+    const files = results.map(({ sheetIndex, result }) => ({ name: `${stem}-sheet-${sheetIndex + 1}.svg`, contents: result.svg }));
+    files.push({
+      name: `${stem}-sheet-notes.txt`,
+      contents: [
+        `TOPOMAPPER SHEET EXPORT — ${projectName || "Unnamed project"}`,
+        "",
+        `Stock: ${sheetRules.width} x ${sheetRules.height} x ${sheetRules.thickness} mm`,
+        "CUT_OUTLINES: profile through the material",
+        "DRILL_HOLES: drill through the material",
+        "ENGRAVE_PART_IDS: shallow 0.5 mm vector engraving",
+        "ENGRAVE_NORTH: shallow 0.5 mm north arrows",
+        "WASTE_LABELS: shallow 0.5 mm small-part IDs, north marks and leaders in waste",
+        "SHEET_REFERENCE: visual reference only — do not machine",
+        "",
+        ...results.flatMap(({ sheetIndex, result }) => [
+          `Sheet ${sheetIndex + 1}: ${result.partCount} parts, ${result.onPartLabelCount} on-part labels, ${result.wasteLabelCount} waste labels${result.missingLabels.length ? `, UNPLACED LABELS: ${result.missingLabels.join(", ")}` : ""}`,
+        ]),
+      ].join("\n"),
+    });
+    downloadFile(createZipArchive(files), "application/zip", `${stem}-sheets.zip`);
+    const missing = results.reduce((total, item) => total + item.result.missingLabels.length, 0);
+    setSheetExportStatus(`${populatedSheets.length} populated sheet SVG${populatedSheets.length === 1 ? "" : "s"} downloaded as a ZIP.${missing ? ` ${missing} waste label${missing === 1 ? "" : "s"} need manual placement.` : ""}`);
+  }
+
   function downloadSelectedLayerSvg() {
     if (!selectedManufacturingSvg) return;
     const layerName = `L${String(assemblyLayerIndex + 1).padStart(2, "0")}`;
@@ -3718,6 +3958,11 @@ export function MapWorkspace() {
             <aside className="sheet-layout-details">
               <div className="sheet-layout-metrics"><span><small>Sheets</small><strong>{sheetCount}</strong></span><span><small>Instances</small><strong>{sheetPlacements.length}</strong></span><span><small>Area use</small><strong>{sheetUtilisation.toFixed(1)}%</strong></span></div>
               <p className="layout-save-status" role="status">Project: {projectName || "none"} · {projectStatus}</p>
+              <div className="sheet-export-actions">
+                <button disabled={!sheetPlacements.some((placement) => placement.sheetIndex === activeSheetIndex)} onClick={downloadActiveSheetSvg}>Download Sheet {activeSheetIndex + 1} SVG</button>
+                <button disabled={!sheetPlacements.length} onClick={downloadAllSheetSvgs}>Download all sheet SVGs</button>
+              </div>
+              <p className="sheet-export-status" role="status">{sheetExportStatus}</p>
               {selectedPlacement && (
                 <div className="selected-placement-controls">
                   <strong>{selectedPlacement.partId}</strong><span>Sheet {selectedPlacement.sheetIndex + 1} · {selectedPlacement.rotation}° · X {selectedPlacement.x.toFixed(1)}, Y {selectedPlacement.y.toFixed(1)} mm</span>

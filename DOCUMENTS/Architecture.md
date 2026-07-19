@@ -71,6 +71,15 @@ geometry at an explicitly chosen physical scale and simplification tolerance.
 - GeoPackage or GeoJSON for intermediate polygons.
 - Finished-size SVG as the inspectable manufacturing-geometry source, with
   separate profile, drilling, and engraving groups.
+- Stock-sheet SVG uses Inkscape-compatible named layers: `CUT_OUTLINES`,
+  `DRILL_HOLES`, `ENGRAVE_PART_IDS`, `ENGRAVE_NORTH`, `WASTE_LABELS`, and a
+  non-machining `SHEET_REFERENCE`. Operation and depth metadata allow a CAM
+  importer or later postprocessor to distinguish through work from 0.5 mm
+  shallow engraving.
+- Sheet labels use an internal single-line alphanumeric vector font. This avoids
+  platform font substitution and preserves engravable geometry in generic CAM.
+  Waste-label search checks stock margins, placed-part bounds, other labels, and
+  leader paths before accepting a position.
 - A non-destructive per-layer cleanup plan in physical millimetres. Original
   polygons remain available for comparison; cleaned polygons feed downstream
   previews and exports. Selection-boundary vertices stay locked so frame edges

@@ -135,6 +135,15 @@ boundary.
   empty corners of a part's bounding rectangle neither cause false warnings nor
   prevent deselection and empty-sheet panning. Retain an enlarged hit target for
   genuinely tiny parts.
+- Export each populated stock sheet as a finished-size SVG with separate named
+  layers for profile cutting, through-drilling, shallow part IDs, shallow north
+  marks, waste labels, and non-machining sheet references.
+- Record a default engraving depth of 0.5 mm in SVG operation metadata. Export
+  abbreviated IDs such as `4A` as machine-ready single-line vector paths rather
+  than font objects.
+- Transform every cut, drill, ID, and north mark by the part's sheet placement.
+  The arrow must continue to identify assembly north after arbitrary nesting
+  rotation. Small parts use waste-area ID, north, and leader engraving.
 
 ## Preview and Analysis
 

@@ -105,3 +105,8 @@ file provide a portable JSON copy for resuming later.
 Rotated sheet-edge checks and pointer selection follow the actual part outline,
 not the empty corners of its enclosing rectangle. A Deselect control also makes
 it possible to return directly to empty-sheet panning.
+Each populated stock sheet can now be exported at finished size as SVG, or all
+sheets can be downloaded in one ZIP. Separate Inkscape-compatible layers hold
+profile cuts, through-drilling, 0.5 mm part-ID engraving, north arrows, and
+waste-area labels. IDs are abbreviated (`L04A` becomes `4A`) and emitted as
+single-line vector paths rather than font-dependent text.

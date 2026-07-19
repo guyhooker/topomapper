@@ -57,7 +57,13 @@ geometry at an explicitly chosen physical scale and simplification tolerance.
 
 ### Project and Export Formats
 
-- A readable JSON project file for settings and provenance.
+- Versioned named project documents are held in IndexedDB so multiple large
+  processed landscapes can coexist without browser local-storage size limits.
+  The active project autosaves 1.5 seconds after its last edit and is saved
+  immediately before switching or closing.
+- Portable project files are readable JSON with the `.topomapper` extension.
+  They contain settings, provenance, processed polygon geometry, and layout but
+  deliberately reference rather than embed original GeoTIFF source files.
 - Deterministic part IDs and a registration plan recording drill-through layers,
   local cap layers, peak-to-base vent columns, supplemental grid holes, and
   covered engraving eligibility.
@@ -80,9 +86,8 @@ geometry at an explicitly chosen physical scale and simplification tolerance.
   containment, and minimum segment distance after a bounding-box broad phase.
   During pointer movement the last result remains visible; the exact check runs
   once on release using the same rotation transform as the canvas.
-- The current layout document is stored in browser-local storage and can be
-  exported/imported as versioned JSON. It references generated part identifiers,
-  so terrain source files remain external and must be regenerated separately.
+- Legacy selection, output, assembly, layer-plan, and layout browser saves are
+  migrated into a first recovered named project.
 - Sheet-edge DRC and normal pointer selection use transformed polygon bounds and
   point-in-polygon tests. Only physically tiny parts receive an additional
   screen-space proximity target.
@@ -133,7 +138,7 @@ so selecting Banks Peninsula does not require downloading a national raster.
 - Add searchable MapLibre map.
 - Draw and edit the selection.
 - Manually select up to 24 appropriate LINZ elevation tiles.
-- Add project save/open.
+- Package the implemented project library in the native Mac application.
 
 ### Phase 3 — Coast and bathymetry
 

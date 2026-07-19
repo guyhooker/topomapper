@@ -32,6 +32,14 @@ checkout, enable Corepack and run `pnpm install` once before `pnpm run dev`.
 
 Open `http://localhost:3000` and leave Terminal running while using the app.
 
+Topomapper now works with named projects. Each project autosaves after roughly
+1.5 seconds of inactivity and includes its area, physical output size, layer
+plan, processed geometry, 3D view, smoothing, assembly settings, sheets, and
+part placements. New/Open/Save/Close switch between projects stored on this Mac.
+Project file downloads use the dedicated `.topomapper` extension and can be
+imported later or moved to another Mac. Original GeoTIFF source files remain
+external and are needed only when terrain layers must be regenerated.
+
 ## Current prototype
 
 Stage 3 imports one or more local elevation GeoTIFF tiles, clips and mosaics

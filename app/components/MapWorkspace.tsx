@@ -168,6 +168,59 @@ type LayoutViolation = {
   message: string;
 };
 
+type TopomapperProject = {
+  format: "topomapper-project";
+  version: 1;
+  id: string;
+  name: string;
+  createdAt: string;
+  modifiedAt: string;
+  selection: SelectionBounds | null;
+  query: string;
+  elevation: {
+    sourceFilenames: string[];
+    analysis: ElevationAnalysis | null;
+    filledLayerPreview: FilledLayerPreview | null;
+    visibleLayerIndices: number[];
+  };
+  output: {
+    format: OutputFormat;
+    orientation: OutputOrientation;
+    customWidthMm: number;
+    customHeightMm: number;
+    materialThicknessMm: number;
+  };
+  layers: {
+    distribution: LayerDistribution;
+    count: number;
+    boundaries: LayerBoundary[];
+  };
+  model: {
+    stackView: StackView;
+    stackYaw: number;
+    stackPitch: number;
+    showTrueElevation: boolean;
+    smoothingLevels: Record<number, number>;
+  };
+  assembly: {
+    gridPitchMm: number;
+    dowelDiameterMm: number;
+    holeDiameterMm: number;
+    holeEdgeClearanceMm: number;
+  };
+  layout: {
+    sheetRules: SheetRules;
+    sheetCount: number;
+    activeSheetIndex: number;
+    placements: SheetPlacement[];
+  };
+  view: {
+    workspaceView: WorkspaceView;
+    assemblyLayerIndex: number;
+    smoothingLayerIndex: number;
+  };
+};
+
 const QUICK_PLACES: Place[] = [
   { name: "Mount Taranaki", subtitle: "First terrain proof", longitude: 174.0632, latitude: -39.2968, zoom: 10.2 },
   { name: "Banks Peninsula", subtitle: "Future coastal proof", longitude: 172.915, latitude: -43.75, zoom: 9.2 },
@@ -195,11 +248,54 @@ const LAYER_PLAN_KEY = "topomapper:layer-plan";
 const SHEET_LAYOUT_KEY = "topomapper:sheet-layout-v1";
 const OUTPUT_PLAN_KEY = "topomapper:output-plan";
 const ASSEMBLY_PLAN_KEY = "topomapper:assembly-settings";
+const PROJECT_DB_NAME = "topomapper-projects";
+const PROJECT_STORE_NAME = "projects";
+const ACTIVE_PROJECT_KEY = "topomapper:active-project";
 const DEFAULT_LAYER_COUNT = 10;
 const MIN_LAYER_COUNT = 2;
 const MAX_LAYER_COUNT = 40;
 const LOG_CURVE_STRENGTH = 2.2;
 const EARTH_RADIUS_METRES = 6_371_008.8;
+
+function openProjectDatabase() {
+  return new Promise<IDBDatabase>((resolve, reject) => {
+    const request = window.indexedDB.open(PROJECT_DB_NAME, 1);
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains(PROJECT_STORE_NAME)) request.result.createObjectStore(PROJECT_STORE_NAME, { keyPath: "id" });
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error ?? new Error("The project library could not be opened."));
+  });
+}
+
+async function projectStoreRequest<T>(mode: IDBTransactionMode, operation: (store: IDBObjectStore) => IDBRequest<T>) {
+  const database = await openProjectDatabase();
+  return new Promise<T>((resolve, reject) => {
+    const transaction = database.transaction(PROJECT_STORE_NAME, mode);
+    const request = operation(transaction.objectStore(PROJECT_STORE_NAME));
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error ?? new Error("The project library operation failed."));
+    transaction.oncomplete = () => database.close();
+    transaction.onerror = () => { database.close(); reject(transaction.error ?? new Error("The project library operation failed.")); };
+  });
+}
+
+function listStoredProjects() {
+  return projectStoreRequest<TopomapperProject[]>("readonly", (store) => store.getAll());
+}
+
+function readStoredProject(id: string) {
+  return projectStoreRequest<TopomapperProject | undefined>("readonly", (store) => store.get(id));
+}
+
+function writeStoredProject(project: TopomapperProject) {
+  return projectStoreRequest<IDBValidKey>("readwrite", (store) => store.put(project));
+}
+
+function projectFilename(name: string) {
+  const safe = name.trim().replace(/[^a-z0-9_-]+/gi, "-").replace(/^-+|-+$/g, "") || "topomapper-project";
+  return `${safe}.topomapper`;
+}
 
 function formatCoordinate(value: number, positive: string, negative: string) {
   return `${Math.abs(value).toFixed(4)}° ${value >= 0 ? positive : negative}`;
@@ -1748,10 +1844,17 @@ export function MapWorkspace() {
   const [selectedViolationIndex, setSelectedViolationIndex] = useState<number | null>(null);
   const [sheetPartDragging, setSheetPartDragging] = useState(false);
   const [layoutSaveStatus, setLayoutSaveStatus] = useState("Layout changes have not been saved locally yet.");
+  const [projectId, setProjectId] = useState<string | null>(null);
+  const [projectName, setProjectName] = useState("");
+  const [projectCreatedAt, setProjectCreatedAt] = useState("");
+  const [projectLibrary, setProjectLibrary] = useState<TopomapperProject[]>([]);
+  const [projectStatus, setProjectStatus] = useState("Opening project library…");
   const placementCounterRef = useRef(1);
   const layoutViolationsRef = useRef<LayoutViolation[]>([]);
   const layoutDirtyReadyRef = useRef(false);
   const suppressLayoutDirtyRef = useRef(false);
+  const projectReadyRef = useRef(false);
+  const projectAutosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     setSheetViewCenter({ x: sheetRules.width / 2, y: sheetRules.height / 2 });
@@ -1772,6 +1875,40 @@ export function MapWorkspace() {
     if (suppressLayoutDirtyRef.current) { suppressLayoutDirtyRef.current = false; return; }
     setLayoutSaveStatus("Layout has unsaved changes.");
   }, [sheetPlacements, sheetRules, smoothingLevels, outputFormat, outputOrientation, customWidthMm, customHeightMm]);
+  useEffect(() => {
+    let cancelled = false;
+    async function initialiseProjects() {
+      try {
+        const projects = (await listStoredProjects()).sort((left, right) => right.modifiedAt.localeCompare(left.modifiedAt));
+        if (cancelled) return;
+        setProjectLibrary(projects);
+        const activeId = window.localStorage.getItem(ACTIVE_PROJECT_KEY);
+        const active = activeId ? projects.find((project) => project.id === activeId) : projects[0];
+        if (active) {
+          openProjectDocument(active);
+          return;
+        }
+        const recovered = legacyProjectDocument("Recovered landscape 1");
+        await writeStoredProject(recovered);
+        if (!cancelled) {
+          setProjectLibrary([recovered]);
+          openProjectDocument(recovered);
+          setProjectStatus("Existing Topomapper settings recovered into your first named project.");
+        }
+      } catch (error) {
+        if (!cancelled) setProjectStatus(error instanceof Error ? error.message : "The project library could not be opened.");
+      }
+    }
+    void initialiseProjects();
+    return () => { cancelled = true; };
+  }, []);
+  useEffect(() => {
+    if (!projectReadyRef.current || !projectId) return;
+    if (projectAutosaveTimerRef.current) clearTimeout(projectAutosaveTimerRef.current);
+    setProjectStatus("Changes waiting to autosave…");
+    projectAutosaveTimerRef.current = setTimeout(() => { void saveCurrentProject(true); }, 1500);
+    return () => { if (projectAutosaveTimerRef.current) clearTimeout(projectAutosaveTimerRef.current); };
+  }, [projectId, projectName, selection, query, analysis, filledLayerPreview, visibleLayerIndices, outputFormat, outputOrientation, customWidthMm, customHeightMm, materialThicknessMm, layerDistribution, layerCount, layerBoundaries, stackView, stackYaw, stackPitch, showTrueElevation, smoothingLevels, gridPitchMm, dowelDiameterMm, holeDiameterMm, holeEdgeClearanceMm, sheetRules, sheetCount, activeSheetIndex, sheetPlacements, workspaceView, assemblyLayerIndex, smoothingLayerIndex]);
   const chosenOutput = outputDimensions(outputFormat, outputOrientation, customWidthMm, customHeightMm);
   aspectRatioRef.current = chosenOutput ? chosenOutput.width / chosenOutput.height : null;
 
@@ -2005,15 +2142,11 @@ export function MapWorkspace() {
         });
         setMapStatus("Map ready");
         setHasSavedExample(Boolean(window.localStorage.getItem(SAVED_EXAMPLE_KEY)));
-        try {
-          const previous = JSON.parse(window.localStorage.getItem(LAST_SELECTION_KEY) ?? "null");
-          if (isSelectionBounds(previous)) {
-            applySelection(previous);
-            map.fitBounds([[previous.west, previous.south], [previous.east, previous.north]], { padding: 130, maxZoom: 12 });
-            setSelectionStatus("Your previous working area has been restored.");
-          }
-        } catch {
-          window.localStorage.removeItem(LAST_SELECTION_KEY);
+        const projectSelection = selectionRef.current;
+        if (projectSelection) {
+          applySelection(projectSelection);
+          map.fitBounds([[projectSelection.west, projectSelection.south], [projectSelection.east, projectSelection.north]], { padding: 130, maxZoom: 12 });
+          setSelectionStatus("The active project's working area has been restored.");
         }
       });
       map.on("error", () => setMapStatus("Map source unavailable"));
@@ -2065,6 +2198,13 @@ export function MapWorkspace() {
       mapLibreRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    if (mapStatus !== "Map ready") return;
+    if (selection) applySelection(selection);
+    if (analysis?.preview_png) showElevationOverlay(analysis);
+    if (filledLayerPreview) showFilledLayerOverlay(filledLayerPreview, visibleLayerIndices);
+  }, [mapStatus, analysis, filledLayerPreview, visibleLayerIndices]);
 
   useEffect(() => {
     try {
@@ -2569,6 +2709,238 @@ export function MapWorkspace() {
     setSmoothingLevels(Object.fromEntries(filledLayerPreview.layers.map((layer) => [layer.index, value])));
   }
 
+  function blankProjectDocument(name: string): TopomapperProject {
+    const now = new Date().toISOString();
+    return {
+      format: "topomapper-project",
+      version: 1,
+      id: window.crypto.randomUUID(),
+      name,
+      createdAt: now,
+      modifiedAt: now,
+      selection: null,
+      query: "",
+      elevation: { sourceFilenames: [], analysis: null, filledLayerPreview: null, visibleLayerIndices: [] },
+      output: { format: "free", orientation: "landscape", customWidthMm: 600, customHeightMm: 400, materialThicknessMm: 6 },
+      layers: { distribution: "log", count: DEFAULT_LAYER_COUNT, boundaries: [] },
+      model: { stackView: "three-dimensional", stackYaw: 0, stackPitch: 34, showTrueElevation: true, smoothingLevels: {} },
+      assembly: { gridPitchMm: 100, dowelDiameterMm: 4, holeDiameterMm: 4.2, holeEdgeClearanceMm: 6 },
+      layout: { sheetRules: { width: 1200, height: 600, thickness: 3, edgeMargin: 15, partSpacing: 8 }, sheetCount: 1, activeSheetIndex: 0, placements: [] },
+      view: { workspaceView: "two-dimensional", assemblyLayerIndex: 0, smoothingLayerIndex: 0 },
+    };
+  }
+
+  function legacyProjectDocument(name: string) {
+    const project = blankProjectDocument(name);
+    try {
+      const savedSelection = JSON.parse(window.localStorage.getItem(LAST_SELECTION_KEY) ?? "null");
+      if (isSelectionBounds(savedSelection)) {
+        project.selection = savedSelection;
+        const centreLongitude = (savedSelection.west + savedSelection.east) / 2;
+        const centreLatitude = (savedSelection.south + savedSelection.north) / 2;
+        if (centreLongitude >= 173.7 && centreLongitude <= 174.4 && centreLatitude >= -39.6 && centreLatitude <= -39.0) project.name = "Mount Taranaki 1";
+      }
+    } catch { /* Ignore an invalid legacy selection. */ }
+    try {
+      const savedOutput = JSON.parse(window.localStorage.getItem(OUTPUT_PLAN_KEY) ?? "null");
+      if (savedOutput) project.output = {
+        format: savedOutput.format ?? project.output.format,
+        orientation: savedOutput.orientation ?? project.output.orientation,
+        customWidthMm: Number(savedOutput.customWidthMm) || project.output.customWidthMm,
+        customHeightMm: Number(savedOutput.customHeightMm) || project.output.customHeightMm,
+        materialThicknessMm: Number(savedOutput.materialThicknessMm) || project.output.materialThicknessMm,
+      };
+    } catch { /* Ignore invalid legacy output settings. */ }
+    try {
+      const savedLayers = JSON.parse(window.localStorage.getItem(LAYER_PLAN_KEY) ?? "null");
+      if (savedLayers && Array.isArray(savedLayers.values) && Number.isFinite(savedLayers.maximum)) {
+        project.layers.boundaries = boundarySet(savedLayers.values, Number(savedLayers.maximum), "recovered");
+        project.layers.count = Math.max(1, project.layers.boundaries.length - 1);
+      }
+    } catch { /* Ignore an invalid legacy layer plan. */ }
+    try {
+      const savedAssembly = JSON.parse(window.localStorage.getItem(ASSEMBLY_PLAN_KEY) ?? "null");
+      if (savedAssembly) project.assembly = { ...project.assembly, ...savedAssembly };
+    } catch { /* Ignore invalid legacy assembly settings. */ }
+    try {
+      const savedLayout = JSON.parse(window.localStorage.getItem(SHEET_LAYOUT_KEY) ?? "null");
+      if (savedLayout?.format === "topomapper-sheet-layout" && Array.isArray(savedLayout.sheetPlacements)) {
+        project.layout = {
+          sheetRules: savedLayout.sheetRules ?? project.layout.sheetRules,
+          sheetCount: Math.max(1, Number(savedLayout.sheetCount) || 1),
+          activeSheetIndex: Math.max(0, Number(savedLayout.activeSheetIndex) || 0),
+          placements: savedLayout.sheetPlacements,
+        };
+        project.model.smoothingLevels = savedLayout.smoothingLevels ?? {};
+        if (savedLayout.output) project.output = { ...project.output, ...savedLayout.output };
+        if (savedLayout.assembly) project.assembly = { ...project.assembly, ...savedLayout.assembly };
+      }
+    } catch { /* Ignore an invalid legacy sheet layout. */ }
+    return project;
+  }
+
+  function currentProjectDocument(): TopomapperProject | null {
+    if (!projectId) return null;
+    return {
+      format: "topomapper-project",
+      version: 1,
+      id: projectId,
+      name: projectName.trim() || "Untitled project",
+      createdAt: projectCreatedAt || new Date().toISOString(),
+      modifiedAt: new Date().toISOString(),
+      selection,
+      query,
+      elevation: {
+        sourceFilenames: elevationFiles.length ? elevationFiles.map((file) => file.name) : (analysis?.datasets.map((dataset) => dataset.filename) ?? []),
+        analysis,
+        filledLayerPreview,
+        visibleLayerIndices,
+      },
+      output: { format: outputFormat, orientation: outputOrientation, customWidthMm, customHeightMm, materialThicknessMm },
+      layers: { distribution: layerDistribution, count: layerCount, boundaries: layerBoundaries },
+      model: { stackView, stackYaw, stackPitch, showTrueElevation, smoothingLevels },
+      assembly: { gridPitchMm, dowelDiameterMm, holeDiameterMm, holeEdgeClearanceMm },
+      layout: { sheetRules, sheetCount, activeSheetIndex, placements: sheetPlacements },
+      view: { workspaceView, assemblyLayerIndex, smoothingLayerIndex },
+    };
+  }
+
+  function isProjectDocument(value: unknown): value is TopomapperProject {
+    const project = value as Partial<TopomapperProject> | null;
+    return Boolean(project && project.format === "topomapper-project" && project.version === 1 && project.id && project.name && project.output && project.layers && project.model && project.assembly && project.layout && project.view && project.elevation);
+  }
+
+  async function saveCurrentProject(automatic = false) {
+    const project = currentProjectDocument();
+    if (!project) return;
+    try {
+      await writeStoredProject(project);
+      window.localStorage.setItem(ACTIVE_PROJECT_KEY, project.id);
+      setProjectLibrary((current) => [project, ...current.filter((candidate) => candidate.id !== project.id)].sort((left, right) => right.modifiedAt.localeCompare(left.modifiedAt)));
+      const time = new Date().toLocaleTimeString("en-NZ", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      setProjectStatus(`${automatic ? "Autosaved" : "Saved"} ${time}`);
+    } catch (error) {
+      setProjectStatus(error instanceof Error ? error.message : "The project could not be saved.");
+    }
+  }
+
+  function openProjectDocument(project: TopomapperProject) {
+    if (!isProjectDocument(project)) throw new Error("This is not a Topomapper project file.");
+    projectReadyRef.current = false;
+    clearFilledLayerOverlay();
+    clearElevationOverlay();
+    applySelection(project.selection);
+    setQuery(project.query ?? "");
+    setResults([]);
+    setSearchMessage(project.query ? `Project location: ${project.query}` : "Search for a New Zealand place");
+    setSelectionStatus(project.selection ? "The project's selected area has been restored." : "Find a place, then draw the area you want to model.");
+    setElevationFiles([]);
+    analysisRef.current = project.elevation.analysis;
+    setAnalysis(project.elevation.analysis);
+    setAnalysisStatus(project.elevation.analysis
+      ? "Saved elevation analysis restored. Reload the named GeoTIFF files only if you need to regenerate layers."
+      : project.elevation.sourceFilenames.length ? `Reload ${project.elevation.sourceFilenames.join(", ")} to regenerate terrain layers.` : "Choose one or more LINZ elevation GeoTIFFs for this area.");
+    setFilledLayerPreview(project.elevation.filledLayerPreview);
+    setVisibleLayerIndices(project.elevation.visibleLayerIndices ?? project.elevation.filledLayerPreview?.layers.map((layer) => layer.index) ?? []);
+    setOutputFormat(project.output.format);
+    setOutputOrientation(project.output.orientation);
+    setCustomWidthMm(project.output.customWidthMm);
+    setCustomHeightMm(project.output.customHeightMm);
+    setMaterialThicknessMm(project.output.materialThicknessMm);
+    setLayerDistribution(project.layers.distribution);
+    setLayerCount(project.layers.count);
+    setLayerBoundaries(project.layers.boundaries);
+    setLayerStatus(project.layers.boundaries.length ? `${project.layers.count} saved layer boundaries restored.` : "Analyse elevation data to begin a layer plan.");
+    setLayerGenerationStatus(project.elevation.filledLayerPreview ? `${project.elevation.filledLayerPreview.layers.length} processed terrain layers restored from the project.` : "Choose valid boundaries, then generate the filled 2D preview.");
+    setStackView(project.model.stackView);
+    setStackYaw(project.model.stackYaw);
+    setStackPitch(project.model.stackPitch);
+    setShowTrueElevation(project.model.showTrueElevation);
+    setSmoothingLevels(project.model.smoothingLevels);
+    setGridPitchMm(project.assembly.gridPitchMm);
+    setDowelDiameterMm(project.assembly.dowelDiameterMm);
+    setHoleDiameterMm(project.assembly.holeDiameterMm);
+    setHoleEdgeClearanceMm(project.assembly.holeEdgeClearanceMm);
+    setSheetRules(project.layout.sheetRules);
+    setSheetCount(project.layout.sheetCount);
+    setActiveSheetIndex(Math.min(project.layout.activeSheetIndex, Math.max(0, project.layout.sheetCount - 1)));
+    setSheetPlacements(project.layout.placements);
+    setSelectedPlacementId(null);
+    setSelectedViolationIndex(null);
+    setWorkspaceView(project.elevation.filledLayerPreview ? project.view.workspaceView : "two-dimensional");
+    setAssemblyLayerIndex(project.view.assemblyLayerIndex);
+    setSmoothingLayerIndex(project.view.smoothingLayerIndex);
+    setProjectId(project.id);
+    setProjectName(project.name);
+    setProjectCreatedAt(project.createdAt);
+    placementCounterRef.current = project.layout.placements.reduce((maximum, placement) => Math.max(maximum, Number(placement.id.split("-").pop()) || 0), 0) + 1;
+    window.localStorage.setItem(ACTIVE_PROJECT_KEY, project.id);
+    if (project.selection) mapRef.current?.fitBounds([[project.selection.west, project.selection.south], [project.selection.east, project.selection.north]], { padding: 130, maxZoom: 12, duration: 600 });
+    if (project.elevation.analysis?.preview_png) showElevationOverlay(project.elevation.analysis);
+    if (project.elevation.filledLayerPreview) showFilledLayerOverlay(project.elevation.filledLayerPreview, project.elevation.visibleLayerIndices.length ? project.elevation.visibleLayerIndices : project.elevation.filledLayerPreview.layers.map((layer) => layer.index));
+    setProjectStatus(`Opened ${project.name}`);
+    projectReadyRef.current = true;
+  }
+
+  async function openStoredProject(id: string) {
+    if (!id || id === projectId) return;
+    await saveCurrentProject(true);
+    const project = await readStoredProject(id);
+    if (!project) { setProjectStatus("That saved project could not be found."); return; }
+    openProjectDocument(project);
+  }
+
+  async function createNewProject() {
+    await saveCurrentProject(true);
+    const base = query.trim() || "Untitled";
+    let number = 1;
+    while (projectLibrary.some((project) => project.name.toLowerCase() === `${base} ${number}`.toLowerCase())) number += 1;
+    const project = blankProjectDocument(`${base} ${number}`);
+    await writeStoredProject(project);
+    setProjectLibrary((current) => [project, ...current]);
+    openProjectDocument(project);
+    setProjectStatus(`New project created as ${project.name}. Rename it at any time.`);
+  }
+
+  async function closeCurrentProject() {
+    await saveCurrentProject(true);
+    projectReadyRef.current = false;
+    const blank = blankProjectDocument("No project open");
+    openProjectDocument(blank);
+    projectReadyRef.current = false;
+    setProjectId(null);
+    setProjectName("");
+    setProjectCreatedAt("");
+    window.localStorage.removeItem(ACTIVE_PROJECT_KEY);
+    setProjectStatus("Project closed. Choose a saved project or create a new one.");
+  }
+
+  async function exportCurrentProject() {
+    const project = currentProjectDocument();
+    if (!project) return;
+    await writeStoredProject(project);
+    downloadFile(JSON.stringify(project, null, 2), "application/json;charset=utf-8", projectFilename(project.name));
+    setProjectStatus(`Saved locally and downloaded ${projectFilename(project.name)}.`);
+  }
+
+  async function importProjectFile(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      const imported = JSON.parse(await file.text()) as TopomapperProject;
+      if (!isProjectDocument(imported)) throw new Error("This is not a Topomapper project file.");
+      await saveCurrentProject(true);
+      const project = { ...imported, id: window.crypto.randomUUID(), name: imported.name.trim() || file.name.replace(/\.topomapper$/i, ""), modifiedAt: new Date().toISOString() };
+      await writeStoredProject(project);
+      setProjectLibrary((current) => [project, ...current]);
+      openProjectDocument(project);
+      setProjectStatus(`${file.name} imported as ${project.name}.`);
+    } catch (error) {
+      setProjectStatus(error instanceof Error ? error.message : "The project file could not be imported.");
+    }
+    event.target.value = "";
+  }
+
   function sheetLayoutData() {
     return {
       format: "topomapper-sheet-layout",
@@ -2785,6 +3157,19 @@ export function MapWorkspace() {
           <span className="brand-mark" aria-hidden="true"><i /><i /><i /></span>
           <span><strong>topo</strong>mapper</span>
         </button>
+        <div className="project-toolbar" aria-label="Project controls">
+          <label className="project-name-field"><span>Project</span><input value={projectName} disabled={!projectId} onChange={(event) => setProjectName(event.target.value)} onBlur={() => { if (projectId && !projectName.trim()) setProjectName("Untitled project"); }} placeholder="No project open" /></label>
+          <select value={projectId ?? ""} onChange={(event) => { if (event.target.value) void openStoredProject(event.target.value); }} aria-label="Open another saved project">
+            <option value="">Open project…</option>
+            {projectLibrary.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+          </select>
+          <button onClick={() => void createNewProject()}>New</button>
+          <button disabled={!projectId} onClick={() => void saveCurrentProject(false)}>Save</button>
+          <button disabled={!projectId} onClick={() => void exportCurrentProject()}>Project file</button>
+          <label className="project-import-button">Import<input type="file" accept=".topomapper,application/json" onChange={importProjectFile} /></label>
+          <button disabled={!projectId} onClick={() => void closeCurrentProject()}>Close</button>
+          <span className="project-save-state" role="status">{projectStatus}</span>
+        </div>
         <div className="topbar-actions">
           <div className="workspace-view-toggle" aria-label="Topomapper workflow">
             <button className={workspaceView === "two-dimensional" ? "active" : ""} onClick={() => setWorkspaceView("two-dimensional")}>2D Map</button>
@@ -2917,8 +3302,6 @@ export function MapWorkspace() {
         )}
 
         <div className="selection-actions">
-          <button onClick={saveExample} disabled={!selection}>Save example</button>
-          <button onClick={openSavedExample} disabled={!hasSavedExample}>Open saved</button>
           <button onClick={clearSelection} disabled={!selection}>Clear</button>
           <button onClick={resetTaranakiExample}>Reset Taranaki</button>
         </div>
@@ -3308,9 +3691,6 @@ export function MapWorkspace() {
             <label>Part spacing <span><input type="number" min="0" step="1" value={sheetRules.partSpacing} onChange={(event) => setSheetRules((rules) => ({ ...rules, partSpacing: Math.max(0, Number(event.target.value)) }))} /> mm</span></label>
             <button onClick={autoLayoutUnplaced}>Auto layout unplaced</button>
             <button onClick={addReplacementSheet}>+ Replacement sheet</button>
-            <button onClick={saveSheetLayoutLocally}>Save layout</button>
-            <button onClick={downloadSheetLayoutBackup}>Backup file</button>
-            <label className="layout-import-button">Restore file<input type="file" accept=".json,application/json" onChange={importSheetLayoutBackup} /></label>
           </div>
           <div className="sheet-tabs" aria-label="Material sheets">
             {Array.from({ length: sheetCount }, (_, index) => <button key={index} className={index === activeSheetIndex ? "active" : ""} onClick={() => { setActiveSheetIndex(index); setSelectedPlacementId(null); setSheetZoom(1); setSheetViewCenter({ x: sheetRules.width / 2, y: sheetRules.height / 2 }); }}>Sheet {index + 1}<small>{sheetPlacements.filter((placement) => placement.sheetIndex === index).length} parts</small></button>)}
@@ -3337,7 +3717,7 @@ export function MapWorkspace() {
             </div>
             <aside className="sheet-layout-details">
               <div className="sheet-layout-metrics"><span><small>Sheets</small><strong>{sheetCount}</strong></span><span><small>Instances</small><strong>{sheetPlacements.length}</strong></span><span><small>Area use</small><strong>{sheetUtilisation.toFixed(1)}%</strong></span></div>
-              <p className="layout-save-status" role="status">{layoutSaveStatus}</p>
+              <p className="layout-save-status" role="status">Project: {projectName || "none"} · {projectStatus}</p>
               {selectedPlacement && (
                 <div className="selected-placement-controls">
                   <strong>{selectedPlacement.partId}</strong><span>Sheet {selectedPlacement.sheetIndex + 1} · {selectedPlacement.rotation}° · X {selectedPlacement.x.toFixed(1)}, Y {selectedPlacement.y.toFixed(1)} mm</span>

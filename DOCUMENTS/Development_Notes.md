@@ -383,4 +383,16 @@
 - Replaced rectangular canvas hit-testing with exact rotated-outline selection,
   while preserving an enlarged target for genuinely tiny parts. Added an
   explicit Deselect button so empty-sheet panning is always accessible.
+- Replaced the separate Save example and Save layout controls with a named
+  project library. The active project includes output format, map rectangle,
+  analysis metadata, processed layer geometry, distribution and boundaries,
+  material and 3D settings, smoothing, assembly, sheets, and placements.
+- Added editable default project names; New/Open/Save/Close; automatic saving
+  1.5 seconds after the last change; and portable `.topomapper` JSON export and
+  import. Switching and closing force an immediate save.
+- Project records use IndexedDB rather than local storage so processed terrain
+  geometry and multiple landscapes have practical storage capacity. Original
+  GeoTIFFs remain external, with filenames retained for later regeneration.
+- Existing selection, output, layer, assembly, and sheet-layout saves are
+  migrated into a first recovered project when the library is initially empty.
 - Production build passes successfully.

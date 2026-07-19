@@ -231,14 +231,18 @@ registration holes align consistently across every exported layer.
 - Explicit local save plus JSON backup and restore for multi-session layout.
 - Exact rotated-outline sheet-edge checks and selection, with a dedicated
   Deselect control for reliable panning.
+- Named project library with editable default names, 1.5-second autosave,
+  New/Open/Save/Close, and portable `.topomapper` import/export. Project
+  documents include processed geometry and all settings through sheet layout.
 
 ### Acceptance Test
 
 All retained model parts can be placed manually without overlap and the saved
 layout retains identical positions and orientations. A selected part can be
 duplicated onto a replacement sheet without disturbing the production sheets.
-A saved layout can be restored after restarting Topomapper and regenerating the
-same terrain layers.
+A saved project can be restored after restarting Topomapper with its processed
+terrain and identical sheet positions. Source GeoTIFFs are only required when
+the terrain must be regenerated.
 
 ## Stage 11 — Automatic Sheet Nesting
 
@@ -311,7 +315,7 @@ useful simplification, tolerances, paint allowance, and assembly experience.
 
 - Normal macOS application bundle.
 - Bundled processing dependencies.
-- Project Open/Save and recent-project list.
+- Native macOS document integration for the existing project library.
 - Friendly error reporting and diagnostic log export.
 - Installation and upgrade procedure.
 

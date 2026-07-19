@@ -39,6 +39,23 @@ Land and seabed require separate controls because useful physical and visual
 scales differ substantially. Sea level must always be available as a special
 boundary.
 
+## Project Management
+
+- Treat each landscape as a named project rather than a collection of unrelated
+  saved settings.
+- Persist the output size and orientation, selected geographic rectangle,
+  elevation metadata and processed geometry, log/linear layer plan and count,
+  editable boundaries, material thickness, 3D settings, smoothing, assembly
+  settings, sheet rules, sheet count, and every part transform.
+- Autosave the active project after a short idle delay and save immediately when
+  switching, closing, or explicitly choosing Save.
+- Allow multiple projects to coexist locally and provide New, Open, Save, Close,
+  project rename, portable export, and import.
+- Give a new project a unique editable default name immediately.
+- Keep original GeoTIFFs external because embedding them can make project files
+  impractically large; retain their filenames and processed geometry so they are
+  only required again when terrain is regenerated.
+
 ## Layer Geometry
 
 - Generate filled polygons suitable for cutting, not contour lines alone.

@@ -2180,6 +2180,7 @@ export function MapWorkspace() {
   const [holeEdgeClearanceMm, setHoleEdgeClearanceMm] = useState(6);
   const [exportStatus, setExportStatus] = useState("Manufacturing files are ready to inspect.");
   const [sheetExportStatus, setSheetExportStatus] = useState("Export a finished-size SVG after arranging the parts.");
+  const [colourChartStatus, setColourChartStatus] = useState("Download a workshop-ready PDF or print this chart from the browser.");
   const [smoothingLayerIndex, setSmoothingLayerIndex] = useState(0);
   const [smoothingLevels, setSmoothingLevels] = useState<Record<number, number>>({});
   const [smoothingZoom, setSmoothingZoom] = useState(1);
@@ -3657,6 +3658,57 @@ export function MapWorkspace() {
     }
   }
 
+  async function downloadColourChartPdf() {
+    if (!fabricationPreview || !colourAssignments.length) {
+      setColourChartStatus("Generate terrain layers before downloading a colour chart.");
+      return;
+    }
+    const paints = colourGroups.map(({ paint, assignments }) => ({
+      manufacturer: paint.manufacturer,
+      code: paint.code,
+      name: paint.name,
+      hex: paint.hex,
+      note: paintNotes[paint.id] ?? "",
+      layers: assignments.map((assignment) => assignment.layer.index + 1),
+      minimum: assignments[0].layer.lower_elevation,
+      maximum: assignments[assignments.length - 1].layer.upper_elevation,
+    }));
+    const layers = colourAssignments.map(({ layer, paint }) => ({
+      number: layer.index + 1,
+      minimum: layer.lower_elevation,
+      maximum: layer.upper_elevation,
+      manufacturer: paint.manufacturer,
+      code: paint.code,
+      name: paint.name,
+      hex: paint.hex,
+      note: paintNotes[paint.id] ?? "",
+    }));
+    const snowMode = snowCapMode === "automatic" ? "automatic at 20+ layers" : snowCapMode === "on" ? "white top layer" : "none";
+    setColourChartStatus("Creating the printable colour chart…");
+    try {
+      const response = await fetch(`${PROCESSOR_ENDPOINT}/colour-guide`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          project_name: projectName || "Topomapper project",
+          material_thickness_mm: materialThicknessMm,
+          snow_mode: snowMode,
+          paints,
+          layers,
+        }),
+      });
+      if (!response.ok) {
+        const detail = await response.json().catch(() => ({})) as { error?: string };
+        throw new Error(detail.error || `The colour chart service returned ${response.status}.`);
+      }
+      const stem = projectFilename(projectName || "topomapper-project").replace(/\.topomapper$/i, "");
+      downloadFile(await response.blob(), "application/pdf", `${stem}-colour-chart.pdf`);
+      setColourChartStatus("Colour chart PDF downloaded with paint swatches, buying names and every layer assignment.");
+    } catch (error) {
+      setColourChartStatus(`${error instanceof Error ? error.message : "The colour chart could not be created."} Restart Topomapper if its local processor was already running before this update.`);
+    }
+  }
+
   function downloadSelectedLayerSvg() {
     if (!selectedManufacturingSvg) return;
     const layerName = `L${String(assemblyLayerIndex + 1).padStart(2, "0")}`;
@@ -4334,9 +4386,12 @@ export function MapWorkspace() {
                   <option value="off">No snow</option>
                 </select>
               </label>
+              <button onClick={() => void downloadColourChartPdf()}>Download colour chart PDF</button>
               <button onClick={() => window.print()}>Print colour chart</button>
             </div>
           </div>
+
+          <p className="colour-chart-status" role="status">{colourChartStatus}</p>
 
           <div className="paint-purchase-grid" aria-label="Paint colours to purchase">
             {colourGroups.map(({ paint, assignments }) => {

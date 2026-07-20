@@ -318,6 +318,11 @@ before any project sheet is machined.
 ### Adds
 
 - Separate land and subsea boundary editors.
+- Import lakes, lagoons, and significant river polygons and subtract each
+  retained feature from every affected physical layer as a true hole.
+- Apply the same adjustable minimum-feature smoothing to water holes as to
+  small terrain islands and peaks, while preserving islands inside lakes.
+- Export matching water-insert geometry for separately cut, blue-painted parts.
 - LINZ coastal elevation data where available.
 - NIWA/ESNZ bathymetry fallback with resolution warnings.
 - Explicit land/bathymetry vertical-datum comparison.
@@ -327,8 +332,9 @@ before any project sheet is machined.
 ### Acceptance Test
 
 A Banks Peninsula selection shows land, coastline, and seabed bands without a
-gap or silent zero-level mismatch. Low-resolution offshore geometry is visibly
-identified.
+gap or silent zero-level mismatch. Its significant coastal and inland lakes
+appear as retained holes suitable for separate inserts. Low-resolution offshore
+geometry is visibly identified.
 
 ## Stage 15 — Physical Test Model
 

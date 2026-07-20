@@ -502,6 +502,21 @@
 - Added an A4 print layout with exact background-colour printing, a complete
   layer-by-layer paint schedule, and a reminder to test physical paint on the
   intended primed material.
+- Added a direct PDF download containing the paint buying cards and complete
+  layer schedule, independent of browser print settings.
+- Removed the floating Find a Location panel from the Colour Chart workspace so
+  it cannot obscure the chart or its controls.
 - Existing version-1 project files remain compatible and receive automatic
   colour defaults when opened.
 - Frontend production build passes successfully.
+
+### Water-feature manufacturing decision
+
+- A retained lake, lagoon, or significant river is a true hole through every
+  terrain layer in which it appears, intended to receive a separately cut and
+  blue-painted insert.
+- Water holes use the same scale-aware smoothing and minimum-feature controls as
+  small peaks and islands. Tiny water features may therefore disappear, but
+  significant features and land islands enclosed by them must be preserved.
+- Importing and subtracting mapped water geometry remains Stage 14 work; this
+  decision defines the expected result before that implementation begins.

@@ -59,7 +59,14 @@ boundary.
 ## Layer Geometry
 
 - Generate filled polygons suitable for cutting, not contour lines alone.
-- Preserve islands, lakes, holes, and disconnected pieces.
+- Preserve islands, holes, and disconnected pieces. Represent every retained
+  lake, lagoon, or significant river polygon as a true hole in each physical
+  layer through which that water feature passes.
+- Apply the normal manufacturing smoothing and minimum-feature rules to water
+  holes as well as terrain peaks and islands, so impractically tiny lakes may
+  disappear without damaging significant water features.
+- Make retained water holes suitable for separate blue-painted wood inserts;
+  preserve any land islands enclosed by the water feature.
 - Support cumulative/nested physical layers so the assembled model represents
   terrain correctly.
 - Allow optional simplification appropriate to CNC tool diameter and finished

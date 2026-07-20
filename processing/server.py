@@ -12,6 +12,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from analyse import AnalysisError, analyse_geotiffs, generate_filled_layers
+from colour_guide import ColourGuideError, generate_colour_guide
 from layout_guide import LayoutGuideError, generate_layout_guide
 
 
@@ -68,7 +69,7 @@ class RequestHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         request_path = urlparse(self.path).path
-        if request_path not in {"/analyze", "/layers", "/layout-guide"}:
+        if request_path not in {"/analyze", "/layers", "/layout-guide", "/colour-guide"}:
             self._send_json(404, {"error": "Not found"})
             return
         try:
@@ -77,6 +78,9 @@ class RequestHandler(BaseHTTPRequestHandler):
             length = 0
         if request_path == "/layout-guide":
             self._create_layout_guide(length)
+            return
+        if request_path == "/colour-guide":
+            self._create_colour_guide(length)
             return
         if length <= 0:
             self._send_json(400, {"error": "No GeoTIFF was supplied."})
@@ -161,6 +165,28 @@ class RequestHandler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": "The layout guide request could not be read."})
         except Exception as error:
             self._send_json(500, {"error": f"The printable layout guide failed: {error}"})
+
+    def _create_colour_guide(self, length: int) -> None:
+        if length <= 0:
+            self._send_json(400, {"error": "No colour plan was supplied."})
+            return
+        if length > MAX_GUIDE_BYTES:
+            self._send_json(413, {"error": "The colour guide request is larger than the 64 MB local limit."})
+            return
+        if not self.headers.get("Content-Type", "").startswith("application/json"):
+            self._send_json(400, {"error": "The colour guide request must be JSON."})
+            return
+        try:
+            payload = json.loads(self.rfile.read(length))
+            if not isinstance(payload, dict):
+                raise ColourGuideError("The colour guide request is malformed.")
+            self._send_bytes(200, generate_colour_guide(payload), "application/pdf")
+        except ColourGuideError as error:
+            self._send_json(422, {"error": str(error)})
+        except json.JSONDecodeError:
+            self._send_json(400, {"error": "The colour guide request could not be read."})
+        except Exception as error:
+            self._send_json(500, {"error": f"The printable colour guide failed: {error}"})
 
 
 def main() -> None:

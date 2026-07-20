@@ -152,6 +152,12 @@ boundary.
 - Display minimum and maximum elevation and their locations.
 - Colour subsea bands with blue shades.
 - Colour land bands with green, grey, and white palettes.
+- Assign every physical layer to a named purchasable paint, showing a display
+  swatch, manufacturer code, colour name, and elevation range.
+- Support an optional white top snow layer and retain alternative local-shop
+  paint names in the project.
+- Print an A4 paint-buying and layer-assignment chart while warning that monitor
+  colours are not substitutes for a physical sample.
 - Preview layer order and approximate finished thickness.
 - Distinguish missing data from real zero elevation.
 

@@ -274,7 +274,29 @@ editor, and its machining operations can be selected independently by layer.
 The automatic layout uses no more sheets than a careful manual layout for the
 Taranaki regression model and has no collisions or boundary violations.
 
-## Stage 12 — Toolpaths and Direct G-code
+## Stage 12 — Paint Colour Planning
+
+**Status: Implemented — physical paint comparison pending**
+
+### Adds
+
+- Named Molotow Premium terrain palette with manufacturer numbers and display
+  swatches.
+- Automatic distribution of five land colours across any generated layer count.
+- Optional white top layer, enabled automatically for models with 20 or more
+  physical layers.
+- Per-colour fields for alternative shop, brand, or paint names retained in the
+  named project.
+- Printable A4 buying chart and layer-by-layer elevation/paint schedule.
+- Matching palette in the 2D map, 3D stack, assembly view, and colour chart.
+
+### Acceptance Test
+
+A 10-layer project uses five named terrain colours across two adjacent layers
+each. A 20-layer project adds a white top layer in Automatic mode. Printing the
+chart preserves readable swatches, product names, layer numbers, and elevations.
+
+## Stage 13 — Toolpaths and Direct G-code
 
 ### Adds
 
@@ -291,7 +313,7 @@ Taranaki regression model and has no collisions or boundary violations.
 G-code is independently reviewed, simulated, air-cut, and tested on scrap MDF
 before any project sheet is machined.
 
-## Stage 13 — Coast and Bathymetry
+## Stage 14 — Coast and Bathymetry
 
 ### Adds
 
@@ -308,7 +330,7 @@ A Banks Peninsula selection shows land, coastline, and seabed bands without a
 gap or silent zero-level mismatch. Low-resolution offshore geometry is visibly
 identified.
 
-## Stage 14 — Physical Test Model
+## Stage 15 — Physical Test Model
 
 ### Adds
 
@@ -321,7 +343,7 @@ identified.
 Produce a small test map on the CNC machine. Record fit, loose-piece problems,
 useful simplification, tolerances, paint allowance, and assembly experience.
 
-## Stage 15 — Packaged Mac Application
+## Stage 16 — Packaged Mac Application
 
 ### Adds
 
@@ -342,6 +364,7 @@ Python, a terminal, or a development server.
 - **Prototype B — Visual land model:** Stages 5–6.
 - **Prototype C — Manufacturing geometry:** Stages 7–9.
 - **Prototype D — Manually nested sheets:** Stage 10.
-- **Prototype E — Automatically nested direct G-code:** Stages 11–12.
-- **Prototype F — Coastal model:** Stage 13.
-- **Version 1.0 — Proven Mac fabrication tool:** Stages 14–15.
+- **Prototype E — Automatically nested paint plan:** Stages 11–12.
+- **Prototype F — Direct G-code:** Stage 13.
+- **Prototype G — Coastal model:** Stage 14.
+- **Version 1.0 — Proven Mac fabrication tool:** Stages 15–16.

@@ -77,7 +77,8 @@ type LayerDistribution = "log" | "linear";
 type OutputFormat = "free" | "12x8" | "a2" | "square" | "custom";
 type OutputOrientation = "landscape" | "portrait";
 type StackView = "three-dimensional" | "side" | "top";
-type WorkspaceView = "two-dimensional" | "three-dimensional" | "assembly" | "manufacturing" | "smoothing" | "sheet-layout";
+type WorkspaceView = "two-dimensional" | "three-dimensional" | "assembly" | "manufacturing" | "smoothing" | "sheet-layout" | "colour-chart";
+type SnowCapMode = "automatic" | "on" | "off";
 
 type FilledLayer = {
   index: number;
@@ -171,6 +172,14 @@ type LayoutViolation = {
   message: string;
 };
 
+type PaintColour = {
+  id: string;
+  manufacturer: string;
+  code: string;
+  name: string;
+  hex: string;
+};
+
 type TopomapperProject = {
   format: "topomapper-project";
   version: 1;
@@ -218,6 +227,11 @@ type TopomapperProject = {
     placements: SheetPlacement[];
     rotationStepDeg?: number;
   };
+  colour?: {
+    paletteId: "molotow-terrain";
+    snowCapMode: SnowCapMode;
+    paintNotes: Record<string, string>;
+  };
   view: {
     workspaceView: WorkspaceView;
     assemblyLayerIndex: number;
@@ -260,6 +274,14 @@ const MIN_LAYER_COUNT = 2;
 const MAX_LAYER_COUNT = 40;
 const LOG_CURVE_STRENGTH = 2.2;
 const EARTH_RADIUS_METRES = 6_371_008.8;
+const MOLOTOW_TERRAIN_PALETTE: PaintColour[] = [
+  { id: "molotow-165", manufacturer: "Molotow Premium", code: "#165", name: "moss green", hex: "#526a3d" },
+  { id: "molotow-173", manufacturer: "Molotow Premium", code: "#173", name: "evil olive", hex: "#737643" },
+  { id: "molotow-181-2", manufacturer: "Molotow Premium", code: "#181-2", name: "nature green middle", hex: "#9b9147" },
+  { id: "molotow-203", manufacturer: "Molotow Premium", code: "#203", name: "cocoa middle", hex: "#74443b" },
+  { id: "molotow-212", manufacturer: "Molotow Premium", code: "#212", name: "stone grey middle", hex: "#827b75" },
+];
+const MOLOTOW_SNOW: PaintColour = { id: "molotow-231", manufacturer: "Molotow Premium", code: "#231", name: "signal white", hex: "#f1efe8" };
 
 function openProjectDatabase() {
   return new Promise<IDBDatabase>((resolve, reject) => {
@@ -485,12 +507,22 @@ function validateLayerBoundaries(boundaries: LayerBoundary[], maximum: number) {
 
 function layerColour(value: number, maximum: number) {
   const position = maximum > 0 ? Math.max(0, Math.min(1, value / maximum)) : 0;
-  if (position < 0.18) return "#3f8459";
-  if (position < 0.38) return "#70a160";
-  if (position < 0.58) return "#a2a66a";
-  if (position < 0.76) return "#9b846c";
-  if (position < 0.9) return "#8a8580";
-  return "#f0efe9";
+  const index = Math.min(MOLOTOW_TERRAIN_PALETTE.length - 1, Math.floor(position * MOLOTOW_TERRAIN_PALETTE.length));
+  return MOLOTOW_TERRAIN_PALETTE[index].hex;
+}
+
+function snowLayerCount(layerCount: number, mode: SnowCapMode) {
+  if (mode === "off") return 0;
+  if (mode === "on") return layerCount > 0 ? 1 : 0;
+  return layerCount >= 20 ? 1 : 0;
+}
+
+function paintForLayer(layerIndex: number, layerCount: number, snowMode: SnowCapMode) {
+  const snowLayers = snowLayerCount(layerCount, snowMode);
+  const terrainLayers = Math.max(1, layerCount - snowLayers);
+  if (snowLayers && layerIndex >= terrainLayers) return MOLOTOW_SNOW;
+  const paletteIndex = Math.min(MOLOTOW_TERRAIN_PALETTE.length - 1, Math.floor(layerIndex * MOLOTOW_TERRAIN_PALETTE.length / terrainLayers));
+  return MOLOTOW_TERRAIN_PALETTE[paletteIndex];
 }
 
 function darkenColour(colour: string, amount = 0.7) {
@@ -1548,6 +1580,7 @@ function StackPreviewCanvas({
   showTrueElevation,
   onYawChange,
   pitch,
+  snowCapMode,
   onViewChange,
 }: {
   preview: FilledLayerPreview;
@@ -1561,6 +1594,7 @@ function StackPreviewCanvas({
   showTrueElevation: boolean;
   onYawChange: (yaw: number) => void;
   pitch: number;
+  snowCapMode: SnowCapMode;
   onViewChange: (yaw: number, pitch: number) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -1641,7 +1675,7 @@ function StackPreviewCanvas({
         if (!visibleSet.has(layer.index)) return;
         const bottom = layer.index * materialThickness;
         const top = bottom + materialThickness;
-        const colour = layerColour(layer.lower_elevation, maximum);
+        const colour = paintForLayer(layer.index, preview.layers.length, snowCapMode).hex;
         const features = preview.feature_collection.features.filter((feature) => feature.properties.layer_index === layer.index);
         features.forEach((feature) => {
           feature.geometry.coordinates.forEach((ring) => {
@@ -1708,7 +1742,7 @@ function StackPreviewCanvas({
     const observer = new ResizeObserver(draw);
     observer.observe(canvas);
     return () => observer.disconnect();
-  }, [preview, visibleLayers, modelWidth, modelHeight, materialThickness, groundWidth, view, yaw, pitch, showTrueElevation]);
+  }, [preview, visibleLayers, modelWidth, modelHeight, materialThickness, groundWidth, view, yaw, pitch, showTrueElevation, snowCapMode]);
 
   return (
     <canvas
@@ -1735,6 +1769,7 @@ function AssemblyPreviewCanvas({
   modelWidth,
   modelHeight,
   holeDiameter,
+  snowCapMode,
 }: {
   preview: FilledLayerPreview;
   plan: AssemblyPlan;
@@ -1742,6 +1777,7 @@ function AssemblyPreviewCanvas({
   modelWidth: number;
   modelHeight: number;
   holeDiameter: number;
+  snowCapMode: SnowCapMode;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
@@ -1784,7 +1820,7 @@ function AssemblyPreviewCanvas({
           });
           context.closePath();
         });
-        context.fillStyle = layerColour(layer.lower_elevation, preview.boundaries[preview.boundaries.length - 1]);
+        context.fillStyle = paintForLayer(layer.index, preview.layers.length, snowCapMode).hex;
         context.fill("evenodd");
         context.strokeStyle = "rgba(28,49,40,.72)";
         context.lineWidth = 1;
@@ -1836,7 +1872,7 @@ function AssemblyPreviewCanvas({
     const observer = new ResizeObserver(draw);
     observer.observe(canvas);
     return () => observer.disconnect();
-  }, [preview, plan, layerIndex, modelWidth, modelHeight, holeDiameter]);
+  }, [preview, plan, layerIndex, modelWidth, modelHeight, holeDiameter, snowCapMode]);
 
   return <canvas ref={canvasRef} aria-label={`Assembly and machining preview for layer ${layerIndex + 1}`} />;
 }
@@ -2161,6 +2197,8 @@ export function MapWorkspace() {
   const [optimizerRunning, setOptimizerRunning] = useState(false);
   const [optimizerStatus, setOptimizerStatus] = useState("Ready to search for a tighter polygon-aware layout.");
   const [optimizerProgress, setOptimizerProgress] = useState("");
+  const [snowCapMode, setSnowCapMode] = useState<SnowCapMode>("automatic");
+  const [paintNotes, setPaintNotes] = useState<Record<string, string>>({});
   const [layoutSaveStatus, setLayoutSaveStatus] = useState("Layout changes have not been saved locally yet.");
   const [projectId, setProjectId] = useState<string | null>(null);
   const [projectName, setProjectName] = useState("");
@@ -2236,7 +2274,7 @@ export function MapWorkspace() {
     setProjectStatus("Changes waiting to autosave…");
     projectAutosaveTimerRef.current = setTimeout(() => { void saveCurrentProject(true); }, 1500);
     return () => { if (projectAutosaveTimerRef.current) clearTimeout(projectAutosaveTimerRef.current); };
-  }, [projectId, projectName, selection, query, analysis, filledLayerPreview, visibleLayerIndices, outputFormat, outputOrientation, customWidthMm, customHeightMm, materialThicknessMm, layerDistribution, layerCount, layerBoundaries, stackView, stackYaw, stackPitch, showTrueElevation, smoothingLevels, gridPitchMm, dowelDiameterMm, holeDiameterMm, holeEdgeClearanceMm, sheetRules, sheetCount, activeSheetIndex, sheetPlacements, rotationStepDeg, workspaceView, assemblyLayerIndex, smoothingLayerIndex]);
+  }, [projectId, projectName, selection, query, analysis, filledLayerPreview, visibleLayerIndices, outputFormat, outputOrientation, customWidthMm, customHeightMm, materialThicknessMm, layerDistribution, layerCount, layerBoundaries, stackView, stackYaw, stackPitch, showTrueElevation, smoothingLevels, gridPitchMm, dowelDiameterMm, holeDiameterMm, holeEdgeClearanceMm, sheetRules, sheetCount, activeSheetIndex, sheetPlacements, rotationStepDeg, snowCapMode, paintNotes, workspaceView, assemblyLayerIndex, smoothingLayerIndex]);
   const chosenOutput = outputDimensions(outputFormat, outputOrientation, customWidthMm, customHeightMm);
   aspectRatioRef.current = chosenOutput ? chosenOutput.width / chosenOutput.height : null;
 
@@ -2310,9 +2348,8 @@ export function MapWorkspace() {
     if (map.getLayer(ELEVATION_LAYER)) map.setPaintProperty(ELEVATION_LAYER, "raster-opacity", 0.86);
   }
 
-  function visibleFeatureCollection(result: FilledLayerPreview, visible: number[]) {
+  function visibleFeatureCollection(result: FilledLayerPreview, visible: number[], mode: SnowCapMode = snowCapMode) {
     const visibleSet = new Set(visible);
-    const maximum = result.boundaries[result.boundaries.length - 1] || 1;
     return {
       type: "FeatureCollection" as const,
       features: result.feature_collection.features
@@ -2321,20 +2358,20 @@ export function MapWorkspace() {
           ...feature,
           properties: {
             ...feature.properties,
-            colour: layerColour(feature.properties.lower_elevation, maximum),
+            colour: paintForLayer(feature.properties.layer_index, result.layers.length, mode).hex,
           },
         })),
     };
   }
 
-  function showFilledLayerOverlay(result: FilledLayerPreview, visible: number[]) {
+  function showFilledLayerOverlay(result: FilledLayerPreview, visible: number[], mode: SnowCapMode = snowCapMode) {
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded()) return;
     clearFilledLayerOverlay();
     if (map.getLayer(ELEVATION_LAYER)) map.setPaintProperty(ELEVATION_LAYER, "raster-opacity", 0.18);
     map.addSource(FILLED_LAYER_SOURCE, {
       type: "geojson",
-      data: visibleFeatureCollection(result, visible),
+      data: visibleFeatureCollection(result, visible, mode),
     });
     map.addLayer({
       id: FILLED_LAYER_FILL,
@@ -2531,8 +2568,8 @@ export function MapWorkspace() {
     if (mapStatus !== "Map ready") return;
     if (selection) applySelection(selection);
     if (analysis?.preview_png) showElevationOverlay(analysis);
-    if (filledLayerPreview) showFilledLayerOverlay(filledLayerPreview, visibleLayerIndices);
-  }, [mapStatus, analysis, filledLayerPreview, visibleLayerIndices]);
+    if (filledLayerPreview) showFilledLayerOverlay(filledLayerPreview, visibleLayerIndices, snowCapMode);
+  }, [mapStatus, analysis, filledLayerPreview, visibleLayerIndices, snowCapMode]);
 
   useEffect(() => {
     try {
@@ -3026,6 +3063,18 @@ export function MapWorkspace() {
   const selectedPlacement = sheetPlacements.find((placement) => placement.id === selectedPlacementId) ?? null;
   const placedArea = sheetPlacements.reduce((total, placement) => total + (layoutParts.find((part) => part.id === placement.partId)?.areaMm2 ?? 0), 0);
   const sheetUtilisation = sheetCount > 0 ? placedArea / (sheetRules.width * sheetRules.height * sheetCount) * 100 : 0;
+  const colourAssignments = useMemo(() => fabricationPreview?.layers.map((layer) => ({
+    layer,
+    paint: paintForLayer(layer.index, fabricationPreview.layers.length, snowCapMode),
+  })) ?? [], [fabricationPreview, snowCapMode]);
+  const colourGroups = useMemo(() => [...MOLOTOW_TERRAIN_PALETTE, MOLOTOW_SNOW].map((paint) => ({
+    paint,
+    assignments: colourAssignments.filter((assignment) => assignment.paint.id === paint.id),
+  })).filter((group) => group.assignments.length > 0), [colourAssignments]);
+
+  function updatePaintNote(paintId: string, note: string) {
+    setPaintNotes((current) => ({ ...current, [paintId]: note }));
+  }
 
   function setLayerSmoothing(value: number) {
     setSmoothingLevels((current) => ({ ...current, [smoothingLayerIndex]: Math.max(0, Math.min(12, value)) }));
@@ -3054,6 +3103,7 @@ export function MapWorkspace() {
       model: { stackView: "three-dimensional", stackYaw: 0, stackPitch: 34, showTrueElevation: true, smoothingLevels: {} },
       assembly: { gridPitchMm: 100, dowelDiameterMm: 4, holeDiameterMm: 4.2, holeEdgeClearanceMm: 6 },
       layout: { sheetRules: { width: 1200, height: 600, thickness: 3, edgeMargin: 15, partSpacing: 8 }, sheetCount: 1, activeSheetIndex: 0, placements: [], rotationStepDeg: 5 },
+      colour: { paletteId: "molotow-terrain", snowCapMode: "automatic", paintNotes: {} },
       view: { workspaceView: "two-dimensional", assemblyLayerIndex: 0, smoothingLayerIndex: 0 },
     };
   }
@@ -3129,6 +3179,7 @@ export function MapWorkspace() {
       model: { stackView, stackYaw, stackPitch, showTrueElevation, smoothingLevels },
       assembly: { gridPitchMm, dowelDiameterMm, holeDiameterMm, holeEdgeClearanceMm },
       layout: { sheetRules, sheetCount, activeSheetIndex, placements: sheetPlacements, rotationStepDeg },
+      colour: { paletteId: "molotow-terrain", snowCapMode, paintNotes },
       view: { workspaceView, assemblyLayerIndex, smoothingLayerIndex },
     };
   }
@@ -3194,6 +3245,9 @@ export function MapWorkspace() {
     setActiveSheetIndex(Math.min(project.layout.activeSheetIndex, Math.max(0, project.layout.sheetCount - 1)));
     setSheetPlacements(project.layout.placements);
     setRotationStepDeg(project.layout.rotationStepDeg && project.layout.rotationStepDeg >= 1 ? project.layout.rotationStepDeg : 5);
+    const projectSnowCapMode = project.colour?.snowCapMode ?? "automatic";
+    setSnowCapMode(projectSnowCapMode);
+    setPaintNotes(project.colour?.paintNotes ?? {});
     setSelectedPlacementId(null);
     setSelectedViolationIndex(null);
     setWorkspaceView(project.elevation.filledLayerPreview ? project.view.workspaceView : "two-dimensional");
@@ -3206,7 +3260,7 @@ export function MapWorkspace() {
     window.localStorage.setItem(ACTIVE_PROJECT_KEY, project.id);
     if (project.selection) mapRef.current?.fitBounds([[project.selection.west, project.selection.south], [project.selection.east, project.selection.north]], { padding: 130, maxZoom: 12, duration: 600 });
     if (project.elevation.analysis?.preview_png) showElevationOverlay(project.elevation.analysis);
-    if (project.elevation.filledLayerPreview) showFilledLayerOverlay(project.elevation.filledLayerPreview, project.elevation.visibleLayerIndices.length ? project.elevation.visibleLayerIndices : project.elevation.filledLayerPreview.layers.map((layer) => layer.index));
+    if (project.elevation.filledLayerPreview) showFilledLayerOverlay(project.elevation.filledLayerPreview, project.elevation.visibleLayerIndices.length ? project.elevation.visibleLayerIndices : project.elevation.filledLayerPreview.layers.map((layer) => layer.index), projectSnowCapMode);
     setProjectStatus(`Opened ${project.name}`);
     projectReadyRef.current = true;
   }
@@ -3688,7 +3742,7 @@ export function MapWorkspace() {
             <button disabled={!filledLayerPreview} className={workspaceView === "smoothing" ? "active" : ""} onClick={() => setWorkspaceView("smoothing")}>Smoothing</button>
             <button disabled={!filledLayerPreview} className={workspaceView === "sheet-layout" ? "active" : ""} onClick={() => setWorkspaceView("sheet-layout")}>Sheet Layout</button>
             <button disabled>G-code</button>
-            <button disabled>Colour Chart</button>
+            <button disabled={!filledLayerPreview} className={workspaceView === "colour-chart" ? "active" : ""} onClick={() => setWorkspaceView("colour-chart")}>Colour Chart</button>
             <button disabled>BOM</button>
           </div>
           <div className="stage-pill"><span /> Stage 10 · Sheet Layout</div>
@@ -4014,7 +4068,7 @@ export function MapWorkspace() {
                     return (
                       <li key={layer.index} className={visible ? "visible" : ""}>
                         <button onClick={() => toggleFilledLayer(layer.index)} aria-pressed={visible}>
-                          <i style={{ backgroundColor: layerColour(layer.lower_elevation, layerMaximum) }} aria-hidden="true" />
+                          <i style={{ backgroundColor: paintForLayer(layer.index, filledLayerPreview.layers.length, snowCapMode).hex }} aria-hidden="true" />
                           <span>
                             <strong>Layer {layer.index + 1}</strong>
                             <small>{formatBoundaryValue(layer.lower_elevation)}–{formatBoundaryValue(layer.upper_elevation)} m · {layer.piece_count} piece{layer.piece_count === 1 ? "" : "s"}{layer.hole_count ? ` · ${layer.hole_count} hole${layer.hole_count === 1 ? "" : "s"}` : ""}</small>
@@ -4062,6 +4116,7 @@ export function MapWorkspace() {
               yaw={stackYaw}
               pitch={stackPitch}
               showTrueElevation={showTrueElevation}
+              snowCapMode={snowCapMode}
               onYawChange={setStackYaw}
               onViewChange={(nextYaw, nextPitch) => { setStackYaw(nextYaw); setStackPitch(nextPitch); setStackView("three-dimensional"); }}
             />
@@ -4109,6 +4164,7 @@ export function MapWorkspace() {
                 modelWidth={previewDimensions.width}
                 modelHeight={previewDimensions.height}
                 holeDiameter={holeDiameterMm}
+                snowCapMode={snowCapMode}
               />
               <div className="assembly-legend"><span><i className="grid-hole" /> Buried grid hole</span><span><i className="vent-hole" /> Peak-to-base vent</span><span><b>↑N</b> covered engraving</span></div>
             </div>
@@ -4259,6 +4315,67 @@ export function MapWorkspace() {
               </div>
             </aside>
           </div>
+        </section>
+      )}
+
+      {fabricationPreview && workspaceView === "colour-chart" && (
+        <section className="colour-chart-preview" aria-labelledby="colour-chart-heading">
+          <div className="colour-chart-heading">
+            <div>
+              <span className="section-label">PAINT PLAN · MOLOTOW PREMIUM</span>
+              <strong id="colour-chart-heading">{projectName || "Topomapper project"} colour chart</strong>
+              <p>{fabricationPreview.layers.length} physical layers · {materialThicknessMm.toFixed(1)} mm material · display swatches are buying guidance, not colour-critical proofs</p>
+            </div>
+            <div className="colour-chart-actions">
+              <label>Snow cap
+                <select value={snowCapMode} onChange={(event) => setSnowCapMode(event.target.value as SnowCapMode)}>
+                  <option value="automatic">Automatic at 20+ layers</option>
+                  <option value="on">White top layer</option>
+                  <option value="off">No snow</option>
+                </select>
+              </label>
+              <button onClick={() => window.print()}>Print colour chart</button>
+            </div>
+          </div>
+
+          <div className="paint-purchase-grid" aria-label="Paint colours to purchase">
+            {colourGroups.map(({ paint, assignments }) => {
+              const first = assignments[0].layer;
+              const last = assignments[assignments.length - 1].layer;
+              return (
+                <article className="paint-card" key={paint.id}>
+                  <div className="paint-swatch" style={{ backgroundColor: paint.hex }} aria-label={`${paint.name} colour swatch`} />
+                  <div className="paint-card-copy">
+                    <span>{paint.manufacturer}</span>
+                    <strong>{paint.code} · {paint.name}</strong>
+                    <p>Layers {assignments.map((assignment) => assignment.layer.index + 1).join(", ")} · {formatBoundaryValue(first.lower_elevation)}–{formatBoundaryValue(last.upper_elevation)} m</p>
+                    <label>Shop equivalent or notes
+                      <input value={paintNotes[paint.id] ?? ""} onChange={(event) => updatePaintNote(paint.id, event.target.value)} placeholder="Alternative brand / colour name" />
+                    </label>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+
+          <div className="colour-layer-table-wrap">
+            <table className="colour-layer-table">
+              <thead><tr><th>Layer</th><th>Elevation band</th><th>Paint swatch</th><th>Manufacturer colour</th><th>Shop equivalent / notes</th></tr></thead>
+              <tbody>
+                {[...colourAssignments].reverse().map(({ layer, paint }) => (
+                  <tr key={layer.index}>
+                    <td><strong>L{String(layer.index + 1).padStart(2, "0")}</strong></td>
+                    <td>{formatBoundaryValue(layer.lower_elevation)}–{formatBoundaryValue(layer.upper_elevation)} m</td>
+                    <td><i className="table-paint-swatch" style={{ backgroundColor: paint.hex }} /></td>
+                    <td><strong>{paint.code}</strong> {paint.name}<small>{paint.manufacturer}</small></td>
+                    <td>{paintNotes[paint.id]?.trim() || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <p className="colour-chart-footnote">Buy and test one physical sample before committing the whole model. MDF and plywood absorb paint differently; use the intended primer, clear coat and lighting when comparing colours.</p>
         </section>
       )}
 

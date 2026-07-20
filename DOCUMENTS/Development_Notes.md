@@ -483,3 +483,25 @@
 - Live progress identifies the shakedown phase, and the completed-attempt result
   reports the number of settled parts and their combined leftward movement.
 - Frontend production build and Python syntax checks pass successfully.
+
+### Stage 12 — Paint Colour Planning
+
+- Enabled the previously visible Colour Chart workspace after terrain layers
+  have been generated.
+- Added a six-colour Molotow Premium buying palette from the supplied local art
+  shop chart: moss green, evil olive, nature green middle, cocoa middle, stone
+  grey middle, and optional signal white snow.
+- Assigns the five terrain colours evenly by physical layer order. Automatic
+  snow remains off below 20 layers and assigns the highest layer to signal
+  white for models of 20 layers or more; Always and None overrides are provided.
+- Uses the same assignment in the map overlay, 3D stack, assembly preview,
+  layer list, and printable chart.
+- The buying cards list manufacturer, product number, paint name, layer numbers,
+  and elevation span. Editable alternative shop or brand names autosave inside
+  the named `.topomapper` project.
+- Added an A4 print layout with exact background-colour printing, a complete
+  layer-by-layer paint schedule, and a reminder to test physical paint on the
+  intended primed material.
+- Existing version-1 project files remain compatible and receive automatic
+  colour defaults when opened.
+- Frontend production build passes successfully.

@@ -476,4 +476,10 @@
 - Split the persistent completed-attempt verdict from the live per-part progress
   line. Starting the next background attempt no longer erases the explanation
   of why the previous trial was accepted or retained.
+- Added a clearance-safe gravity shakedown after every complete nesting trial.
+  Parts settle toward the left in 10 mm, 2 mm, then 0.5 mm increments, ordered
+  from the existing left-hand structure outward, before the full-resolution DRC
+  and compactness comparison decide whether to publish the trial.
+- Live progress identifies the shakedown phase, and the completed-attempt result
+  reports the number of settled parts and their combined leftward movement.
 - Frontend production build and Python syntax checks pass successfully.

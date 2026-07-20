@@ -150,6 +150,38 @@ function sampledContactAnchors(instance: Instance, part: Part, rotation: number,
   return anchors;
 }
 
+function compactTowardLeft(placements: Placement[], partMap: Map<string, Part>, rules: Rules) {
+  const compacted = placements.map((placement) => ({ ...placement }));
+  const movedIds = new Set<string>();
+  let distanceMm = 0;
+  const order = compacted.map((placement, index) => ({ placement, index }))
+    .sort((left, right) => left.placement.sheetIndex - right.placement.sheetIndex
+      || bounds(left.placement, partMap.get(left.placement.partId)!).left - bounds(right.placement, partMap.get(right.placement.partId)!).left
+      || (partMap.get(right.placement.partId)?.areaMm2 ?? 0) - (partMap.get(left.placement.partId)?.areaMm2 ?? 0));
+  for (const item of order) {
+    const index = item.index;
+    const part = partMap.get(compacted[index].partId);
+    if (!part) continue;
+    let current = compacted[index];
+    const startingX = current.x;
+    const others = compacted.filter((_, placementIndex) => placementIndex !== index);
+    for (const step of [10, 2, .5]) {
+      while (true) {
+        const candidate = { ...current, x: current.x - step };
+        if (!fits(candidate, others, partMap, rules)) break;
+        current = candidate;
+      }
+    }
+    compacted[index] = current;
+    const moved = startingX - current.x;
+    if (moved > .01) {
+      movedIds.add(current.id);
+      distanceMm += moved;
+    }
+  }
+  return { placements: compacted, movedParts: movedIds.size, distanceMm };
+}
+
 function attempt(jobValue: Job) {
   // The first pass deliberately uses each part's complete rectangular envelope.
   // It is conservative but guarantees a valid recovery layout even when the
@@ -215,15 +247,23 @@ function attempt(jobValue: Job) {
       recovery: jobValue.attempt === 0,
     });
   }
-  return placed;
+  postMessage({ type: "compacting", runId: jobValue.runId, attempt: jobValue.attempt + 1 });
+  return compactTowardLeft(placed, partMap, jobValue.rules);
 }
 
 function runNext() {
   if (!job) return;
   const current = job;
-  const candidate = attempt(current);
+  const result = attempt(current);
   current.attempt += 1;
-  postMessage({ type: "attempt", runId: current.runId, attempt: current.attempt, candidate });
+  postMessage({
+    type: "attempt",
+    runId: current.runId,
+    attempt: current.attempt,
+    candidate: result?.placements ?? null,
+    compactedParts: result?.movedParts ?? 0,
+    compactedDistanceMm: result?.distanceMm ?? 0,
+  });
 }
 
 self.onmessage = (event: MessageEvent) => {

@@ -3441,22 +3441,30 @@ export function MapWorkspace() {
     setOptimizerStatus(`Background search started with ${rotationStepDeg}° rotations. The current layout remains editable and responsive.`);
     setOptimizerProgress("Building the first complete trial…");
     worker.onmessage = (event: MessageEvent<
-      | { type: "attempt"; runId: number; attempt: number; candidate: SheetPlacement[] | null }
+      | { type: "attempt"; runId: number; attempt: number; candidate: SheetPlacement[] | null; compactedParts: number; compactedDistanceMm: number }
       | { type: "progress"; runId: number; attempt: number; placed: number; total: number; recovery: boolean }
+      | { type: "compacting"; runId: number; attempt: number }
     >) => {
       if (event.data.runId !== runId || optimizerWorkerRef.current !== worker) return;
+      if (event.data.type === "compacting") {
+        setOptimizerProgress(`Attempt ${event.data.attempt}: shaking the completed layout toward the left edge…`);
+        return;
+      }
       if (event.data.type === "progress") {
         setOptimizerProgress(`${event.data.recovery ? "Building a safe recovery layout" : `Attempt ${event.data.attempt}`}: placed ${event.data.placed} of ${event.data.total} parts in the background…`);
         return;
       }
       if (event.data.type !== "attempt") return;
-      const { candidate, attempt } = event.data;
+      const { candidate, attempt, compactedParts, compactedDistanceMm } = event.data;
+      const compactionSummary = compactedParts
+        ? ` Leftward shakedown moved ${compactedParts} part${compactedParts === 1 ? "" : "s"} by ${Math.round(compactedDistanceMm)} mm in total.`
+        : " Leftward shakedown found no safe movement.";
       try {
         if (candidate) {
           const fitness = layoutFitness(candidate, partMap, sheetRules);
           const preciseViolations = checkLayoutRules(candidate, layoutParts, sheetRules);
           if (preciseViolations.length) {
-            setOptimizerStatus(`Attempt ${attempt} moved and rotated parts, but ${preciseViolations.length} full-resolution clearance check${preciseViolations.length === 1 ? "" : "s"} failed; continuing safely…`);
+            setOptimizerStatus(`Attempt ${attempt} moved and rotated parts, but ${preciseViolations.length} full-resolution clearance check${preciseViolations.length === 1 ? "" : "s"} failed; continuing safely…${compactionSummary}`);
           } else if (fitness < bestFitness) {
               best = candidate;
               bestFitness = fitness;
@@ -3468,7 +3476,7 @@ export function MapWorkspace() {
               setSelectedViolationIndex(null);
               const rotated = candidate.filter((placement) => Math.abs(placement.rotation % 360) > .01);
               const examples = rotated.slice(0, 4).map((placement) => `${placement.partId} ${placement.rotation}°`).join(", ");
-              setOptimizerStatus(`Improved after ${attempt} attempt${attempt === 1 ? "" : "s"}: ${usedSheets} sheet${usedSheets === 1 ? "" : "s"}, ${rotated.length} rotated part${rotated.length === 1 ? "" : "s"}${examples ? ` (${examples}${rotated.length > 4 ? ", …" : ""})` : ""}. Background search continues until Stop…`);
+              setOptimizerStatus(`Improved after ${attempt} attempt${attempt === 1 ? "" : "s"}: ${usedSheets} sheet${usedSheets === 1 ? "" : "s"}, ${rotated.length} rotated part${rotated.length === 1 ? "" : "s"}${examples ? ` (${examples}${rotated.length > 4 ? ", …" : ""})` : ""}.${compactionSummary} Background search continues until Stop…`);
           } else {
             const trialSheets = Math.max(...candidate.map((placement) => placement.sheetIndex)) + 1;
             const bestSheets = best?.length ? Math.max(...best.map((placement) => placement.sheetIndex)) + 1 : sheetCount;
@@ -3478,7 +3486,7 @@ export function MapWorkspace() {
             const difference = trialSheets === bestSheets && bestCompactness > 0
               ? Math.max(0, (trialCompactness / bestCompactness - 1) * 100)
               : null;
-            setOptimizerStatus(`Attempt ${attempt} produced a valid ${trialSheets}-sheet trial with ${rotated} rotated part${rotated === 1 ? "" : "s"}, but it was ${difference === null ? "not better than" : `${difference.toFixed(1)}% less compact than`} the current best; continuing…`);
+            setOptimizerStatus(`Attempt ${attempt} produced a valid ${trialSheets}-sheet trial with ${rotated} rotated part${rotated === 1 ? "" : "s"}, but it was ${difference === null ? "not better than" : `${difference.toFixed(1)}% less compact than`} the current best; continuing…${compactionSummary}`);
           }
         } else if (attempt % 5 === 0) setOptimizerStatus(`${attempt} attempts checked. Some parts are difficult to place; continuing…`);
       } finally {

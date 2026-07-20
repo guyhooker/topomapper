@@ -140,6 +140,12 @@
   bounded preview coastlines, then pass the original full-resolution DRC before
   any result is published. This prevents fine-rotation searches from exhausting
   the browser while preserving exact final clearance and sheet-edge checks.
+- A second real-model test showed that even bounded passes could monopolise and
+  crash the page while running on the interface thread. Continuous nesting now
+  runs in a dedicated background Web Worker. It sends at most one candidate at
+  a time to the interface, waits for acknowledgement, and can be terminated
+  immediately. The main application remains responsible for full-resolution
+  DRC before accepting an improvement.
 - Rasterio was installed successfully by the first normal Terminal start. The
   protected Codex environment could not download it independently, so later
   regression checks reused Topomapper's isolated project environment.

@@ -2160,15 +2160,19 @@ export function MapWorkspace() {
   const suppressLayoutDirtyRef = useRef(false);
   const projectReadyRef = useRef(false);
   const projectAutosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const optimizerStopRef = useRef(false);
+  const optimizerWorkerRef = useRef<Worker | null>(null);
 
   useEffect(() => {
     setSheetViewCenter({ x: sheetRules.width / 2, y: sheetRules.height / 2 });
     setSheetZoom(1);
   }, [sheetRules.width, sheetRules.height]);
-  useEffect(() => () => { optimizerStopRef.current = true; }, []);
+  useEffect(() => () => { optimizerWorkerRef.current?.terminate(); }, []);
   useEffect(() => {
-    optimizerStopRef.current = true;
+    if (!optimizerWorkerRef.current) return;
+    optimizerWorkerRef.current.terminate();
+    optimizerWorkerRef.current = null;
+    setOptimizerRunning(false);
+    setOptimizerStatus("Search stopped because the project or nesting rules changed.");
   }, [projectId, sheetRules.width, sheetRules.height, sheetRules.edgeMargin, sheetRules.partSpacing, rotationStepDeg, smoothingLevels]);
   useEffect(() => {
     const saved = window.localStorage.getItem(SHEET_LAYOUT_KEY);
@@ -3405,7 +3409,7 @@ export function MapWorkspace() {
     if (unplaced.length) setActiveSheetIndex(working[working.length - 1].sheetIndex);
   }
 
-  async function startNestingOptimiser() {
+  function startNestingOptimiser() {
     if (optimizerRunning || !layoutParts.length) return;
     const placedOriginals = new Set(sheetPlacements.map((placement) => placement.partId));
     const missing = layoutParts.filter((part) => !placedOriginals.has(part.id)).map((part) => ({ id: nextPlacementId(part.id), partId: part.id, preferredRotation: 0 }));
@@ -3416,48 +3420,66 @@ export function MapWorkspace() {
     const partMap = new Map(layoutParts.map((part) => [part.id, part]));
     let best = missing.length || layoutViolations.length ? null : [...sheetPlacements];
     let bestFitness = best ? layoutFitness(best, partMap, sheetRules) : Number.POSITIVE_INFINITY;
-    let attempt = 0;
-    optimizerStopRef.current = false;
+    const runId = Date.now();
+    const worker = new Worker(new URL("../workers/nesting.worker.ts", import.meta.url), { type: "module" });
+    optimizerWorkerRef.current = worker;
     setOptimizerRunning(true);
-    setOptimizerStatus(`Searching with ${rotationStepDeg}° rotations. The current layout remains the fallback.`);
-    try {
-      while (!optimizerStopRef.current) {
-        const candidate = greedyNestingAttempt(instances, layoutParts, sheetRules, rotationStepDeg, attempt);
-        attempt += 1;
+    setOptimizerStatus(`Background search started with ${rotationStepDeg}° rotations. The current layout remains editable and responsive.`);
+    worker.onmessage = (event: MessageEvent<{ type: "attempt"; runId: number; attempt: number; candidate: SheetPlacement[] | null }>) => {
+      if (event.data.type !== "attempt" || event.data.runId !== runId || optimizerWorkerRef.current !== worker) return;
+      const { candidate, attempt } = event.data;
+      try {
         if (candidate) {
           const fitness = layoutFitness(candidate, partMap, sheetRules);
           if (fitness < bestFitness) {
             const preciseViolations = checkLayoutRules(candidate, layoutParts, sheetRules);
             if (preciseViolations.length) {
               if (attempt % 3 === 0) setOptimizerStatus(`${attempt} attempts checked. A tighter preview failed the full-resolution DRC; continuing safely…`);
-              await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
-              continue;
+            } else {
+              best = candidate;
+              bestFitness = fitness;
+              const usedSheets = Math.max(...candidate.map((placement) => placement.sheetIndex)) + 1;
+              setSheetPlacements(candidate);
+              setSheetCount(usedSheets);
+              setActiveSheetIndex(0);
+              setSelectedPlacementId(null);
+              setSelectedViolationIndex(null);
+              setOptimizerStatus(`Improved after ${attempt} attempt${attempt === 1 ? "" : "s"}: ${usedSheets} sheet${usedSheets === 1 ? "" : "s"}. Background search continues until Stop…`);
             }
-            best = candidate;
-            bestFitness = fitness;
-            const usedSheets = Math.max(...candidate.map((placement) => placement.sheetIndex)) + 1;
-            setSheetPlacements(candidate);
-            setSheetCount(usedSheets);
-            setActiveSheetIndex(0);
-            setSelectedPlacementId(null);
-            setSelectedViolationIndex(null);
-            setOptimizerStatus(`Improved after ${attempt} attempt${attempt === 1 ? "" : "s"}: ${usedSheets} sheet${usedSheets === 1 ? "" : "s"}. Continuing until Stop…`);
           } else if (attempt % 5 === 0) {
             const sheets = best?.length ? Math.max(...best.map((placement) => placement.sheetIndex)) + 1 : sheetCount;
             setOptimizerStatus(`${attempt} attempts checked. Best remains ${sheets} sheet${sheets === 1 ? "" : "s"}; continuing…`);
           }
         } else if (attempt % 5 === 0) setOptimizerStatus(`${attempt} attempts checked. Some parts are difficult to place; continuing…`);
-        await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+      } finally {
+        if (optimizerWorkerRef.current === worker) worker.postMessage({ type: "continue", runId });
       }
-    } finally {
+    };
+    worker.onerror = (event) => {
+      if (optimizerWorkerRef.current !== worker) return;
+      worker.terminate();
+      optimizerWorkerRef.current = null;
       setOptimizerRunning(false);
-      setOptimizerStatus((current) => `${current.replace(/(?:; continuing…| Continuing until Stop…|; continuing until Stop…)?$/, "")} Search stopped; the best result is editable.`);
-    }
+      setOptimizerStatus(`The background optimiser stopped unexpectedly${event.message ? `: ${event.message}` : "."} The best completed layout remains editable.`);
+    };
+    worker.postMessage({
+      type: "start",
+      runId,
+      instances,
+      parts: layoutParts.map((part) => {
+        const simplified = simplifyLayoutPartForSearch(part, 48);
+        return { id: simplified.id, width: simplified.width, height: simplified.height, areaMm2: simplified.areaMm2, rings: simplified.rings };
+      }),
+      rules: sheetRules,
+      rotationStep: rotationStepDeg,
+    });
   }
 
   function stopNestingOptimiser() {
-    optimizerStopRef.current = true;
-    setOptimizerStatus("Stopping after the current placement attempt…");
+    optimizerWorkerRef.current?.terminate();
+    optimizerWorkerRef.current = null;
+    setOptimizerRunning(false);
+    setOptimizerStatus("Background search stopped; the best completed result remains editable.");
   }
 
   function sheetSvgExport(sheetIndex: number) {

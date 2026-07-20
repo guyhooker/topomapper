@@ -904,8 +904,38 @@ function layoutFitness(placements: SheetPlacement[], partMap: Map<string, Layout
   return sheets.length * 1e12 + envelopeArea / sheetArea * 1e6 + usedWidth / Math.max(1, rules.width) * 1e3;
 }
 
+function simplifyLayoutPartForSearch(part: LayoutPart, maximumPoints = 64): LayoutPart {
+  return {
+    ...part,
+    rings: part.rings.map((ring) => {
+      if (ring.length <= maximumPoints) return ring;
+      const step = Math.max(1, Math.ceil(ring.length / maximumPoints));
+      const required = new Set([0, ring.length - 1]);
+      let minimumX = 0;
+      let maximumX = 0;
+      let minimumY = 0;
+      let maximumY = 0;
+      ring.forEach((point, index) => {
+        if (point.x < ring[minimumX].x) minimumX = index;
+        if (point.x > ring[maximumX].x) maximumX = index;
+        if (point.y < ring[minimumY].y) minimumY = index;
+        if (point.y > ring[maximumY].y) maximumY = index;
+        if (index % step === 0) required.add(index);
+      });
+      required.add(minimumX);
+      required.add(maximumX);
+      required.add(minimumY);
+      required.add(maximumY);
+      return [...required].sort((left, right) => left - right).map((index) => ring[index]);
+    }),
+  };
+}
+
 function greedyNestingAttempt(instances: { id: string; partId: string; preferredRotation: number }[], parts: LayoutPart[], rules: SheetRules, rotationStep: number, attempt: number) {
-  const partMap = new Map(parts.map((part) => [part.id, part]));
+  // Search with a lightweight outline so a detailed coastline cannot monopolise
+  // or crash the browser. Every proposed improvement is checked against the
+  // original full-resolution rings before it is published.
+  const partMap = new Map(parts.map((part) => simplifyLayoutPartForSearch(part)).map((part) => [part.id, part]));
   const randomised = instances.map((instance) => ({
     instance,
     sortWeight: (partMap.get(instance.partId)?.areaMm2 ?? 0) * (attempt === 0 ? 1 : .82 + Math.random() * .36),
@@ -3397,6 +3427,12 @@ export function MapWorkspace() {
         if (candidate) {
           const fitness = layoutFitness(candidate, partMap, sheetRules);
           if (fitness < bestFitness) {
+            const preciseViolations = checkLayoutRules(candidate, layoutParts, sheetRules);
+            if (preciseViolations.length) {
+              if (attempt % 3 === 0) setOptimizerStatus(`${attempt} attempts checked. A tighter preview failed the full-resolution DRC; continuing safely…`);
+              await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+              continue;
+            }
             best = candidate;
             bestFitness = fitness;
             const usedSheets = Math.max(...candidate.map((placement) => placement.sheetIndex)) + 1;

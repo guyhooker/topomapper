@@ -136,6 +136,10 @@
 - Linked the interface and documentation to LINZ's official elevation access
   guidance.
 - Frontend production build and Python syntax checks pass successfully.
+- Hotfix after the first real-model optimiser test: search candidates now use
+  bounded preview coastlines, then pass the original full-resolution DRC before
+  any result is published. This prevents fine-rotation searches from exhausting
+  the browser while preserving exact final clearance and sheet-edge checks.
 - Rasterio was installed successfully by the first normal Terminal start. The
   protected Codex environment could not download it independently, so later
   regression checks reused Topomapper's isolated project environment.

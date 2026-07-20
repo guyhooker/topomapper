@@ -532,6 +532,7 @@ button { color: inherit; }
 .sheet-rules-toolbar > button:disabled { opacity: .35; cursor: default; }
 .optimizer-status { margin: 5px 2px 0; color: var(--muted); font-size: 8px; }
 .optimizer-status.running { color: #1d6f82; font-weight: 700; }
+.optimizer-progress { margin: 2px 2px 0; color: var(--muted); font-size: 8px; }
 .sheet-rules-toolbar .layout-import-button { display: flex; align-items: center; height: 28px; padding: 0 8px; border: 1px solid rgba(33,79,61,.2); border-radius: 6px; background: #fff; color: var(--forest); font-size: 8px; font-weight: 750; text-transform: none; cursor: pointer; }
 .sheet-rules-toolbar .layout-import-button input { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 .sheet-tabs { display: flex; gap: 4px; margin-top: 6px; overflow-x: auto; }

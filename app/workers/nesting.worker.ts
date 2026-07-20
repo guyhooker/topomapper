@@ -192,7 +192,7 @@ function attempt(jobValue: Job) {
         for (const candidate of candidates) {
         if (!fits(candidate, placed, partMap, jobValue.rules)) continue;
         const outline = bounds(candidate, part);
-        const score = sheetIndex * 1e10 + outline.bottom * 1e5 + outline.right;
+        const score = sheetIndex * 1e10 + outline.right * 1e5 + outline.bottom;
         if (score < bestScore) { best = candidate; bestScore = score; }
         }
       }

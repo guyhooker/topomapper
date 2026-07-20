@@ -470,4 +470,10 @@
   valid trial that is less compact than the saved layout, including its sheet
   count and number of rotated parts. A strong manual layout therefore remains
   unchanged for an explicit reason rather than appearing inactive.
+- Changed the incremental nesting preference from minimum height to minimum
+  used width, so a new trial fills the stock from the left edge toward the
+  right rather than forming a shallow band across the top.
+- Split the persistent completed-attempt verdict from the live per-part progress
+  line. Starting the next background attempt no longer erases the explanation
+  of why the previous trial was accepted or retained.
 - Frontend production build and Python syntax checks pass successfully.

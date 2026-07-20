@@ -988,7 +988,7 @@ function greedyNestingAttempt(instances: { id: string; partId: string; preferred
           const candidate = placementAtOutlineOrigin(instance, part, sheetIndex, anchor.left, anchor.top, rotation);
           if (!candidateFitsExact(candidate, placed, partMap, rules)) continue;
           const bounds = placedPartBounds(candidate, part);
-          const score = sheetIndex * 1e10 + bounds.bottom * 1e5 + bounds.right;
+          const score = sheetIndex * 1e10 + bounds.right * 1e5 + bounds.bottom;
           if (score < bestScore) { best = candidate; bestScore = score; }
         }
       }
@@ -2160,6 +2160,7 @@ export function MapWorkspace() {
   const [rotationStepDeg, setRotationStepDeg] = useState(5);
   const [optimizerRunning, setOptimizerRunning] = useState(false);
   const [optimizerStatus, setOptimizerStatus] = useState("Ready to search for a tighter polygon-aware layout.");
+  const [optimizerProgress, setOptimizerProgress] = useState("");
   const [layoutSaveStatus, setLayoutSaveStatus] = useState("Layout changes have not been saved locally yet.");
   const [projectId, setProjectId] = useState<string | null>(null);
   const [projectName, setProjectName] = useState("");
@@ -2184,6 +2185,7 @@ export function MapWorkspace() {
     optimizerWorkerRef.current.terminate();
     optimizerWorkerRef.current = null;
     setOptimizerRunning(false);
+    setOptimizerProgress("");
     setOptimizerStatus("Search stopped because the project or nesting rules changed.");
   }, [projectId, sheetRules.width, sheetRules.height, sheetRules.edgeMargin, sheetRules.partSpacing, rotationStepDeg, smoothingLevels]);
   useEffect(() => {
@@ -3437,13 +3439,14 @@ export function MapWorkspace() {
     optimizerWorkerRef.current = worker;
     setOptimizerRunning(true);
     setOptimizerStatus(`Background search started with ${rotationStepDeg}° rotations. The current layout remains editable and responsive.`);
+    setOptimizerProgress("Building the first complete trial…");
     worker.onmessage = (event: MessageEvent<
       | { type: "attempt"; runId: number; attempt: number; candidate: SheetPlacement[] | null }
       | { type: "progress"; runId: number; attempt: number; placed: number; total: number; recovery: boolean }
     >) => {
       if (event.data.runId !== runId || optimizerWorkerRef.current !== worker) return;
       if (event.data.type === "progress") {
-        setOptimizerStatus(`${event.data.recovery ? "Building a safe recovery layout" : `Attempt ${event.data.attempt}`}: placed ${event.data.placed} of ${event.data.total} parts in the background…`);
+        setOptimizerProgress(`${event.data.recovery ? "Building a safe recovery layout" : `Attempt ${event.data.attempt}`}: placed ${event.data.placed} of ${event.data.total} parts in the background…`);
         return;
       }
       if (event.data.type !== "attempt") return;
@@ -3479,7 +3482,10 @@ export function MapWorkspace() {
           }
         } else if (attempt % 5 === 0) setOptimizerStatus(`${attempt} attempts checked. Some parts are difficult to place; continuing…`);
       } finally {
-        if (optimizerWorkerRef.current === worker) worker.postMessage({ type: "continue", runId });
+        if (optimizerWorkerRef.current === worker) {
+          setOptimizerProgress(`Starting attempt ${attempt + 1}…`);
+          worker.postMessage({ type: "continue", runId });
+        }
       }
     };
     worker.onerror = (event) => {
@@ -3487,6 +3493,7 @@ export function MapWorkspace() {
       worker.terminate();
       optimizerWorkerRef.current = null;
       setOptimizerRunning(false);
+      setOptimizerProgress("");
       setOptimizerStatus(`The background optimiser stopped unexpectedly${event.message ? `: ${event.message}` : "."} The best completed layout remains editable.`);
     };
     worker.postMessage({
@@ -3506,6 +3513,7 @@ export function MapWorkspace() {
     optimizerWorkerRef.current?.terminate();
     optimizerWorkerRef.current = null;
     setOptimizerRunning(false);
+    setOptimizerProgress("");
     setOptimizerStatus("Background search stopped; the best completed result remains editable.");
   }
 
@@ -4189,6 +4197,7 @@ export function MapWorkspace() {
             <button disabled={!optimizerRunning} onClick={stopNestingOptimiser}>Stop</button>
           </div>
           <p className={`optimizer-status ${optimizerRunning ? "running" : ""}`} role="status">{optimizerStatus}</p>
+          {optimizerProgress && <p className="optimizer-progress" aria-live="polite">{optimizerProgress}</p>}
           <div className="sheet-tabs" aria-label="Material sheets">
             {Array.from({ length: sheetCount }, (_, index) => <button key={index} className={index === activeSheetIndex ? "active" : ""} onClick={() => { setActiveSheetIndex(index); setSelectedPlacementId(null); setSheetZoom(1); setSheetViewCenter({ x: sheetRules.width / 2, y: sheetRules.height / 2 }); }}>Sheet {index + 1}<small>{sheetPlacements.filter((placement) => placement.sheetIndex === index).length} parts</small></button>)}
             <div className="sheet-view-controls"><span>View</span>{[1, 2, 4, 8].map((value) => <button key={value} className={sheetZoom === value ? "active" : ""} onClick={() => setSheetZoom(value)}>{value}×</button>)}<button onClick={() => { setSheetZoom(1); setSheetViewCenter({ x: sheetRules.width / 2, y: sheetRules.height / 2 }); }}>Fit</button><button disabled={!selectedPlacement} onClick={() => selectedPlacement && focusSheetPlacement(selectedPlacement)}>Focus selected</button><button disabled={!selectedPlacement} onClick={() => { setSelectedPlacementId(null); setSelectedViolationIndex(null); }}>Deselect</button></div>

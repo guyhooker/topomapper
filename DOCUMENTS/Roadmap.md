@@ -315,6 +315,8 @@ before any project sheet is machined.
 
 ## Stage 14 — Coast and Bathymetry
 
+**Status: In progress — inland water polygon cutouts implemented**
+
 ### Adds
 
 - Separate land and subsea boundary editors.

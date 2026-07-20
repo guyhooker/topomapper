@@ -104,6 +104,7 @@ type FilledLayerPreview = {
   selection: SelectionBounds;
   boundaries: number[];
   grid: { width: number; height: number };
+  water?: { source_filenames: string[]; polygon_count: number; cell_count: number };
   layers: FilledLayer[];
   feature_collection: { type: "FeatureCollection"; features: FilledLayerFeature[] };
 };
@@ -191,6 +192,7 @@ type TopomapperProject = {
   query: string;
   elevation: {
     sourceFilenames: string[];
+    waterSourceFilenames?: string[];
     analysis: ElevationAnalysis | null;
     filledLayerPreview: FilledLayerPreview | null;
     visibleLayerIndices: number[];
@@ -2151,9 +2153,12 @@ export function MapWorkspace() {
   const [selectionStatus, setSelectionStatus] = useState("Find a place, then draw the area you want to model.");
   const [processorStatus, setProcessorStatus] = useState<ProcessorStatus>("checking");
   const [elevationFiles, setElevationFiles] = useState<File[]>([]);
+  const [waterFiles, setWaterFiles] = useState<File[]>([]);
+  const [waterSourceFilenames, setWaterSourceFilenames] = useState<string[]>([]);
   const [analysing, setAnalysing] = useState(false);
   const [analysis, setAnalysis] = useState<ElevationAnalysis | null>(null);
   const [analysisStatus, setAnalysisStatus] = useState("Choose a LINZ elevation GeoTIFF for this area.");
+  const [waterStatus, setWaterStatus] = useState("Optional: add cropped lake or river polygons before generating layers.");
   const [layerBoundaries, setLayerBoundaries] = useState<LayerBoundary[]>([]);
   const [layerDistribution, setLayerDistribution] = useState<LayerDistribution>("log");
   const [layerCount, setLayerCount] = useState(DEFAULT_LAYER_COUNT);
@@ -2275,7 +2280,7 @@ export function MapWorkspace() {
     setProjectStatus("Changes waiting to autosave…");
     projectAutosaveTimerRef.current = setTimeout(() => { void saveCurrentProject(true); }, 1500);
     return () => { if (projectAutosaveTimerRef.current) clearTimeout(projectAutosaveTimerRef.current); };
-  }, [projectId, projectName, selection, query, analysis, filledLayerPreview, visibleLayerIndices, outputFormat, outputOrientation, customWidthMm, customHeightMm, materialThicknessMm, layerDistribution, layerCount, layerBoundaries, stackView, stackYaw, stackPitch, showTrueElevation, smoothingLevels, gridPitchMm, dowelDiameterMm, holeDiameterMm, holeEdgeClearanceMm, sheetRules, sheetCount, activeSheetIndex, sheetPlacements, rotationStepDeg, snowCapMode, paintNotes, workspaceView, assemblyLayerIndex, smoothingLayerIndex]);
+  }, [projectId, projectName, selection, query, analysis, filledLayerPreview, visibleLayerIndices, waterSourceFilenames, outputFormat, outputOrientation, customWidthMm, customHeightMm, materialThicknessMm, layerDistribution, layerCount, layerBoundaries, stackView, stackYaw, stackPitch, showTrueElevation, smoothingLevels, gridPitchMm, dowelDiameterMm, holeDiameterMm, holeEdgeClearanceMm, sheetRules, sheetCount, activeSheetIndex, sheetPlacements, rotationStepDeg, snowCapMode, paintNotes, workspaceView, assemblyLayerIndex, smoothingLayerIndex]);
   const chosenOutput = outputDimensions(outputFormat, outputOrientation, customWidthMm, customHeightMm);
   aspectRatioRef.current = chosenOutput ? chosenOutput.width / chosenOutput.height : null;
 
@@ -2900,6 +2905,15 @@ export function MapWorkspace() {
       : `${files.length} adjoining GeoTIFF tiles are ready to combine.`);
   }
 
+  function chooseWaterFiles(files: File[]) {
+    setWaterFiles(files);
+    setWaterSourceFilenames(files.map((file) => file.name));
+    if (filledLayerPreview) invalidateFilledLayerPreview("The water boundaries changed. Regenerate the 2D preview to cut the new holes.");
+    setWaterStatus(files.length
+      ? `${files.length} water polygon file${files.length === 1 ? " is" : "s are"} ready. Every retained polygon will be cut through the affected terrain layers.`
+      : "No water boundaries selected. Layer generation will use terrain elevation only.");
+  }
+
   async function retryProcessor() {
     setProcessorStatus("checking");
     try {
@@ -2957,6 +2971,7 @@ export function MapWorkspace() {
     setLayerGenerationStatus(`Generating ${layerBoundaries.length - 1} cumulative polygon layers…`);
     const form = new FormData();
     elevationFiles.forEach((file) => form.append("geotiff", file));
+    waterFiles.forEach((file) => form.append("water", file));
     form.append("bounds", JSON.stringify(selection));
     form.append("boundaries", JSON.stringify(layerBoundaries.map(parseBoundary)));
 
@@ -2976,7 +2991,11 @@ export function MapWorkspace() {
       showFilledLayerOverlay(payload, visible);
       const pieces = payload.layers.reduce((total, layer) => total + layer.piece_count, 0);
       const holes = payload.layers.reduce((total, layer) => total + layer.hole_count, 0);
-      setLayerGenerationStatus(`${payload.layers.length} filled layers generated: ${pieces} polygon piece${pieces === 1 ? "" : "s"}${holes ? ` with ${holes} preserved hole${holes === 1 ? "" : "s"}` : ""}. Choose 3D Model or Assembly in the header.`);
+      const waterSummary = payload.water?.polygon_count
+        ? ` ${payload.water.polygon_count} imported water polygon${payload.water.polygon_count === 1 ? "" : "s"} removed from the terrain.`
+        : "";
+      setLayerGenerationStatus(`${payload.layers.length} filled layers generated: ${pieces} polygon piece${pieces === 1 ? "" : "s"}${holes ? ` with ${holes} preserved hole${holes === 1 ? "" : "s"}` : ""}.${waterSummary} Choose 3D Model or Assembly in the header.`);
+      if (payload.water?.polygon_count) setWaterStatus(`${payload.water.polygon_count} lake or river polygon${payload.water.polygon_count === 1 ? "" : "s"} applied as cut-through water.`);
     } catch (error) {
       setLayerGenerationStatus(error instanceof Error ? error.message : "The filled layers could not be generated.");
     } finally {
@@ -3098,7 +3117,7 @@ export function MapWorkspace() {
       modifiedAt: now,
       selection: null,
       query: "",
-      elevation: { sourceFilenames: [], analysis: null, filledLayerPreview: null, visibleLayerIndices: [] },
+      elevation: { sourceFilenames: [], waterSourceFilenames: [], analysis: null, filledLayerPreview: null, visibleLayerIndices: [] },
       output: { format: "free", orientation: "landscape", customWidthMm: 600, customHeightMm: 400, materialThicknessMm: 6 },
       layers: { distribution: "log", count: DEFAULT_LAYER_COUNT, boundaries: [] },
       model: { stackView: "three-dimensional", stackYaw: 0, stackPitch: 34, showTrueElevation: true, smoothingLevels: {} },
@@ -3171,6 +3190,7 @@ export function MapWorkspace() {
       query,
       elevation: {
         sourceFilenames: elevationFiles.length ? elevationFiles.map((file) => file.name) : (analysis?.datasets.map((dataset) => dataset.filename) ?? []),
+        waterSourceFilenames,
         analysis,
         filledLayerPreview,
         visibleLayerIndices,
@@ -3215,6 +3235,11 @@ export function MapWorkspace() {
     setSearchMessage(project.query ? `Project location: ${project.query}` : "Search for a New Zealand place");
     setSelectionStatus(project.selection ? "The project's selected area has been restored." : "Find a place, then draw the area you want to model.");
     setElevationFiles([]);
+    setWaterFiles([]);
+    setWaterSourceFilenames(project.elevation.waterSourceFilenames ?? project.elevation.filledLayerPreview?.water?.source_filenames ?? []);
+    setWaterStatus((project.elevation.waterSourceFilenames?.length ?? project.elevation.filledLayerPreview?.water?.source_filenames.length ?? 0)
+      ? "Saved water-cut geometry restored. Reload the named water files only if you regenerate the layers."
+      : "Optional: add cropped lake or river polygons before generating layers.");
     analysisRef.current = project.elevation.analysis;
     setAnalysis(project.elevation.analysis);
     setAnalysisStatus(project.elevation.analysis
@@ -3797,7 +3822,26 @@ export function MapWorkspace() {
             <button disabled={!filledLayerPreview} className={workspaceView === "colour-chart" ? "active" : ""} onClick={() => setWorkspaceView("colour-chart")}>Colour Chart</button>
             <button disabled>BOM</button>
           </div>
-          <div className="stage-pill"><span /> Stage 10 · Sheet Layout</div>
+          <details className="output-menu">
+            <summary>Output</summary>
+            <div className="output-menu-panel">
+              {workspaceView === "colour-chart" && (
+                <>
+                  <label>Snow cap<select value={snowCapMode} onChange={(event) => setSnowCapMode(event.target.value as SnowCapMode)}><option value="automatic">Automatic at 20+ layers</option><option value="on">White top layer</option><option value="off">No snow</option></select></label>
+                  <button onClick={() => void downloadColourChartPdf()}>Download colour chart PDF</button>
+                  <button onClick={() => window.print()}>Print colour chart</button>
+                </>
+              )}
+              {workspaceView === "sheet-layout" && (
+                <><button onClick={downloadActiveSheetSvg}>Download active sheet SVG</button><button onClick={downloadAllSheetSvgs}>Download all sheet SVGs</button><button onClick={() => void downloadLayoutGuidePdf()}>Download layout guide PDF</button></>
+              )}
+              {workspaceView === "manufacturing" && (
+                <><button onClick={downloadSelectedLayerSvg}>Download selected layer SVG</button><button onClick={downloadManufacturingPackage}>Download all manufacturing SVGs</button></>
+              )}
+              {!(["colour-chart", "sheet-layout", "manufacturing"] as WorkspaceView[]).includes(workspaceView) && <p>Print and download options for this view will appear here when available.</p>}
+            </div>
+          </details>
+          <div className="stage-pill"><span /> Stage 14 · Water Cutouts</div>
         </div>
       </header>
 
@@ -3970,6 +4014,17 @@ export function MapWorkspace() {
           >
             Open LINZ elevation downloads <span aria-hidden="true">↗</span>
           </a>
+
+          <div className="water-import">
+            <span className="section-label">OPTIONAL · WATER CUTOUTS</span>
+            <label className="file-picker">
+              <input type="file" accept=".geojson,.json,.kml,application/geo+json,application/vnd.google-earth.kml+xml" multiple onChange={(event) => chooseWaterFiles(Array.from(event.target.files ?? []))} />
+              <span aria-hidden="true">＋</span>
+              <span><strong>{waterFiles.length ? "Change water boundaries" : "Choose lake / river polygons"}</strong><small>{waterFiles.length ? waterFiles.map((file) => file.name).join(", ") : waterSourceFilenames.length ? `Reload ${waterSourceFilenames.join(", ")} to regenerate` : "Cropped LINZ GeoJSON or KML polygons"}</small></span>
+            </label>
+            <p className="water-status" role="status">{waterStatus}</p>
+            <div className="water-source-links"><a href="https://data.linz.govt.nz/layer/50293-nz-lake-polygons-topo-150k/" target="_blank" rel="noreferrer">LINZ lakes ↗</a><a href="https://data.linz.govt.nz/layer/50328-nz-river-polygons-topo-150k/" target="_blank" rel="noreferrer">LINZ river polygons ↗</a></div>
+          </div>
 
           {analysis && (
             <div className="analysis-results">
@@ -4377,17 +4432,6 @@ export function MapWorkspace() {
               <span className="section-label">PAINT PLAN · MOLOTOW PREMIUM</span>
               <strong id="colour-chart-heading">{projectName || "Topomapper project"} colour chart</strong>
               <p>{fabricationPreview.layers.length} physical layers · {materialThicknessMm.toFixed(1)} mm material · display swatches are buying guidance, not colour-critical proofs</p>
-            </div>
-            <div className="colour-chart-actions">
-              <label>Snow cap
-                <select value={snowCapMode} onChange={(event) => setSnowCapMode(event.target.value as SnowCapMode)}>
-                  <option value="automatic">Automatic at 20+ layers</option>
-                  <option value="on">White top layer</option>
-                  <option value="off">No snow</option>
-                </select>
-              </label>
-              <button onClick={() => void downloadColourChartPdf()}>Download colour chart PDF</button>
-              <button onClick={() => window.print()}>Print colour chart</button>
             </div>
           </div>
 

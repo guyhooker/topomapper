@@ -116,11 +116,26 @@ class RequestHandler(BaseHTTPRequestHandler):
                 raise AnalysisError("Draw or reset a map area before analysing elevation.")
             bounds = json.loads(bounds_field.value)
             boundaries = None
+            water_inputs: list[tuple[bytes, str]] = []
             if request_path == "/layers":
                 boundaries_field = form["boundaries"] if "boundaries" in form else None
                 if boundaries_field is None:
                     raise AnalysisError("Choose valid elevation boundaries before generating layers.")
                 boundaries = json.loads(boundaries_field.value)
+                water_value = form["water"] if "water" in form else None
+                water_uploads = water_value if isinstance(water_value, list) else [water_value] if water_value is not None else []
+                if len(water_uploads) > 12:
+                    raise AnalysisError("Choose no more than 12 cropped water files at once.")
+                for upload in water_uploads:
+                    if not getattr(upload, "file", None):
+                        raise AnalysisError("A selected water boundary file could not be read.")
+                    filename = Path(getattr(upload, "filename", "water.geojson") or "water.geojson").name
+                    if Path(filename).suffix.lower() not in {".geojson", ".json", ".kml"}:
+                        raise AnalysisError("Water boundaries must be GeoJSON, JSON, or KML polygon files.")
+                    contents = upload.file.read(MAX_GUIDE_BYTES + 1)
+                    if len(contents) > MAX_GUIDE_BYTES:
+                        raise AnalysisError(f"{filename} is larger than the 64 MB water-file limit.")
+                    water_inputs.append((contents, filename))
             inputs: list[tuple[Path, str]] = []
             for upload in uploads:
                 filename = Path(getattr(upload, "filename", "elevation.tif") or "elevation.tif").name
@@ -131,7 +146,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                     temporary_paths.append(temporary_path)
                     shutil.copyfileobj(upload.file, target, length=1024 * 1024)
                 inputs.append((temporary_path, filename))
-            result = (generate_filled_layers(inputs, bounds, boundaries)
+            result = (generate_filled_layers(inputs, bounds, boundaries, water_inputs)
                       if request_path == "/layers" else analyse_geotiffs(inputs, bounds))
             self._send_json(200, result)
         except AnalysisError as error:

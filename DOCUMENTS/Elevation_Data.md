@@ -13,12 +13,33 @@ Cloud Optimised GeoTIFFs in the New Zealand Elevation open-data collection:
 - [LINZ elevation access guidance](https://www.linz.govt.nz/products-services/data/types-linz-data/elevation-data/access-elevation-data)
 - [New Zealand Elevation on the AWS Registry of Open Data](https://registry.opendata.aws/nz-elevation/)
 - [LINZ Data Service](https://data.linz.govt.nz/)
+- [NZ 8m Digital Elevation Model (2012)](https://data.linz.govt.nz/layer/51768-nz-8m-digital-elevation-model-2012/)
 
 For Stage 3, manually download the `.tif` or `.tiff` tiles that overlap the
 selected Mount Taranaki rectangle. The file chooser accepts several files at
 once: use Command-click in the macOS chooser to select adjoining tiles such as
 BJ29 and BH29. Topomapper mosaics them and clearly reports any part of the
 selection that remains uncovered.
+
+## Lakes and significant rivers
+
+Elevation files do not reliably identify water boundaries. Before generating
+filled layers, optionally download cropped polygon data for the same selected
+area from:
+
+- [NZ Lake Polygons (Topo, 1:50k)](https://data.linz.govt.nz/layer/50293-nz-lake-polygons-topo-150k/)
+- [NZ River Polygons (Topo, 1:50k)](https://data.linz.govt.nz/layer/50328-nz-river-polygons-topo-150k/)
+- [NZ Lagoon Polygons (Topo, 1:50k)](https://data.linz.govt.nz/layer/50292-nz-lagoon-polygons-topo-150k/)
+
+Crop each dataset to the model area and export it as WGS84 GeoJSON or KML.
+Topomapper accepts several files together and subtracts every imported polygon
+from all affected physical layers. This produces cut-through lake and river
+holes for later blue-painted inserts. Do not choose the river centrelines
+dataset: a line has no width and cannot define a cuttable insert.
+
+Smoothing treats imported water holes like other fine geometry. Small water
+features may disappear as smoothing increases; substantial lakes and broad
+rivers such as the Rakaia remain when their physical model width is practical.
 
 ## What Topomapper reads
 

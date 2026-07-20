@@ -55,6 +55,13 @@ rings retain holes and disconnected components. This grid is deliberately a
 responsive 2D feasibility preview; later SVG export will generate fabrication
 geometry at an explicitly chosen physical scale and simplification tolerance.
 
+Optional WGS84 GeoJSON or KML water polygons are rasterised onto that same
+bounded grid with all touched cells retained. The water mask is subtracted from
+every cumulative terrain mask before polygonisation. Enclosed water therefore
+becomes an interior ring, while a river reaching the model edge correctly splits
+the terrain polygon. The processed water holes are saved inside the project;
+original source files remain external and are only needed for regeneration.
+
 ### Project and Export Formats
 
 - Versioned named project documents are held in IndexedDB so multiple large

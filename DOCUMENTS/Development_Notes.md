@@ -518,5 +518,22 @@
 - Water holes use the same scale-aware smoothing and minimum-feature controls as
   small peaks and islands. Tiny water features may therefore disappear, but
   significant features and land islands enclosed by them must be preserved.
-- Importing and subtracting mapped water geometry remains Stage 14 work; this
-  decision defines the expected result before that implementation begins.
+- Importing and subtracting mapped water geometry is implemented as the first
+  part of Stage 14.
+
+### Stage 14 — Inland water cutouts (partial)
+
+- Added an optional Step 2 water-boundary chooser for cropped WGS84 GeoJSON and
+  KML lake, lagoon, and significant-river polygon files.
+- Linked directly to the LINZ Topo50 lake and river polygon datasets. River
+  centrelines are deliberately rejected because they have no cuttable width.
+- Rasterises imported water against the same bounded terrain grid and subtracts
+  it from every cumulative physical layer before polygon generation. Enclosed
+  water becomes a true hole; water reaching the frame edge becomes an open cut.
+- Records water filenames and processed geometry in the named project. Source
+  files are only needed again when layers are regenerated.
+- Existing smoothing removes water holes below the selected practical feature
+  size in the same manner as tiny terrain holes.
+- Moved Colour Chart output controls into a consistent top-bar Output menu. The
+  same menu exposes existing Sheet Layout and Manufacture downloads and reserves
+  a visible home for future 2D, 3D, and Assembly outputs.

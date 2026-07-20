@@ -59,6 +59,10 @@ Stage 5 turns those boundaries into cumulative filled land polygons and draws a
 colour-coded 2D stack over the map. Individual layers can be hidden or shown,
 and the preview reports disconnected pieces and preserved holes.
 
+Optional cropped LINZ lake, lagoon, and river polygons can be loaded as WGS84
+GeoJSON or KML before Stage 5 generation. Topomapper cuts those polygons through
+the affected terrain layers, producing holes for separately made water inserts.
+
 Stage 6 adds an early finished-format choice with aspect-locked ground cropping,
 then displays the geometry as an equal-thickness physical stack. The preview can
 take over the workspace using the 2D Map / 3D Model switch, can be freely rotated

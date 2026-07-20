@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import base64
+import json
 import math
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -11,10 +13,10 @@ import numpy as np
 import rasterio
 from rasterio.enums import Resampling
 from rasterio.errors import RasterioIOError, WindowError
-from rasterio.features import shapes
+from rasterio.features import rasterize, shapes
 from rasterio.io import MemoryFile
 from rasterio.transform import from_bounds as output_transform
-from rasterio.warp import reproject, transform, transform_bounds
+from rasterio.warp import reproject, transform, transform_bounds, transform_geom
 from rasterio.windows import Window, from_bounds
 
 
@@ -319,10 +321,104 @@ def _validate_boundaries(values: Iterable[object]) -> list[float]:
     return boundaries
 
 
+def _geojson_crs(value: dict[str, Any]) -> str:
+    crs = value.get("crs")
+    if not isinstance(crs, dict):
+        return WGS84
+    properties = crs.get("properties")
+    name = properties.get("name") if isinstance(properties, dict) else None
+    if not isinstance(name, str) or not name.strip():
+        return WGS84
+    lowered = name.lower()
+    if "2193" in lowered:
+        return "EPSG:2193"
+    if "4326" in lowered or "crs84" in lowered:
+        return WGS84
+    raise AnalysisError(f"The water GeoJSON coordinate system '{name}' is not supported. Export it as WGS84 / EPSG:4326.")
+
+
+def _geojson_polygons(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, dict):
+        return []
+    geometry_type = value.get("type")
+    if geometry_type == "FeatureCollection":
+        return [geometry for feature in value.get("features", []) for geometry in _geojson_polygons(feature)]
+    if geometry_type == "Feature":
+        return _geojson_polygons(value.get("geometry"))
+    if geometry_type == "GeometryCollection":
+        return [geometry for child in value.get("geometries", []) for geometry in _geojson_polygons(child)]
+    if geometry_type in {"Polygon", "MultiPolygon"} and isinstance(value.get("coordinates"), list):
+        return [{"type": geometry_type, "coordinates": value["coordinates"]}]
+    return []
+
+
+def _kml_coordinates(value: str | None) -> list[list[float]]:
+    result: list[list[float]] = []
+    for token in (value or "").replace("\n", " ").split():
+        parts = token.split(",")
+        if len(parts) < 2:
+            continue
+        try:
+            result.append([float(parts[0]), float(parts[1])])
+        except ValueError as error:
+            raise AnalysisError("A KML water boundary contains an invalid coordinate.") from error
+    if len(result) >= 3 and result[0] != result[-1]:
+        result.append(list(result[0]))
+    return result
+
+
+def _kml_polygons(contents: bytes) -> list[dict[str, Any]]:
+    try:
+        root = ET.fromstring(contents)
+    except ET.ParseError as error:
+        raise AnalysisError("A water KML file could not be read.") from error
+    result: list[dict[str, Any]] = []
+    for polygon in root.findall(".//{*}Polygon"):
+        outer_node = polygon.find("./{*}outerBoundaryIs/{*}LinearRing/{*}coordinates")
+        outer = _kml_coordinates(outer_node.text if outer_node is not None else None)
+        if len(outer) < 4:
+            continue
+        rings = [outer]
+        for inner_node in polygon.findall("./{*}innerBoundaryIs/{*}LinearRing/{*}coordinates"):
+            inner = _kml_coordinates(inner_node.text)
+            if len(inner) >= 4:
+                rings.append(inner)
+        result.append({"type": "Polygon", "coordinates": rings})
+    return result
+
+
+def _water_polygons(inputs: Iterable[tuple[bytes, str]]) -> tuple[list[dict[str, Any]], list[str]]:
+    geometries: list[dict[str, Any]] = []
+    filenames: list[str] = []
+    for contents, filename in inputs:
+        suffix = Path(filename).suffix.lower()
+        if suffix == ".kml":
+            source_geometries = _kml_polygons(contents)
+            source_crs = WGS84
+        else:
+            try:
+                payload = json.loads(contents.decode("utf-8-sig"))
+            except (UnicodeDecodeError, json.JSONDecodeError) as error:
+                raise AnalysisError(f"{filename} is not readable GeoJSON.") from error
+            if not isinstance(payload, dict):
+                raise AnalysisError(f"{filename} is not a GeoJSON object.")
+            source_geometries = _geojson_polygons(payload)
+            source_crs = _geojson_crs(payload)
+        if not source_geometries:
+            raise AnalysisError(f"{filename} contains no lake or river polygons. River centreline files cannot create cuttable water holes.")
+        if len(geometries) + len(source_geometries) > 50_000:
+            raise AnalysisError("The selected water files contain more than 50,000 polygons. Crop them to the model area in LINZ first.")
+        for geometry in source_geometries:
+            geometries.append(transform_geom(source_crs, WGS84, geometry, antimeridian_cutting=True, precision=9))
+        filenames.append(filename)
+    return geometries, filenames
+
+
 def generate_filled_layers(
     inputs: Iterable[tuple[str | Path, str]],
     bounds_value: dict[str, Any],
     boundary_values: Iterable[object],
+    water_inputs: Iterable[tuple[bytes, str]] = (),
 ) -> dict[str, Any]:
     """Polygonise cumulative land masks for a stackable 2D layer preview."""
     selection = Bounds.from_mapping(bounds_value)
@@ -333,10 +429,23 @@ def generate_filled_layers(
 
     try:
         mosaic, valid_mask, transform_value = _layer_mosaic(prepared, selection)
+        water_geometries, water_filenames = _water_polygons(water_inputs)
+        water_mask = np.zeros(valid_mask.shape, dtype=bool)
+        if water_geometries:
+            water_mask = rasterize(
+                ((geometry, 1) for geometry in water_geometries),
+                out_shape=valid_mask.shape,
+                transform=transform_value,
+                fill=0,
+                all_touched=True,
+                dtype="uint8",
+            ).astype(bool) & valid_mask
+            if not water_mask.any():
+                raise AnalysisError("The selected water polygons do not overlap usable elevation data in the model area.")
         features: list[dict[str, Any]] = []
         layers: list[dict[str, Any]] = []
         for index, (lower, upper) in enumerate(zip(boundaries, boundaries[1:])):
-            cumulative_mask = valid_mask & (mosaic >= lower)
+            cumulative_mask = valid_mask & (mosaic >= lower) & ~water_mask
             piece_count = 0
             hole_count = 0
             for geometry, raster_value in shapes(
@@ -372,6 +481,11 @@ def generate_filled_layers(
             "selection": selection.as_dict(),
             "boundaries": boundaries,
             "grid": {"width": int(mosaic.shape[1]), "height": int(mosaic.shape[0])},
+            "water": {
+                "source_filenames": water_filenames,
+                "polygon_count": len(water_geometries),
+                "cell_count": int(water_mask.sum()),
+            },
             "layers": layers,
             "feature_collection": {"type": "FeatureCollection", "features": features},
         }

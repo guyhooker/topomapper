@@ -69,6 +69,7 @@
 - Added a responsive topomapper application shell and a visible indication that
   area selection belongs to Stage 2.
 - Production build passes successfully.
+
 - Stage 1 acceptance target is met: the application opens locally, presents a
   navigable New Zealand map, and can locate Mount Taranaki by name or quick
   location.
@@ -94,6 +95,7 @@
   is involved.
 - Updated the responsive interface from Stage 1 Explore to Stage 2 Select.
 - Production build passes successfully.
+
 - Guy confirmed the area selection was clear and usable after a hotfix ensured
   draggable handles receive coordinates before being attached to MapLibre.
 
@@ -409,3 +411,24 @@
   Candidate positions avoid sheet margins, part bounds, prior labels, and
   blocked leader routes; any label that cannot fit is reported after export.
 - Production build passes successfully.
+
+### Stage 11 — Initial Automatic Nesting and Printable Guide
+
+- Added selectable 1°, 2°, 5°, 10°, and 15° nesting rotation resolution plus
+  direct ±1° manual rotation controls. The setting is stored in each named
+  project.
+- Added an interruptible polygon-aware optimisation search. It varies large-part
+  ordering and rotation samples, uses actual transformed coastlines for spacing,
+  favours fewer sheets before a compact used envelope, and continually publishes only the
+  best valid editable result found so far.
+- Retained the quick conservative Auto layout for immediate simple placement;
+  the longer optimiser is an explicit separate action with a Stop control.
+- Deferred machine engraving and simplified stock-sheet SVG/ZIP output to
+  `CUT_OUTLINES`, `DRILL_HOLES`, and the non-machining `SHEET_REFERENCE`.
+- Added a local ReportLab PDF endpoint and a Sheet Layout download control. The
+  A4 landscape guide contains one scaled labelled overview per populated sheet,
+  collision-aware leaders, true assembly-north arrows after arbitrary nesting
+  rotation, and paginated part indexes with rotation, position, and size.
+- Rendered and visually checked a two-page synthetic PDF; overview labels,
+  arrows, margins, index table, page size, and print legibility are correct.
+- Frontend production build and Python syntax checks pass successfully.

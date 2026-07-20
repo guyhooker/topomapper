@@ -225,7 +225,7 @@ registration holes align consistently across every exported layer.
 - Editable conservative Auto layout for currently unplaced original parts.
 - Visible clearance halos, enlarged tiny-part hit targets, 1×–8× zoom, panning,
   parts-library selection, and Focus selected.
-- Coastline-shaped clearance DRC, 15° manual rotation, and two-way highlighting
+- Coastline-shaped clearance DRC, selectable 1°–15° manual rotation, and two-way highlighting
   between placed parts and their rule warnings.
 - Responsive drag preview with exact transformed-outline DRC on release.
 - Explicit local save plus JSON backup and restore for multi-session layout.
@@ -235,8 +235,8 @@ registration holes align consistently across every exported layer.
   New/Open/Save/Close, and portable `.topomapper` import/export. Project
   documents include processed geometry and all settings through sheet layout.
 - Finished-size active-sheet SVG and all-sheets ZIP export. Named machining
-  layers separate through-cuts, drilling, 0.5 mm vector IDs, transformed north
-  arrows, and small-part labels placed in waste.
+  layers separate through-cuts and drilling from the non-machining reference;
+  engraving is deferred.
 
 ### Acceptance Test
 
@@ -251,6 +251,8 @@ editor, and its machining operations can be selected independently by layer.
 
 ## Stage 11 — Automatic Sheet Nesting
 
+**Status: Initial implementation complete — acceptance test pending**
+
 ### Adds
 
 - Polygon-aware nesting across as few stock sheets as practical.
@@ -261,6 +263,11 @@ editor, and its machining operations can be selected independently by layer.
   searching for fewer sheets or lower waste, and retains every improvement for
   as long as the user permits.
 - A left-to-right placement preference for readable machining order.
+- Selectable 1°, 2°, 5°, 10°, or 15° rotation resolution with direct ±1°
+  manual correction.
+- A printable A4 PDF sheet guide with readable full IDs, transformed
+  assembly-north arrows, and indexed stock rotations/positions, so parts can be
+  labelled by hand after cutting.
 
 ### Acceptance Test
 

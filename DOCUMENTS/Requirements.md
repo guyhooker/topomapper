@@ -70,11 +70,9 @@ boundary.
   straight line while smoothing terrain-derived edges.
 - Allow registration holes or alignment marks.
 - Label every exported layer with its elevation range, sequence, and side.
-- Preserve finished dimensions in millimetres and separate profile, drilling,
-  and engraving operations in every manufacturing file.
-- When a part is too small for safe engraving, place its ID in nearby waste
-  material with a leader that stops outside the part's cut edge. Recalculate
-  these waste labels after sheet nesting.
+- Preserve finished dimensions in millimetres and separate profile and drilling
+  operations in every current manufacturing file. Keep engraving as a later,
+  optional tool-change workflow.
 - Warn about pieces smaller than the selected cutter or practical material
   limit.
 
@@ -121,7 +119,8 @@ boundary.
   zoom/pan, library-based selection, and focus-on-selection.
 - Measure part-spacing rules between the true rotated outlines and draw the
   corresponding coastline-shaped half-clearance halo around each part.
-- Permit manual rotation in 15-degree increments and cross-highlight a selected
+- Permit selectable 1-, 2-, 5-, 10-, or 15-degree rotation increments, retain
+  direct 1-degree nudges, and cross-highlight a selected
   part with every DRC warning that references it.
 - Prefer left-to-right rows for quick Auto layout, while allowing the later
   optimiser to keep searching and retain every improved result until stopped.
@@ -136,14 +135,15 @@ boundary.
   prevent deselection and empty-sheet panning. Retain an enlarged hit target for
   genuinely tiny parts.
 - Export each populated stock sheet as a finished-size SVG with separate named
-  layers for profile cutting, through-drilling, shallow part IDs, shallow north
-  marks, waste labels, and non-machining sheet references.
-- Record a default engraving depth of 0.5 mm in SVG operation metadata. Export
-  abbreviated IDs such as `4A` as machine-ready single-line vector paths rather
-  than font objects.
-- Transform every cut, drill, ID, and north mark by the part's sheet placement.
-  The arrow must continue to identify assembly north after arbitrary nesting
-  rotation. Small parts use waste-area ID, north, and leader engraving.
+  layers for profile cutting, through-drilling, and non-machining sheet
+  references. Do not mix deferred engraving into this cutting file.
+- Export a printable A4 PDF layout guide with a scaled overview of each stock
+  sheet, readable full part IDs, assembly-north arrows, and a part index listing
+  stock rotation and position. The arrow must continue to identify assembly
+  north after arbitrary nesting rotation.
+- Keep the optimiser interruptible, publish only valid best-so-far layouts, and
+  rank fewer stock sheets ahead of a compact used envelope. Every automatic result
+  remains manually editable.
 
 ## Preview and Analysis
 

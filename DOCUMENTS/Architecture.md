@@ -70,16 +70,13 @@ geometry at an explicitly chosen physical scale and simplification tolerance.
 - GeoTIFF cache for clipped elevation data.
 - GeoPackage or GeoJSON for intermediate polygons.
 - Finished-size SVG as the inspectable manufacturing-geometry source, with
-  separate profile, drilling, and engraving groups.
-- Stock-sheet SVG uses Inkscape-compatible named layers: `CUT_OUTLINES`,
-  `DRILL_HOLES`, `ENGRAVE_PART_IDS`, `ENGRAVE_NORTH`, `WASTE_LABELS`, and a
-  non-machining `SHEET_REFERENCE`. Operation and depth metadata allow a CAM
-  importer or later postprocessor to distinguish through work from 0.5 mm
-  shallow engraving.
-- Sheet labels use an internal single-line alphanumeric vector font. This avoids
-  platform font substitution and preserves engravable geometry in generic CAM.
-  Waste-label search checks stock margins, placed-part bounds, other labels, and
-  leader paths before accepting a position.
+  separate profile and drilling groups. Stock-sheet SVG currently uses
+  Inkscape-compatible `CUT_OUTLINES`, `DRILL_HOLES`, and non-machining
+  `SHEET_REFERENCE` layers. Part engraving is deliberately deferred.
+- ReportLab in the localhost Python processor generates an A4 landscape PDF
+  layout guide. The browser supplies final transformed polygons, label anchors,
+  and assembly-north vectors; the PDF adds collision-aware readable labels,
+  leaders, sheet overviews, and part/rotation index pages.
 - A non-destructive per-layer cleanup plan in physical millimetres. Original
   polygons remain available for comparison; cleaned polygons feed downstream
   previews and exports. Selection-boundary vertices stay locked so frame edges
@@ -100,9 +97,13 @@ geometry at an explicitly chosen physical scale and simplification tolerance.
 - Sheet-edge DRC and normal pointer selection use transformed polygon bounds and
   point-in-polygon tests. Only physically tiny parts receive an additional
   screen-space proximity target.
-- Automatic nesting is an anytime search: publish an editable left-to-right
-  result quickly, then retain better sheet-count/waste results until the user
-  stops the search or its time allowance expires.
+- Automatic nesting is an anytime polygon-aware heuristic: randomised
+  large-first orders, sampled rotations at the selected angular resolution,
+  outline-derived anchors, and exact DRC clearance. It publishes only improved
+  editable results, ranks sheet count before compact envelope and used width,
+  and continues until
+  the user stops it. A future no-fit-polygon/genetic engine can replace the
+  search without changing the saved placement format.
 - Controller-specific G-code generated only from a validated manufacturing and
   sheet-layout plan; SVG remains the visual audit format.
 - G-code only through a later, explicitly configured CAM/postprocessor stage.

@@ -215,6 +215,7 @@ type TopomapperProject = {
     sheetCount: number;
     activeSheetIndex: number;
     placements: SheetPlacement[];
+    rotationStepDeg?: number;
   };
   view: {
     workspaceView: WorkspaceView;
@@ -863,6 +864,107 @@ function candidateFitsConservative(candidate: SheetPlacement, placements: SheetP
   });
 }
 
+function candidateFitsExact(candidate: SheetPlacement, placements: SheetPlacement[], partMap: Map<string, LayoutPart>, rules: SheetRules) {
+  const part = partMap.get(candidate.partId);
+  if (!part) return false;
+  const bounds = placedPartBounds(candidate, part);
+  if (bounds.left < rules.edgeMargin || bounds.top < rules.edgeMargin || bounds.right > rules.width - rules.edgeMargin || bounds.bottom > rules.height - rules.edgeMargin) return false;
+  return placements.every((placement) => {
+    if (placement.sheetIndex !== candidate.sheetIndex) return true;
+    const otherPart = partMap.get(placement.partId);
+    if (!otherPart) return true;
+    const otherBounds = placedPartBounds(placement, otherPart);
+    if (bounds.right + rules.partSpacing <= otherBounds.left || otherBounds.right + rules.partSpacing <= bounds.left || bounds.bottom + rules.partSpacing <= otherBounds.top || otherBounds.bottom + rules.partSpacing <= bounds.top) return true;
+    return layoutPartClearance(candidate, part, placement, otherPart) >= rules.partSpacing;
+  });
+}
+
+function placementAtOutlineOrigin(instance: { id: string; partId: string }, part: LayoutPart, sheetIndex: number, left: number, top: number, rotation: number) {
+  const provisional: SheetPlacement = { id: instance.id, partId: instance.partId, sheetIndex, x: 0, y: 0, rotation };
+  const bounds = placedPartBounds(provisional, part);
+  return { ...provisional, x: left - bounds.left, y: top - bounds.top };
+}
+
+function layoutFitness(placements: SheetPlacement[], partMap: Map<string, LayoutPart>, rules: SheetRules) {
+  const sheets = [...new Set(placements.map((placement) => placement.sheetIndex))].sort((left, right) => left - right);
+  let usedWidth = 0;
+  let envelopeArea = 0;
+  sheets.forEach((sheetIndex) => {
+    const bounds = placements.filter((placement) => placement.sheetIndex === sheetIndex).map((placement) => {
+      const part = partMap.get(placement.partId);
+      return part ? placedPartBounds(placement, part) : null;
+    }).filter((value): value is ReturnType<typeof placedPartBounds> => Boolean(value));
+    if (!bounds.length) return;
+    const right = Math.max(...bounds.map((bound) => bound.right));
+    const bottom = Math.max(...bounds.map((bound) => bound.bottom));
+    usedWidth += right - rules.edgeMargin;
+    envelopeArea += Math.max(0, right - rules.edgeMargin) * Math.max(0, bottom - rules.edgeMargin);
+  });
+  const sheetArea = Math.max(1, rules.width * rules.height);
+  return sheets.length * 1e12 + envelopeArea / sheetArea * 1e6 + usedWidth / Math.max(1, rules.width) * 1e3;
+}
+
+function greedyNestingAttempt(instances: { id: string; partId: string; preferredRotation: number }[], parts: LayoutPart[], rules: SheetRules, rotationStep: number, attempt: number) {
+  const partMap = new Map(parts.map((part) => [part.id, part]));
+  const randomised = instances.map((instance) => ({
+    instance,
+    sortWeight: (partMap.get(instance.partId)?.areaMm2 ?? 0) * (attempt === 0 ? 1 : .82 + Math.random() * .36),
+  })).sort((left, right) => right.sortWeight - left.sortWeight).map((item) => item.instance);
+  const placed: SheetPlacement[] = [];
+  let sheetCount = 1;
+  for (const instance of randomised) {
+    const part = partMap.get(instance.partId);
+    if (!part) continue;
+    const rotationCount = Math.max(1, Math.floor(360 / rotationStep));
+    const rotations = [...new Set([
+      instance.preferredRotation % 360,
+      0, 90, 180, 270,
+      ...Array.from({ length: Math.min(10, rotationCount) }, (_, index) => ((attempt * 7 + index * Math.max(1, Math.floor(rotationCount / 10))) % rotationCount) * rotationStep),
+    ].map((value) => ((Math.round(value / rotationStep) * rotationStep) % 360 + 360) % 360))];
+    let best: SheetPlacement | null = null;
+    let bestScore = Number.POSITIVE_INFINITY;
+    for (let sheetIndex = 0; sheetIndex < sheetCount; sheetIndex += 1) {
+      const existing = placed.filter((placement) => placement.sheetIndex === sheetIndex);
+      const anchors: { left: number; top: number }[] = [{ left: rules.edgeMargin, top: rules.edgeMargin }];
+      existing.forEach((placement) => {
+        const existingPart = partMap.get(placement.partId);
+        if (!existingPart) return;
+        const bounds = placedPartBounds(placement, existingPart);
+        anchors.push(
+          { left: bounds.right + rules.partSpacing, top: bounds.top },
+          { left: bounds.left, top: bounds.bottom + rules.partSpacing },
+          { left: bounds.right + rules.partSpacing, top: rules.edgeMargin },
+          { left: rules.edgeMargin, top: bounds.bottom + rules.partSpacing },
+        );
+      });
+      for (let sample = 0; sample < 10; sample += 1) anchors.push({
+        left: rules.edgeMargin + Math.pow(Math.random(), 1.8) * Math.max(0, rules.width - rules.edgeMargin * 2 - part.width),
+        top: rules.edgeMargin + Math.random() * Math.max(0, rules.height - rules.edgeMargin * 2 - part.height),
+      });
+      for (const rotation of rotations) {
+        for (const anchor of anchors) {
+          const candidate = placementAtOutlineOrigin(instance, part, sheetIndex, anchor.left, anchor.top, rotation);
+          if (!candidateFitsExact(candidate, placed, partMap, rules)) continue;
+          const bounds = placedPartBounds(candidate, part);
+          const score = sheetIndex * 1e10 + bounds.bottom * 1e5 + bounds.right;
+          if (score < bestScore) { best = candidate; bestScore = score; }
+        }
+      }
+    }
+    if (!best) {
+      const sheetIndex = sheetCount;
+      for (const rotation of rotations) {
+        const candidate = placementAtOutlineOrigin(instance, part, sheetIndex, rules.edgeMargin, rules.edgeMargin, rotation);
+        if (candidateFitsExact(candidate, placed, partMap, rules)) { best = candidate; break; }
+      }
+      if (best) sheetCount += 1;
+    }
+    if (!best) return null;
+    placed.push(best);
+  }
+  return placed;
+}
+
 function rotateLayoutPoint(point: { x: number; y: number }, part: LayoutPart, rotation: SheetPlacement["rotation"]) {
   const radians = rotation * Math.PI / 180;
   const cosine = Math.cos(radians);
@@ -1085,7 +1187,6 @@ function findSheetWasteLabels(placements: SheetPlacement[], parts: LayoutPart[],
 function buildSheetSvg(projectName: string, sheetIndex: number, rules: SheetRules, allParts: LayoutPart[], allPlacements: SheetPlacement[], holeDiameter: number) {
   const placements = allPlacements.filter((placement) => placement.sheetIndex === sheetIndex);
   const partMap = new Map(allParts.map((part) => [part.id, part]));
-  const waste = findSheetWasteLabels(placements, allParts, rules);
   const cuts = placements.map((placement) => {
     const part = partMap.get(placement.partId);
     if (!part) return "";
@@ -1101,41 +1202,15 @@ function buildSheetSvg(projectName: string, sheetIndex: number, rules: SheetRule
       ${part.holes.map((hole) => `<circle data-hole-kind="${hole.kind}" cx="${svgNumber(hole.x)}" cy="${svgNumber(hole.y)}" r="${svgNumber(holeDiameter / 2)}" />`).join("\n      ")}
     </g>`;
   }).join("\n    ");
-  const onPartIds = placements.map((placement) => {
-    const part = partMap.get(placement.partId);
-    if (!part?.machineLabel) return "";
-    return `<g data-placement-id="${xmlText(placement.id)}" data-part-id="${xmlText(part.id)}" transform="${sheetPlacementTransform(placement, part)}"><path d="${vectorTextPath(abbreviatedPartId(part.id), part.labelPoint.x, part.labelPoint.y + 2, 4)}" /></g>`;
-  }).join("\n    ");
-  const northMarks = placements.map((placement) => {
-    const part = partMap.get(placement.partId);
-    if (!part?.machineLabel) return "";
-    const x = part.labelPoint.x;
-    const y = part.labelPoint.y - 3;
-    return `<g data-placement-id="${xmlText(placement.id)}" data-part-id="${xmlText(part.id)}" transform="${sheetPlacementTransform(placement, part)}"><path d="M${svgNumber(x)} ${svgNumber(y)} L${svgNumber(x)} ${svgNumber(y - 6)} M${svgNumber(x)} ${svgNumber(y - 6)} L${svgNumber(x - 2)} ${svgNumber(y - 3.5)} M${svgNumber(x)} ${svgNumber(y - 6)} L${svgNumber(x + 2)} ${svgNumber(y - 3.5)}" /></g>`;
-  }).join("\n    ");
-  const wasteLabels = waste.labels.map((label) => `<g data-placement-id="${xmlText(label.placementId)}" data-part-id="${xmlText(label.partId)}">
-      <path data-label="${xmlText(label.shortId)}" d="${vectorTextPath(label.shortId, label.x - 3, label.y, 4)}" />
-      <path data-north-mark="true" d="M${svgNumber(label.x + label.width / 2 - 4)} ${svgNumber(label.y + 2)} L${svgNumber(label.x + label.width / 2 - 4)} ${svgNumber(label.y - 3)} M${svgNumber(label.x + label.width / 2 - 4)} ${svgNumber(label.y - 3)} L${svgNumber(label.x + label.width / 2 - 5.5)} ${svgNumber(label.y - 1)} M${svgNumber(label.x + label.width / 2 - 4)} ${svgNumber(label.y - 3)} L${svgNumber(label.x + label.width / 2 - 2.5)} ${svgNumber(label.y - 1)}" />
-      <path data-leader="true" d="M${svgNumber(label.leaderStartX)} ${svgNumber(label.leaderStartY)} L${svgNumber(label.leaderEndX)} ${svgNumber(label.leaderEndY)}" />
-    </g>`).join("\n    ");
-  const metadata = JSON.stringify({ project: projectName, sheet: sheetIndex + 1, sheet_width_mm: rules.width, sheet_height_mm: rules.height, material_thickness_mm: rules.thickness, engraving_depth_mm: .5, part_instances: placements.length, missing_waste_labels: waste.missing, north: "Arrow on each part indicates assembly north; sheet orientation is arbitrary." });
+  const metadata = JSON.stringify({ project: projectName, sheet: sheetIndex + 1, sheet_width_mm: rules.width, sheet_height_mm: rules.height, material_thickness_mm: rules.thickness, part_instances: placements.length, labels: "See the separately generated printable layout guide." });
   const svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" width="${svgNumber(rules.width)}mm" height="${svgNumber(rules.height)}mm" viewBox="0 0 ${svgNumber(rules.width)} ${svgNumber(rules.height)}">
   <title>${xmlText(projectName)} · Sheet ${sheetIndex + 1}</title>
-  <desc>Finished-size sheet layout. CUT_OUTLINES is through-cut. DRILL_HOLES is through-drill. ENGRAVE_PART_IDS, ENGRAVE_NORTH and WASTE_LABELS are shallow 0.5 mm engraving. Text is exported as machine-ready vector strokes.</desc>
+  <desc>Finished-size sheet layout. CUT_OUTLINES is through-cut. DRILL_HOLES is through-drill. SHEET_REFERENCE is visual only. Part engraving is intentionally deferred.</desc>
   <metadata>${xmlText(metadata)}</metadata>
   <g id="SHEET_REFERENCE" inkscape:groupmode="layer" inkscape:label="REFERENCE — DO NOT MACHINE" data-operation="reference" fill="none" stroke="#8a8174" stroke-width="0.2" stroke-dasharray="4 3">
     <rect x="0" y="0" width="${svgNumber(rules.width)}" height="${svgNumber(rules.height)}" />
     <rect x="${svgNumber(rules.edgeMargin)}" y="${svgNumber(rules.edgeMargin)}" width="${svgNumber(rules.width - rules.edgeMargin * 2)}" height="${svgNumber(rules.height - rules.edgeMargin * 2)}" />
-  </g>
-  <g id="ENGRAVE_PART_IDS" inkscape:groupmode="layer" inkscape:label="ENGRAVE 0.5mm — PART IDs" data-operation="engrave" data-depth-mm="0.5" fill="none" stroke="#214f3d" stroke-width="0.3" stroke-linecap="round" stroke-linejoin="round">
-    ${onPartIds}
-  </g>
-  <g id="ENGRAVE_NORTH" inkscape:groupmode="layer" inkscape:label="ENGRAVE 0.5mm — NORTH" data-operation="engrave" data-depth-mm="0.5" fill="none" stroke="#6d4c8f" stroke-width="0.3" stroke-linecap="round" stroke-linejoin="round">
-    ${northMarks}
-  </g>
-  <g id="WASTE_LABELS" inkscape:groupmode="layer" inkscape:label="ENGRAVE 0.5mm — WASTE LABELS" data-operation="engrave-waste" data-depth-mm="0.5" fill="none" stroke="#61736a" stroke-width="0.3" stroke-linecap="round" stroke-linejoin="round">
-    ${wasteLabels}
   </g>
   <g id="DRILL_HOLES" inkscape:groupmode="layer" inkscape:label="DRILL — THROUGH" data-operation="drill-through" data-depth-mm="${svgNumber(rules.thickness)}" fill="none" stroke="#187c91" stroke-width="0.2">
     ${drills}
@@ -1144,7 +1219,7 @@ function buildSheetSvg(projectName: string, sheetIndex: number, rules: SheetRule
     ${cuts}
   </g>
 </svg>`;
-  return { svg, partCount: placements.length, onPartLabelCount: placements.filter((placement) => partMap.get(placement.partId)?.machineLabel).length, wasteLabelCount: waste.labels.length, missingLabels: waste.missing };
+  return { svg, partCount: placements.length };
 }
 
 function svgPathForFeature(preview: FilledLayerPreview, feature: FilledLayerFeature, modelWidth: number, modelHeight: number) {
@@ -2040,6 +2115,9 @@ export function MapWorkspace() {
   const [sheetViewCenter, setSheetViewCenter] = useState({ x: 600, y: 300 });
   const [selectedViolationIndex, setSelectedViolationIndex] = useState<number | null>(null);
   const [sheetPartDragging, setSheetPartDragging] = useState(false);
+  const [rotationStepDeg, setRotationStepDeg] = useState(5);
+  const [optimizerRunning, setOptimizerRunning] = useState(false);
+  const [optimizerStatus, setOptimizerStatus] = useState("Ready to search for a tighter polygon-aware layout.");
   const [layoutSaveStatus, setLayoutSaveStatus] = useState("Layout changes have not been saved locally yet.");
   const [projectId, setProjectId] = useState<string | null>(null);
   const [projectName, setProjectName] = useState("");
@@ -2052,11 +2130,16 @@ export function MapWorkspace() {
   const suppressLayoutDirtyRef = useRef(false);
   const projectReadyRef = useRef(false);
   const projectAutosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const optimizerStopRef = useRef(false);
 
   useEffect(() => {
     setSheetViewCenter({ x: sheetRules.width / 2, y: sheetRules.height / 2 });
     setSheetZoom(1);
   }, [sheetRules.width, sheetRules.height]);
+  useEffect(() => () => { optimizerStopRef.current = true; }, []);
+  useEffect(() => {
+    optimizerStopRef.current = true;
+  }, [projectId, sheetRules.width, sheetRules.height, sheetRules.edgeMargin, sheetRules.partSpacing, rotationStepDeg, smoothingLevels]);
   useEffect(() => {
     const saved = window.localStorage.getItem(SHEET_LAYOUT_KEY);
     if (!saved) return;
@@ -2105,7 +2188,7 @@ export function MapWorkspace() {
     setProjectStatus("Changes waiting to autosave…");
     projectAutosaveTimerRef.current = setTimeout(() => { void saveCurrentProject(true); }, 1500);
     return () => { if (projectAutosaveTimerRef.current) clearTimeout(projectAutosaveTimerRef.current); };
-  }, [projectId, projectName, selection, query, analysis, filledLayerPreview, visibleLayerIndices, outputFormat, outputOrientation, customWidthMm, customHeightMm, materialThicknessMm, layerDistribution, layerCount, layerBoundaries, stackView, stackYaw, stackPitch, showTrueElevation, smoothingLevels, gridPitchMm, dowelDiameterMm, holeDiameterMm, holeEdgeClearanceMm, sheetRules, sheetCount, activeSheetIndex, sheetPlacements, workspaceView, assemblyLayerIndex, smoothingLayerIndex]);
+  }, [projectId, projectName, selection, query, analysis, filledLayerPreview, visibleLayerIndices, outputFormat, outputOrientation, customWidthMm, customHeightMm, materialThicknessMm, layerDistribution, layerCount, layerBoundaries, stackView, stackYaw, stackPitch, showTrueElevation, smoothingLevels, gridPitchMm, dowelDiameterMm, holeDiameterMm, holeEdgeClearanceMm, sheetRules, sheetCount, activeSheetIndex, sheetPlacements, rotationStepDeg, workspaceView, assemblyLayerIndex, smoothingLayerIndex]);
   const chosenOutput = outputDimensions(outputFormat, outputOrientation, customWidthMm, customHeightMm);
   aspectRatioRef.current = chosenOutput ? chosenOutput.width / chosenOutput.height : null;
 
@@ -2922,7 +3005,7 @@ export function MapWorkspace() {
       layers: { distribution: "log", count: DEFAULT_LAYER_COUNT, boundaries: [] },
       model: { stackView: "three-dimensional", stackYaw: 0, stackPitch: 34, showTrueElevation: true, smoothingLevels: {} },
       assembly: { gridPitchMm: 100, dowelDiameterMm: 4, holeDiameterMm: 4.2, holeEdgeClearanceMm: 6 },
-      layout: { sheetRules: { width: 1200, height: 600, thickness: 3, edgeMargin: 15, partSpacing: 8 }, sheetCount: 1, activeSheetIndex: 0, placements: [] },
+      layout: { sheetRules: { width: 1200, height: 600, thickness: 3, edgeMargin: 15, partSpacing: 8 }, sheetCount: 1, activeSheetIndex: 0, placements: [], rotationStepDeg: 5 },
       view: { workspaceView: "two-dimensional", assemblyLayerIndex: 0, smoothingLayerIndex: 0 },
     };
   }
@@ -2997,7 +3080,7 @@ export function MapWorkspace() {
       layers: { distribution: layerDistribution, count: layerCount, boundaries: layerBoundaries },
       model: { stackView, stackYaw, stackPitch, showTrueElevation, smoothingLevels },
       assembly: { gridPitchMm, dowelDiameterMm, holeDiameterMm, holeEdgeClearanceMm },
-      layout: { sheetRules, sheetCount, activeSheetIndex, placements: sheetPlacements },
+      layout: { sheetRules, sheetCount, activeSheetIndex, placements: sheetPlacements, rotationStepDeg },
       view: { workspaceView, assemblyLayerIndex, smoothingLayerIndex },
     };
   }
@@ -3062,6 +3145,7 @@ export function MapWorkspace() {
     setSheetCount(project.layout.sheetCount);
     setActiveSheetIndex(Math.min(project.layout.activeSheetIndex, Math.max(0, project.layout.sheetCount - 1)));
     setSheetPlacements(project.layout.placements);
+    setRotationStepDeg(project.layout.rotationStepDeg && project.layout.rotationStepDeg >= 1 ? project.layout.rotationStepDeg : 5);
     setSelectedPlacementId(null);
     setSelectedViolationIndex(null);
     setWorkspaceView(project.elevation.filledLayerPreview ? project.view.workspaceView : "two-dimensional");
@@ -3291,6 +3375,55 @@ export function MapWorkspace() {
     if (unplaced.length) setActiveSheetIndex(working[working.length - 1].sheetIndex);
   }
 
+  async function startNestingOptimiser() {
+    if (optimizerRunning || !layoutParts.length) return;
+    const placedOriginals = new Set(sheetPlacements.map((placement) => placement.partId));
+    const missing = layoutParts.filter((part) => !placedOriginals.has(part.id)).map((part) => ({ id: nextPlacementId(part.id), partId: part.id, preferredRotation: 0 }));
+    const instances = [
+      ...sheetPlacements.map((placement) => ({ id: placement.id, partId: placement.partId, preferredRotation: placement.rotation })),
+      ...missing,
+    ];
+    const partMap = new Map(layoutParts.map((part) => [part.id, part]));
+    let best = missing.length || layoutViolations.length ? null : [...sheetPlacements];
+    let bestFitness = best ? layoutFitness(best, partMap, sheetRules) : Number.POSITIVE_INFINITY;
+    let attempt = 0;
+    optimizerStopRef.current = false;
+    setOptimizerRunning(true);
+    setOptimizerStatus(`Searching with ${rotationStepDeg}° rotations. The current layout remains the fallback.`);
+    try {
+      while (!optimizerStopRef.current) {
+        const candidate = greedyNestingAttempt(instances, layoutParts, sheetRules, rotationStepDeg, attempt);
+        attempt += 1;
+        if (candidate) {
+          const fitness = layoutFitness(candidate, partMap, sheetRules);
+          if (fitness < bestFitness) {
+            best = candidate;
+            bestFitness = fitness;
+            const usedSheets = Math.max(...candidate.map((placement) => placement.sheetIndex)) + 1;
+            setSheetPlacements(candidate);
+            setSheetCount(usedSheets);
+            setActiveSheetIndex(0);
+            setSelectedPlacementId(null);
+            setSelectedViolationIndex(null);
+            setOptimizerStatus(`Improved after ${attempt} attempt${attempt === 1 ? "" : "s"}: ${usedSheets} sheet${usedSheets === 1 ? "" : "s"}. Continuing until Stop…`);
+          } else if (attempt % 5 === 0) {
+            const sheets = best?.length ? Math.max(...best.map((placement) => placement.sheetIndex)) + 1 : sheetCount;
+            setOptimizerStatus(`${attempt} attempts checked. Best remains ${sheets} sheet${sheets === 1 ? "" : "s"}; continuing…`);
+          }
+        } else if (attempt % 5 === 0) setOptimizerStatus(`${attempt} attempts checked. Some parts are difficult to place; continuing…`);
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+      }
+    } finally {
+      setOptimizerRunning(false);
+      setOptimizerStatus((current) => `${current.replace(/(?:; continuing…| Continuing until Stop…|; continuing until Stop…)?$/, "")} Search stopped; the best result is editable.`);
+    }
+  }
+
+  function stopNestingOptimiser() {
+    optimizerStopRef.current = true;
+    setOptimizerStatus("Stopping after the current placement attempt…");
+  }
+
   function sheetSvgExport(sheetIndex: number) {
     return buildSheetSvg(projectName || "Topomapper project", sheetIndex, sheetRules, layoutParts, sheetPlacements, holeDiameterMm);
   }
@@ -3300,9 +3433,8 @@ export function MapWorkspace() {
     if (!result.partCount) { setSheetExportStatus(`Sheet ${activeSheetIndex + 1} has no parts to export.`); return; }
     const stem = projectFilename(projectName || "topomapper-project").replace(/\.topomapper$/i, "");
     downloadFile(result.svg, "image/svg+xml;charset=utf-8", `${stem}-sheet-${activeSheetIndex + 1}.svg`);
-    const missing = result.missingLabels.length ? ` ${result.missingLabels.length} small part label${result.missingLabels.length === 1 ? "" : "s"} could not fit safely in waste.` : "";
     const warnings = layoutViolations.filter((violation) => violation.placementIds.some((id) => sheetPlacements.find((placement) => placement.id === id)?.sheetIndex === activeSheetIndex)).length;
-    setSheetExportStatus(`Sheet ${activeSheetIndex + 1} SVG downloaded with ${result.partCount} parts, ${result.onPartLabelCount} on-part IDs and ${result.wasteLabelCount} waste labels.${missing}${warnings ? ` Review ${warnings} DRC warning${warnings === 1 ? "" : "s"}.` : ""}`);
+    setSheetExportStatus(`Sheet ${activeSheetIndex + 1} cutting SVG downloaded with ${result.partCount} parts.${warnings ? ` Review ${warnings} DRC warning${warnings === 1 ? "" : "s"}.` : ""}`);
   }
 
   function downloadAllSheetSvgs() {
@@ -3319,19 +3451,55 @@ export function MapWorkspace() {
         `Stock: ${sheetRules.width} x ${sheetRules.height} x ${sheetRules.thickness} mm`,
         "CUT_OUTLINES: profile through the material",
         "DRILL_HOLES: drill through the material",
-        "ENGRAVE_PART_IDS: shallow 0.5 mm vector engraving",
-        "ENGRAVE_NORTH: shallow 0.5 mm north arrows",
-        "WASTE_LABELS: shallow 0.5 mm small-part IDs, north marks and leaders in waste",
         "SHEET_REFERENCE: visual reference only — do not machine",
+        "Part engraving is deferred. Use the printable layout guide to identify and orient parts by hand.",
         "",
         ...results.flatMap(({ sheetIndex, result }) => [
-          `Sheet ${sheetIndex + 1}: ${result.partCount} parts, ${result.onPartLabelCount} on-part labels, ${result.wasteLabelCount} waste labels${result.missingLabels.length ? `, UNPLACED LABELS: ${result.missingLabels.join(", ")}` : ""}`,
+          `Sheet ${sheetIndex + 1}: ${result.partCount} parts`,
         ]),
       ].join("\n"),
     });
     downloadFile(createZipArchive(files), "application/zip", `${stem}-sheets.zip`);
-    const missing = results.reduce((total, item) => total + item.result.missingLabels.length, 0);
-    setSheetExportStatus(`${populatedSheets.length} populated sheet SVG${populatedSheets.length === 1 ? "" : "s"} downloaded as a ZIP.${missing ? ` ${missing} waste label${missing === 1 ? "" : "s"} need manual placement.` : ""}`);
+    setSheetExportStatus(`${populatedSheets.length} populated cutting SVG${populatedSheets.length === 1 ? "" : "s"} downloaded as a ZIP.`);
+  }
+
+  async function downloadLayoutGuidePdf() {
+    const populatedSheets = Array.from({ length: sheetCount }, (_, index) => index).filter((index) => sheetPlacements.some((placement) => placement.sheetIndex === index));
+    if (!populatedSheets.length) { setSheetExportStatus("There are no placed parts for a layout guide."); return; }
+    const partMap = new Map(layoutParts.map((part) => [part.id, part]));
+    const sheets = populatedSheets.map((sheetIndex) => ({
+      index: sheetIndex,
+      parts: sheetPlacements.filter((placement) => placement.sheetIndex === sheetIndex).flatMap((placement) => {
+        const part = partMap.get(placement.partId);
+        if (!part) return [];
+        const label = rotateLayoutPoint(part.labelPoint, part, placement.rotation);
+        const north = rotateLayoutPoint({ x: part.labelPoint.x, y: part.labelPoint.y - 10 }, part, placement.rotation);
+        return [{
+          id: part.id,
+          rotation: placement.rotation,
+          rings: placedPartRings(placement, part),
+          label_point: { x: label.x + placement.x, y: label.y + placement.y },
+          north_point: { x: north.x + placement.x, y: north.y + placement.y },
+        }];
+      }),
+    }));
+    setSheetExportStatus("Creating the printable layout and orientation guide…");
+    try {
+      const response = await fetch(`${PROCESSOR_ENDPOINT}/layout-guide`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ project_name: projectName || "Topomapper project", sheet_width_mm: sheetRules.width, sheet_height_mm: sheetRules.height, edge_margin_mm: sheetRules.edgeMargin, sheets }),
+      });
+      if (!response.ok) {
+        const detail = await response.json().catch(() => ({})) as { error?: string };
+        throw new Error(detail.error || `The layout guide service returned ${response.status}.`);
+      }
+      const stem = projectFilename(projectName || "topomapper-project").replace(/\.topomapper$/i, "");
+      downloadFile(await response.blob(), "application/pdf", `${stem}-layout-guide.pdf`);
+      setSheetExportStatus(`Printable guide downloaded for ${populatedSheets.length} sheet${populatedSheets.length === 1 ? "" : "s"}, with part IDs, rotations and assembly-north arrows.`);
+    } catch (error) {
+      setSheetExportStatus(`${error instanceof Error ? error.message : "The printable guide could not be created."} Restart Topomapper if its local processor was already running before this update.`);
+    }
   }
 
   function downloadSelectedLayerSvg() {
@@ -3929,9 +4097,13 @@ export function MapWorkspace() {
             <label>Material <span><input type="number" min="0.5" step="0.5" value={sheetRules.thickness} onChange={(event) => setSheetRules((rules) => ({ ...rules, thickness: Math.max(.5, Number(event.target.value)) }))} /> mm</span></label>
             <label>Edge zone <span><input type="number" min="0" step="1" value={sheetRules.edgeMargin} onChange={(event) => setSheetRules((rules) => ({ ...rules, edgeMargin: Math.max(0, Number(event.target.value)) }))} /> mm</span></label>
             <label>Part spacing <span><input type="number" min="0" step="1" value={sheetRules.partSpacing} onChange={(event) => setSheetRules((rules) => ({ ...rules, partSpacing: Math.max(0, Number(event.target.value)) }))} /> mm</span></label>
+            <label>Rotation <span><select value={rotationStepDeg} onChange={(event) => setRotationStepDeg(Number(event.target.value))}><option value={1}>1°</option><option value={2}>2°</option><option value={5}>5°</option><option value={10}>10°</option><option value={15}>15°</option></select></span></label>
             <button onClick={autoLayoutUnplaced}>Auto layout unplaced</button>
             <button onClick={addReplacementSheet}>+ Replacement sheet</button>
+            <button disabled={optimizerRunning || !layoutParts.length} onClick={() => void startNestingOptimiser()}>Optimise continuously</button>
+            <button disabled={!optimizerRunning} onClick={stopNestingOptimiser}>Stop</button>
           </div>
+          <p className={`optimizer-status ${optimizerRunning ? "running" : ""}`} role="status">{optimizerStatus}</p>
           <div className="sheet-tabs" aria-label="Material sheets">
             {Array.from({ length: sheetCount }, (_, index) => <button key={index} className={index === activeSheetIndex ? "active" : ""} onClick={() => { setActiveSheetIndex(index); setSelectedPlacementId(null); setSheetZoom(1); setSheetViewCenter({ x: sheetRules.width / 2, y: sheetRules.height / 2 }); }}>Sheet {index + 1}<small>{sheetPlacements.filter((placement) => placement.sheetIndex === index).length} parts</small></button>)}
             <div className="sheet-view-controls"><span>View</span>{[1, 2, 4, 8].map((value) => <button key={value} className={sheetZoom === value ? "active" : ""} onClick={() => setSheetZoom(value)}>{value}×</button>)}<button onClick={() => { setSheetZoom(1); setSheetViewCenter({ x: sheetRules.width / 2, y: sheetRules.height / 2 }); }}>Fit</button><button disabled={!selectedPlacement} onClick={() => selectedPlacement && focusSheetPlacement(selectedPlacement)}>Focus selected</button><button disabled={!selectedPlacement} onClick={() => { setSelectedPlacementId(null); setSelectedViolationIndex(null); }}>Deselect</button></div>
@@ -3961,12 +4133,13 @@ export function MapWorkspace() {
               <div className="sheet-export-actions">
                 <button disabled={!sheetPlacements.some((placement) => placement.sheetIndex === activeSheetIndex)} onClick={downloadActiveSheetSvg}>Download Sheet {activeSheetIndex + 1} SVG</button>
                 <button disabled={!sheetPlacements.length} onClick={downloadAllSheetSvgs}>Download all sheet SVGs</button>
+                <button disabled={!sheetPlacements.length} onClick={() => void downloadLayoutGuidePdf()}>Download printable layout guide PDF</button>
               </div>
               <p className="sheet-export-status" role="status">{sheetExportStatus}</p>
               {selectedPlacement && (
                 <div className="selected-placement-controls">
                   <strong>{selectedPlacement.partId}</strong><span>Sheet {selectedPlacement.sheetIndex + 1} · {selectedPlacement.rotation}° · X {selectedPlacement.x.toFixed(1)}, Y {selectedPlacement.y.toFixed(1)} mm</span>
-                  <div><button onClick={() => updateSheetPlacement(selectedPlacement.id, { rotation: (selectedPlacement.rotation + 345) % 360 })}>−15°</button><button onClick={() => updateSheetPlacement(selectedPlacement.id, { rotation: (selectedPlacement.rotation + 15) % 360 })}>+15°</button><button onClick={() => updateSheetPlacement(selectedPlacement.id, { rotation: (selectedPlacement.rotation + 90) % 360 })}>+90°</button><button onClick={() => { setSheetPlacements((current) => current.filter((placement) => placement.id !== selectedPlacement.id)); setSelectedPlacementId(null); }}>Remove</button></div>
+                  <div><button onClick={() => updateSheetPlacement(selectedPlacement.id, { rotation: (selectedPlacement.rotation + 359) % 360 })}>−1°</button><button onClick={() => updateSheetPlacement(selectedPlacement.id, { rotation: (selectedPlacement.rotation + 1) % 360 })}>+1°</button><button onClick={() => updateSheetPlacement(selectedPlacement.id, { rotation: (selectedPlacement.rotation + 360 - rotationStepDeg) % 360 })}>−{rotationStepDeg}°</button><button onClick={() => updateSheetPlacement(selectedPlacement.id, { rotation: (selectedPlacement.rotation + rotationStepDeg) % 360 })}>+{rotationStepDeg}°</button><button onClick={() => updateSheetPlacement(selectedPlacement.id, { rotation: (selectedPlacement.rotation + 90) % 360 })}>+90°</button><button onClick={() => { setSheetPlacements((current) => current.filter((placement) => placement.id !== selectedPlacement.id)); setSelectedPlacementId(null); }}>Remove</button></div>
                 </div>
               )}
               <label className="part-library-search">Parts library<input value={partLibraryFilter} onChange={(event) => setPartLibraryFilter(event.target.value)} placeholder="Find L06C…" /></label>

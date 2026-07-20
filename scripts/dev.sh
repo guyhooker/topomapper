@@ -12,7 +12,7 @@ if [ ! -x "$VENV/bin/python3" ]; then
   "$VENV/bin/python3" -m pip install -r "$ROOT/processing/requirements.txt"
 fi
 
-if ! "$VENV/bin/python3" -c "import rasterio" >/dev/null 2>&1; then
+if ! "$VENV/bin/python3" -c "import rasterio, reportlab" >/dev/null 2>&1; then
   echo "Repairing Topomapper's local elevation tools…"
   "$VENV/bin/python3" -m pip install -r "$ROOT/processing/requirements.txt"
 fi

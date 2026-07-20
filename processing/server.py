@@ -12,11 +12,13 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from analyse import AnalysisError, analyse_geotiffs, generate_filled_layers
+from layout_guide import LayoutGuideError, generate_layout_guide
 
 
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("TOPOMAPPER_PROCESSING_PORT", "8765"))
 MAX_UPLOAD_BYTES = 4 * 1024 * 1024 * 1024
+MAX_GUIDE_BYTES = 64 * 1024 * 1024
 
 
 class RequestHandler(BaseHTTPRequestHandler):
@@ -41,6 +43,15 @@ class RequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(encoded)
 
+    def _send_bytes(self, status: int, contents: bytes, content_type: str) -> None:
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(contents)))
+        self.send_header("Access-Control-Allow-Origin", self._allowed_origin())
+        self.send_header("Vary", "Origin")
+        self.end_headers()
+        self.wfile.write(contents)
+
     def do_OPTIONS(self) -> None:  # noqa: N802
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", self._allowed_origin())
@@ -57,13 +68,16 @@ class RequestHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         request_path = urlparse(self.path).path
-        if request_path not in {"/analyze", "/layers"}:
+        if request_path not in {"/analyze", "/layers", "/layout-guide"}:
             self._send_json(404, {"error": "Not found"})
             return
         try:
             length = int(self.headers.get("Content-Length", "0"))
         except ValueError:
             length = 0
+        if request_path == "/layout-guide":
+            self._create_layout_guide(length)
+            return
         if length <= 0:
             self._send_json(400, {"error": "No GeoTIFF was supplied."})
             return
@@ -125,6 +139,28 @@ class RequestHandler(BaseHTTPRequestHandler):
         finally:
             for temporary_path in temporary_paths:
                 temporary_path.unlink(missing_ok=True)
+
+    def _create_layout_guide(self, length: int) -> None:
+        if length <= 0:
+            self._send_json(400, {"error": "No layout was supplied."})
+            return
+        if length > MAX_GUIDE_BYTES:
+            self._send_json(413, {"error": "The layout guide request is larger than the 64 MB local limit."})
+            return
+        if not self.headers.get("Content-Type", "").startswith("application/json"):
+            self._send_json(400, {"error": "The layout guide request must be JSON."})
+            return
+        try:
+            payload = json.loads(self.rfile.read(length))
+            if not isinstance(payload, dict):
+                raise LayoutGuideError("The layout guide request is malformed.")
+            self._send_bytes(200, generate_layout_guide(payload), "application/pdf")
+        except LayoutGuideError as error:
+            self._send_json(422, {"error": str(error)})
+        except json.JSONDecodeError:
+            self._send_json(400, {"error": "The layout guide request could not be read."})
+        except Exception as error:
+            self._send_json(500, {"error": f"The printable layout guide failed: {error}"})
 
 
 def main() -> None:

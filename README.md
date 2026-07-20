@@ -89,14 +89,15 @@ statistics. Frame-contact edges remain locked straight, and cleaned geometry
 feeds the 3D, Assembly, Manufacture, and SVG outputs.
 
 Stage 10 adds PCB-style manual sheet layout. It provides configurable stock,
-edge-zone and part-spacing rules; drag and 15-degree rotation; multiple sheets;
+edge-zone and part-spacing rules; drag and fine rotation; multiple sheets;
 live non-blocking DRC warnings; a reusable parts library; replacement copies;
 and an editable first-fit Auto layout. DRC uses actual transformed coastline
 paths for part-to-part clearance.
 Visible clearance halos turn red on collision, tiny parts retain a practical
 screen hit target, and 1×–8× zoom, empty-sheet panning, library selection, and
 Focus selected make small replacement pieces manageable.
-Manual rotation is available in 15° steps, Auto layout fills from left to right,
+Manual rotation is available in selectable 1°, 2°, 5°, 10°, or 15° steps (with
+direct 1° nudges), Auto layout fills from left to right,
 and selecting either a part or a DRC warning highlights its linked counterpart.
 Precise coastline DRC pauses while a part is being dragged and recalculates on
 release, keeping pointer movement responsive without weakening the final check.
@@ -106,7 +107,13 @@ Rotated sheet-edge checks and pointer selection follow the actual part outline,
 not the empty corners of its enclosing rectangle. A Deselect control also makes
 it possible to return directly to empty-sheet panning.
 Each populated stock sheet can now be exported at finished size as SVG, or all
-sheets can be downloaded in one ZIP. Separate Inkscape-compatible layers hold
-profile cuts, through-drilling, 0.5 mm part-ID engraving, north arrows, and
-waste-area labels. IDs are abbreviated (`L04A` becomes `4A`) and emitted as
-single-line vector paths rather than font-dependent text.
+sheets can be downloaded in one ZIP. The current cutting SVG deliberately
+contains only profile cuts, through-drilling, and a non-machining stock
+reference; machine engraving has been deferred until the cutter/tool-change
+workflow is settled.
+
+Stage 11 begins an interruptible polygon-aware nesting search. It keeps the
+best valid layout found so far, favours fewer sheets before a compact envelope,
+and leaves every result manually editable. A separate A4 landscape PDF guide
+maps every sheet, labels all parts, preserves assembly-north arrows after
+arbitrary stock rotation, and includes a part/rotation index for hand labelling.

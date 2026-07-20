@@ -1,5 +1,5 @@
 type Point = { x: number; y: number };
-type Part = { id: string; width: number; height: number; areaMm2: number; rings: Point[][] };
+type Part = { id: string; width: number; height: number; areaMm2: number; rings: Point[][]; searchErrorMm?: number };
 type Placement = { id: string; partId: string; sheetIndex: number; x: number; y: number; rotation: number };
 type Instance = { id: string; partId: string; preferredRotation: number };
 type Rules = { width: number; height: number; edgeMargin: number; partSpacing: number };
@@ -108,8 +108,9 @@ function fits(candidate: Placement, placements: Placement[], partMap: Map<string
     const otherPart = partMap.get(placement.partId);
     if (!otherPart) return true;
     const otherBounds = bounds(placement, otherPart);
-    if (candidateBounds.right + rules.partSpacing <= otherBounds.left || otherBounds.right + rules.partSpacing <= candidateBounds.left || candidateBounds.bottom + rules.partSpacing <= otherBounds.top || otherBounds.bottom + rules.partSpacing <= candidateBounds.top) return true;
-    return clearance(candidate, part, placement, otherPart) >= rules.partSpacing;
+    const safeSpacing = rules.partSpacing + (part.searchErrorMm ?? 0) + (otherPart.searchErrorMm ?? 0) + .25;
+    if (candidateBounds.right + safeSpacing <= otherBounds.left || otherBounds.right + safeSpacing <= candidateBounds.left || candidateBounds.bottom + safeSpacing <= otherBounds.top || otherBounds.bottom + safeSpacing <= candidateBounds.top) return true;
+    return clearance(candidate, part, placement, otherPart) >= safeSpacing;
   });
 }
 
@@ -142,7 +143,8 @@ function sampledContactAnchors(instance: Instance, part: Part, rotation: number,
         { x: -(next.y - stationary.y) / edgeLength, y: (next.x - stationary.x) / edgeLength },
         { x: (next.y - stationary.y) / edgeLength, y: -(next.x - stationary.x) / edgeLength },
       ];
-      for (const direction of directions) anchors.push({ x: stationary.x - moving.x + direction.x * spacing, y: stationary.y - moving.y + direction.y * spacing });
+      const safeSpacing = spacing + (part.searchErrorMm ?? 0) + (stationaryPart.searchErrorMm ?? 0);
+      for (const direction of directions) anchors.push({ x: stationary.x - moving.x + direction.x * safeSpacing, y: stationary.y - moving.y + direction.y * safeSpacing });
     }
   }
   return anchors;
@@ -154,6 +156,7 @@ function attempt(jobValue: Job) {
   // saved starting arrangement contains overlaps or off-sheet pieces.
   const searchParts = jobValue.attempt === 0 ? jobValue.parts.map((part) => ({
     ...part,
+    searchErrorMm: 0,
     rings: [[{ x: 0, y: 0 }, { x: part.width, y: 0 }, { x: part.width, y: part.height }, { x: 0, y: part.height }, { x: 0, y: 0 }]],
   })) : jobValue.parts;
   const partMap = new Map(searchParts.map((part) => [part.id, part]));
@@ -181,7 +184,7 @@ function attempt(jobValue: Job) {
       }
       for (let sample = 0; sample < 10; sample += 1) anchors.push({ left: jobValue.rules.edgeMargin + Math.pow(Math.random(), 1.8) * Math.max(0, jobValue.rules.width - jobValue.rules.edgeMargin * 2 - part.width), top: jobValue.rules.edgeMargin + Math.random() * Math.max(0, jobValue.rules.height - jobValue.rules.edgeMargin * 2 - part.height) });
       for (const rotation of rotations) {
-        const contactAnchors = jobValue.attempt === 0 ? [] : sampledContactAnchors(instance, part, rotation, existing, partMap, jobValue.rules.partSpacing + 1.5, jobValue.attempt);
+        const contactAnchors = jobValue.attempt === 0 ? [] : sampledContactAnchors(instance, part, rotation, existing, partMap, jobValue.rules.partSpacing + .25, jobValue.attempt);
         const candidates = [
           ...anchors.map((anchor) => atOrigin(instance, part, sheetIndex, anchor.left, anchor.top, rotation)),
           ...contactAnchors.map((anchor) => ({ id: instance.id, partId: instance.partId, sheetIndex, x: anchor.x, y: anchor.y, rotation })),

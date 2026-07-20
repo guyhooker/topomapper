@@ -458,4 +458,16 @@
   rotation, and paginated part indexes with rotation, position, and size.
 - Rendered and visually checked a two-page synthetic PDF; overview labels,
   arrows, margins, index table, page size, and print legibility are correct.
+- Reproduced the optimiser against an exported real terrain project after valid
+  layouts appeared motionless. The worker was rotating and relocating parts,
+  but simplified coastlines omitted enough detail for every tighter trial to
+  fail the final full-resolution clearance check.
+- Each simplified search outline now records its maximum geometric deviation.
+  Pairwise searches add both parts' measured deviations to the requested design
+  rule, so fast background trials remain conservative when checked against the
+  original coastlines.
+- Optimiser status now distinguishes a failed full-resolution trial from a
+  valid trial that is less compact than the saved layout, including its sheet
+  count and number of rotated parts. A strong manual layout therefore remains
+  unchanged for an explicit reason rather than appearing inactive.
 - Frontend production build and Python syntax checks pass successfully.

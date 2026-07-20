@@ -146,6 +146,7 @@ type LayoutPart = {
   machineLabel: boolean;
   rings: { x: number; y: number }[][];
   holes: { x: number; y: number; kind: "grid" | "vent" }[];
+  searchErrorMm?: number;
 };
 
 type SheetPlacement = {
@@ -905,29 +906,40 @@ function layoutFitness(placements: SheetPlacement[], partMap: Map<string, Layout
 }
 
 function simplifyLayoutPartForSearch(part: LayoutPart, maximumPoints = 64): LayoutPart {
+  let searchErrorMm = 0;
+  const simplifiedRings = part.rings.map((ring) => {
+    if (ring.length <= maximumPoints) return ring;
+    const step = Math.max(1, Math.ceil(ring.length / maximumPoints));
+    const required = new Set([0, ring.length - 1]);
+    let minimumX = 0;
+    let maximumX = 0;
+    let minimumY = 0;
+    let maximumY = 0;
+    ring.forEach((point, index) => {
+      if (point.x < ring[minimumX].x) minimumX = index;
+      if (point.x > ring[maximumX].x) maximumX = index;
+      if (point.y < ring[minimumY].y) minimumY = index;
+      if (point.y > ring[maximumY].y) maximumY = index;
+      if (index % step === 0) required.add(index);
+    });
+    required.add(minimumX);
+    required.add(maximumX);
+    required.add(minimumY);
+    required.add(maximumY);
+    const simplified = [...required].sort((left, right) => left - right).map((index) => ring[index]);
+    ring.forEach((point) => {
+      let distance = Number.POSITIVE_INFINITY;
+      for (let index = 1; index < simplified.length; index += 1) {
+        distance = Math.min(distance, distanceToSegment(point, simplified[index - 1], simplified[index]));
+      }
+      searchErrorMm = Math.max(searchErrorMm, distance);
+    });
+    return simplified;
+  });
   return {
     ...part,
-    rings: part.rings.map((ring) => {
-      if (ring.length <= maximumPoints) return ring;
-      const step = Math.max(1, Math.ceil(ring.length / maximumPoints));
-      const required = new Set([0, ring.length - 1]);
-      let minimumX = 0;
-      let maximumX = 0;
-      let minimumY = 0;
-      let maximumY = 0;
-      ring.forEach((point, index) => {
-        if (point.x < ring[minimumX].x) minimumX = index;
-        if (point.x > ring[maximumX].x) maximumX = index;
-        if (point.y < ring[minimumY].y) minimumY = index;
-        if (point.y > ring[maximumY].y) maximumY = index;
-        if (index % step === 0) required.add(index);
-      });
-      required.add(minimumX);
-      required.add(maximumX);
-      required.add(minimumY);
-      required.add(maximumY);
-      return [...required].sort((left, right) => left - right).map((index) => ring[index]);
-    }),
+    rings: simplifiedRings,
+    searchErrorMm,
   };
 }
 
@@ -3439,11 +3451,10 @@ export function MapWorkspace() {
       try {
         if (candidate) {
           const fitness = layoutFitness(candidate, partMap, sheetRules);
-          if (fitness < bestFitness) {
-            const preciseViolations = checkLayoutRules(candidate, layoutParts, sheetRules);
-            if (preciseViolations.length) {
-              if (attempt % 3 === 0) setOptimizerStatus(`${attempt} attempts checked. A tighter preview failed the full-resolution DRC; continuing safely…`);
-            } else {
+          const preciseViolations = checkLayoutRules(candidate, layoutParts, sheetRules);
+          if (preciseViolations.length) {
+            setOptimizerStatus(`Attempt ${attempt} moved and rotated parts, but ${preciseViolations.length} full-resolution clearance check${preciseViolations.length === 1 ? "" : "s"} failed; continuing safely…`);
+          } else if (fitness < bestFitness) {
               best = candidate;
               bestFitness = fitness;
               const usedSheets = Math.max(...candidate.map((placement) => placement.sheetIndex)) + 1;
@@ -3455,10 +3466,16 @@ export function MapWorkspace() {
               const rotated = candidate.filter((placement) => Math.abs(placement.rotation % 360) > .01);
               const examples = rotated.slice(0, 4).map((placement) => `${placement.partId} ${placement.rotation}°`).join(", ");
               setOptimizerStatus(`Improved after ${attempt} attempt${attempt === 1 ? "" : "s"}: ${usedSheets} sheet${usedSheets === 1 ? "" : "s"}, ${rotated.length} rotated part${rotated.length === 1 ? "" : "s"}${examples ? ` (${examples}${rotated.length > 4 ? ", …" : ""})` : ""}. Background search continues until Stop…`);
-            }
-          } else if (attempt % 5 === 0) {
-            const sheets = best?.length ? Math.max(...best.map((placement) => placement.sheetIndex)) + 1 : sheetCount;
-            setOptimizerStatus(`${attempt} attempts checked. Best remains ${sheets} sheet${sheets === 1 ? "" : "s"}; continuing…`);
+          } else {
+            const trialSheets = Math.max(...candidate.map((placement) => placement.sheetIndex)) + 1;
+            const bestSheets = best?.length ? Math.max(...best.map((placement) => placement.sheetIndex)) + 1 : sheetCount;
+            const rotated = candidate.filter((placement) => Math.abs(placement.rotation % 360) > .01).length;
+            const trialCompactness = fitness - trialSheets * 1e12;
+            const bestCompactness = bestFitness - bestSheets * 1e12;
+            const difference = trialSheets === bestSheets && bestCompactness > 0
+              ? Math.max(0, (trialCompactness / bestCompactness - 1) * 100)
+              : null;
+            setOptimizerStatus(`Attempt ${attempt} produced a valid ${trialSheets}-sheet trial with ${rotated} rotated part${rotated === 1 ? "" : "s"}, but it was ${difference === null ? "not better than" : `${difference.toFixed(1)}% less compact than`} the current best; continuing…`);
           }
         } else if (attempt % 5 === 0) setOptimizerStatus(`${attempt} attempts checked. Some parts are difficult to place; continuing…`);
       } finally {
@@ -3478,7 +3495,7 @@ export function MapWorkspace() {
       instances,
       parts: layoutParts.map((part) => {
         const simplified = simplifyLayoutPartForSearch(part, 48);
-        return { id: simplified.id, width: simplified.width, height: simplified.height, areaMm2: simplified.areaMm2, rings: simplified.rings };
+        return { id: simplified.id, width: simplified.width, height: simplified.height, areaMm2: simplified.areaMm2, rings: simplified.rings, searchErrorMm: simplified.searchErrorMm };
       }),
       rules: sheetRules,
       rotationStep: rotationStepDeg,

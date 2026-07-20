@@ -35,6 +35,13 @@ function bounds(placement: Placement, part: Part) {
   };
 }
 
+function envelopeBounds(placement: Placement, part: Part) {
+  const radians = placement.rotation * Math.PI / 180;
+  const cosine = Math.abs(Math.cos(radians));
+  const sine = Math.abs(Math.sin(radians));
+  return { left: placement.x, top: placement.y, right: placement.x + part.width * cosine + part.height * sine, bottom: placement.y + part.width * sine + part.height * cosine };
+}
+
 function pointInRing(point: Point, ring: Point[]) {
   let inside = false;
   for (let index = 0, previous = ring.length - 1; index < ring.length; previous = index, index += 1) {
@@ -94,7 +101,7 @@ function clearance(leftPlacement: Placement, leftPart: Part, rightPlacement: Pla
 function fits(candidate: Placement, placements: Placement[], partMap: Map<string, Part>, rules: Rules) {
   const part = partMap.get(candidate.partId);
   if (!part) return false;
-  const candidateBounds = bounds(candidate, part);
+  const candidateBounds = envelopeBounds(candidate, part);
   if (candidateBounds.left < rules.edgeMargin || candidateBounds.top < rules.edgeMargin || candidateBounds.right > rules.width - rules.edgeMargin || candidateBounds.bottom > rules.height - rules.edgeMargin) return false;
   return placements.every((placement) => {
     if (placement.sheetIndex !== candidate.sheetIndex) return true;
@@ -107,9 +114,38 @@ function fits(candidate: Placement, placements: Placement[], partMap: Map<string
 }
 
 function atOrigin(instance: Instance, part: Part, sheetIndex: number, left: number, top: number, rotation: number): Placement {
-  const provisional = { id: instance.id, partId: instance.partId, sheetIndex, x: 0, y: 0, rotation };
-  const outline = bounds(provisional, part);
-  return { ...provisional, x: left - outline.left, y: top - outline.top };
+  return { id: instance.id, partId: instance.partId, sheetIndex, x: left, y: top, rotation };
+}
+
+function sampledContactAnchors(instance: Instance, part: Part, rotation: number, existing: Placement[], partMap: Map<string, Part>, spacing: number, attemptIndex: number) {
+  const movingPlacement = atOrigin(instance, part, 0, 0, 0, rotation);
+  const movingRing = rings(movingPlacement, part)[0];
+  if (!movingRing?.length) return [];
+  const anchors: { x: number; y: number }[] = [];
+  for (const placement of existing) {
+    const stationaryPart = partMap.get(placement.partId);
+    if (!stationaryPart) continue;
+    const stationaryRing = rings(placement, stationaryPart)[0];
+    if (!stationaryRing?.length) continue;
+    const stationaryCentre = stationaryRing.reduce((total, point) => ({ x: total.x + point.x / stationaryRing.length, y: total.y + point.y / stationaryRing.length }), { x: 0, y: 0 });
+    const samples = Math.min(5, stationaryRing.length, movingRing.length);
+    for (let sample = 0; sample < samples; sample += 1) {
+      const stationaryIndex = (attemptIndex * 7 + sample * Math.max(1, Math.floor(stationaryRing.length / samples))) % stationaryRing.length;
+      const movingIndex = (attemptIndex * 11 + sample * Math.max(1, Math.floor(movingRing.length / samples))) % movingRing.length;
+      const stationary = stationaryRing[stationaryIndex];
+      const moving = movingRing[movingIndex];
+      const next = stationaryRing[(stationaryIndex + 1) % stationaryRing.length];
+      const radialLength = Math.max(.001, Math.hypot(stationary.x - stationaryCentre.x, stationary.y - stationaryCentre.y));
+      const edgeLength = Math.max(.001, Math.hypot(next.x - stationary.x, next.y - stationary.y));
+      const directions = [
+        { x: (stationary.x - stationaryCentre.x) / radialLength, y: (stationary.y - stationaryCentre.y) / radialLength },
+        { x: -(next.y - stationary.y) / edgeLength, y: (next.x - stationary.x) / edgeLength },
+        { x: (next.y - stationary.y) / edgeLength, y: -(next.x - stationary.x) / edgeLength },
+      ];
+      for (const direction of directions) anchors.push({ x: stationary.x - moving.x + direction.x * spacing, y: stationary.y - moving.y + direction.y * spacing });
+    }
+  }
+  return anchors;
 }
 
 function attempt(jobValue: Job) {
@@ -144,12 +180,18 @@ function attempt(jobValue: Job) {
         anchors.push({ left: outline.right + jobValue.rules.partSpacing, top: outline.top }, { left: outline.left, top: outline.bottom + jobValue.rules.partSpacing }, { left: outline.right + jobValue.rules.partSpacing, top: jobValue.rules.edgeMargin }, { left: jobValue.rules.edgeMargin, top: outline.bottom + jobValue.rules.partSpacing });
       }
       for (let sample = 0; sample < 10; sample += 1) anchors.push({ left: jobValue.rules.edgeMargin + Math.pow(Math.random(), 1.8) * Math.max(0, jobValue.rules.width - jobValue.rules.edgeMargin * 2 - part.width), top: jobValue.rules.edgeMargin + Math.random() * Math.max(0, jobValue.rules.height - jobValue.rules.edgeMargin * 2 - part.height) });
-      for (const rotation of rotations) for (const anchor of anchors) {
-        const candidate = atOrigin(instance, part, sheetIndex, anchor.left, anchor.top, rotation);
+      for (const rotation of rotations) {
+        const contactAnchors = jobValue.attempt === 0 ? [] : sampledContactAnchors(instance, part, rotation, existing, partMap, jobValue.rules.partSpacing + 1.5, jobValue.attempt);
+        const candidates = [
+          ...anchors.map((anchor) => atOrigin(instance, part, sheetIndex, anchor.left, anchor.top, rotation)),
+          ...contactAnchors.map((anchor) => ({ id: instance.id, partId: instance.partId, sheetIndex, x: anchor.x, y: anchor.y, rotation })),
+        ];
+        for (const candidate of candidates) {
         if (!fits(candidate, placed, partMap, jobValue.rules)) continue;
         const outline = bounds(candidate, part);
         const score = sheetIndex * 1e10 + outline.bottom * 1e5 + outline.right;
         if (score < bestScore) { best = candidate; bestScore = score; }
+        }
       }
     }
     if (!best) {

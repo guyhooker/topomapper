@@ -3452,7 +3452,9 @@ export function MapWorkspace() {
               setActiveSheetIndex(0);
               setSelectedPlacementId(null);
               setSelectedViolationIndex(null);
-              setOptimizerStatus(`Improved after ${attempt} attempt${attempt === 1 ? "" : "s"}: ${usedSheets} sheet${usedSheets === 1 ? "" : "s"}. Background search continues until Stop…`);
+              const rotated = candidate.filter((placement) => Math.abs(placement.rotation % 360) > .01);
+              const examples = rotated.slice(0, 4).map((placement) => `${placement.partId} ${placement.rotation}°`).join(", ");
+              setOptimizerStatus(`Improved after ${attempt} attempt${attempt === 1 ? "" : "s"}: ${usedSheets} sheet${usedSheets === 1 ? "" : "s"}, ${rotated.length} rotated part${rotated.length === 1 ? "" : "s"}${examples ? ` (${examples}${rotated.length > 4 ? ", …" : ""})` : ""}. Background search continues until Stop…`);
             }
           } else if (attempt % 5 === 0) {
             const sheets = best?.length ? Math.max(...best.map((placement) => placement.sheetIndex)) + 1 : sheetCount;
@@ -4166,7 +4168,7 @@ export function MapWorkspace() {
             <label>Rotation <span><select value={rotationStepDeg} onChange={(event) => setRotationStepDeg(Number(event.target.value))}><option value={1}>1°</option><option value={2}>2°</option><option value={5}>5°</option><option value={10}>10°</option><option value={15}>15°</option></select></span></label>
             <button onClick={autoLayoutUnplaced}>Auto layout unplaced</button>
             <button onClick={addReplacementSheet}>+ Replacement sheet</button>
-            <button disabled={optimizerRunning || !layoutParts.length} onClick={() => void startNestingOptimiser()}>Optimise continuously</button>
+            <button disabled={optimizerRunning || !layoutParts.length} onClick={() => void startNestingOptimiser()}>Optimise irregular shapes</button>
             <button disabled={!optimizerRunning} onClick={stopNestingOptimiser}>Stop</button>
           </div>
           <p className={`optimizer-status ${optimizerRunning ? "running" : ""}`} role="status">{optimizerStatus}</p>

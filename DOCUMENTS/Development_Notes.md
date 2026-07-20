@@ -152,6 +152,17 @@
   Attempt 1 now uses conservative rotated part envelopes to guarantee an
   on-sheet, non-overlapping recovery layout before tighter polygon searches.
   The worker also reports placed-part progress throughout every attempt.
+- Replaced the later rectangular-anchor-only search with sampled polygon-contact
+  candidates. Rotated coastline vertices are aligned to vertices and edge
+  normals of already placed parts, then filtered by polygon clearance and the
+  final full-resolution DRC. Randomised order and rotation genes explore new
+  contact combinations on every pass, allowing concave gaps to be used rather
+  than treating every part as a permanent rectangle.
+- Renamed the action to Optimise irregular shapes and report the count and
+  examples of non-zero rotations whenever an improved layout is accepted.
+- A deterministic worker test with four concave L-shaped parts confirmed that
+  the recovery pass selected a 90° rotation and subsequent contact passes used
+  independent 180° and 270° rotations with non-rectangular placements.
 - Rasterio was installed successfully by the first normal Terminal start. The
   protected Codex environment could not download it independently, so later
   regression checks reused Topomapper's isolated project environment.

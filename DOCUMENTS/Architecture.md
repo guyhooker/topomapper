@@ -99,7 +99,8 @@ geometry at an explicitly chosen physical scale and simplification tolerance.
   screen-space proximity target.
 - Automatic nesting is an anytime polygon-aware heuristic: randomised
   large-first orders, sampled rotations at the selected angular resolution,
-  outline-derived anchors, and exact DRC clearance. It publishes only improved
+  sampled no-fit-boundary contacts between rotated coastline vertices and edge
+  normals, and exact DRC clearance. It publishes only improved
   editable results, ranks sheet count before compact envelope and used width,
   and continues until
   the user stops it. A future no-fit-polygon/genetic engine can replace the

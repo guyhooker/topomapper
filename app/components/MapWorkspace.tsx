@@ -3425,8 +3425,16 @@ export function MapWorkspace() {
     optimizerWorkerRef.current = worker;
     setOptimizerRunning(true);
     setOptimizerStatus(`Background search started with ${rotationStepDeg}° rotations. The current layout remains editable and responsive.`);
-    worker.onmessage = (event: MessageEvent<{ type: "attempt"; runId: number; attempt: number; candidate: SheetPlacement[] | null }>) => {
-      if (event.data.type !== "attempt" || event.data.runId !== runId || optimizerWorkerRef.current !== worker) return;
+    worker.onmessage = (event: MessageEvent<
+      | { type: "attempt"; runId: number; attempt: number; candidate: SheetPlacement[] | null }
+      | { type: "progress"; runId: number; attempt: number; placed: number; total: number; recovery: boolean }
+    >) => {
+      if (event.data.runId !== runId || optimizerWorkerRef.current !== worker) return;
+      if (event.data.type === "progress") {
+        setOptimizerStatus(`${event.data.recovery ? "Building a safe recovery layout" : `Attempt ${event.data.attempt}`}: placed ${event.data.placed} of ${event.data.total} parts in the background…`);
+        return;
+      }
+      if (event.data.type !== "attempt") return;
       const { candidate, attempt } = event.data;
       try {
         if (candidate) {

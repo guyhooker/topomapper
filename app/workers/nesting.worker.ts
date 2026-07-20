@@ -113,12 +113,20 @@ function atOrigin(instance: Instance, part: Part, sheetIndex: number, left: numb
 }
 
 function attempt(jobValue: Job) {
-  const partMap = new Map(jobValue.parts.map((part) => [part.id, part]));
+  // The first pass deliberately uses each part's complete rectangular envelope.
+  // It is conservative but guarantees a valid recovery layout even when the
+  // saved starting arrangement contains overlaps or off-sheet pieces.
+  const searchParts = jobValue.attempt === 0 ? jobValue.parts.map((part) => ({
+    ...part,
+    rings: [[{ x: 0, y: 0 }, { x: part.width, y: 0 }, { x: part.width, y: part.height }, { x: 0, y: part.height }, { x: 0, y: 0 }]],
+  })) : jobValue.parts;
+  const partMap = new Map(searchParts.map((part) => [part.id, part]));
   const ordered = jobValue.instances.map((instance) => ({ instance, weight: (partMap.get(instance.partId)?.areaMm2 ?? 0) * (jobValue.attempt === 0 ? 1 : .82 + Math.random() * .36) }))
     .sort((left, right) => right.weight - left.weight).map((item) => item.instance);
   const placed: Placement[] = [];
   let sheetCount = 1;
-  for (const instance of ordered) {
+  for (let orderedIndex = 0; orderedIndex < ordered.length; orderedIndex += 1) {
+    const instance = ordered[orderedIndex];
     const part = partMap.get(instance.partId);
     if (!part) continue;
     const rotationCount = Math.max(1, Math.floor(360 / jobValue.rotationStep));
@@ -153,6 +161,14 @@ function attempt(jobValue: Job) {
     }
     if (!best) return null;
     placed.push(best);
+    if ((orderedIndex + 1) % 5 === 0 || orderedIndex === ordered.length - 1) postMessage({
+      type: "progress",
+      runId: jobValue.runId,
+      attempt: jobValue.attempt + 1,
+      placed: orderedIndex + 1,
+      total: ordered.length,
+      recovery: jobValue.attempt === 0,
+    });
   }
   return placed;
 }

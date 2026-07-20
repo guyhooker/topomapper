@@ -146,6 +146,12 @@
   a time to the interface, waits for acknowledgement, and can be terminated
   immediately. The main application remains responsible for full-resolution
   DRC before accepting an improvement.
+- A corrupted/invalid saved layout exposed two further usability problems: the
+  optimiser could reject every approximate candidate without first repairing
+  the visible arrangement, and progress was only reported after a whole pass.
+  Attempt 1 now uses conservative rotated part envelopes to guarantee an
+  on-sheet, non-overlapping recovery layout before tighter polygon searches.
+  The worker also reports placed-part progress throughout every attempt.
 - Rasterio was installed successfully by the first normal Terminal start. The
   protected Codex environment could not download it independently, so later
   regression checks reused Topomapper's isolated project environment.

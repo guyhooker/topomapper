@@ -251,7 +251,7 @@ editor, and its machining operations can be selected independently by layer.
 
 ## Stage 11 — Automatic Sheet Nesting
 
-**Status: Internal prototype plus SVGnest handoff complete — acceptance test pending**
+**Status: SVGnest export/import round trip implemented — acceptance test pending**
 
 ### Adds
 
@@ -275,15 +275,15 @@ editor, and its machining operations can be selected independently by layer.
 - A conservative SVGnest spacing value that includes measured proxy deviation,
   plus a separate practical 4–24 rotation selector. Fine 1°/2° Topomapper
   editing no longer expands into an impractical 180–360 SVGnest rotations.
-- SVGnest remains an explicit external manufacturing handoff in this stage;
-  importing its winning transforms back into Topomapper, rerunning DRC, and
-  generating a matching layout guide are the next integration.
+- SVGnest remains an explicit external nesting tool. Its downloaded result can
+  be imported back into Topomapper, preserving IDs, sheets, translations and
+  rotations while restoring exact geometry and rerunning DRC.
 - Once the round trip is reliable, offer two manufacturing outputs per sheet:
-  an optional Side 1 registration/annotation SVG and a mirrored Side 2 exact
-  cutting SVG. The first registered convention is an end-to-end flip using two
-  4 mm alignment holes 10 mm from the top edge and 10 mm from the left/right
-  ends. A diagram must show which ends exchange places after flipping, and the
-  nesting/DRC stages must reserve clearance around both pin locations.
+  an optional Side 1 annotation SVG and a mirrored Side 2 exact cutting SVG.
+  The first convention is an end-to-end flip with the accurately sized stock
+  relocated against fixed machine edge stops. A diagram must show which ends
+  exchange places after flipping. Alignment pins and their nesting keep-outs
+  remain an optional later registration mode.
 - The Side 1 SVG doubles as the layout-identification reference when the user
   elects to hand-write IDs instead of engraving. The existing printable PDF is
   retained as an optional workshop guide rather than a required extra file.

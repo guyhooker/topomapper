@@ -557,19 +557,22 @@
   to 12. Fine Topomapper manual rotation remains available after nesting.
 - The downloaded proxy and interface state plainly that it is not a cutting
   file. Exact geometry must be restored and DRC checked during result import.
-- The SVGnest result remains a separate nesting result in this first
-  stage. Topomapper's named project and manual sheet arrangement remain intact;
-  its existing PDF guide does not claim to describe the external nest.
+- Before result import was added, the SVGnest result remained separate from the
+  named project and its existing PDF guide described only the internal layout.
 - Added MIT attribution for SVGnest. No SVGnest source is copied into the
   application at this stage.
-- Recorded the agreed post-import manufacturing direction: register and
-  optionally engrave Side 1 first, flip the sheet end-to-end on two alignment
-  pins, then machine mirrored exact geometry on Side 2. The proposed holes are
-  4 mm diameter with centres 10 mm from the top edge and 10 mm from the left
-  and right ends. This is intentionally documented as an end-to-end transform,
-  because a long-axis flip would require different registration geometry.
-- Registration-pin keep-outs must participate in nesting and post-import DRC;
-  the alignment holes cannot be allowed to land inside an exact part outline.
+- The initial two-sided proposal used two alignment pins and an end-to-end
+  transform. This remains available as a future optional registration mode;
+  when enabled, its keep-outs must participate in nesting and post-import DRC.
 - Side 1 machining will be optional; its SVG can instead serve as the visual
   map for hand-written underside IDs. The PDF layout guide remains a useful but
   optional companion output.
+- Added SVGnest result import using the real downloaded format. SVGnest retains
+  Topomapper's instance and part IDs, places each stock sheet in a top-level SVG
+  group, and records placement with nested translation/rotation transforms.
+  Topomapper validates the original stock dimensions, rejects scaling,
+  mirroring, unknown IDs, duplicates and missing project parts, then restores
+  exact geometry and runs the existing full-resolution DRC.
+- The first two-sided registration method now uses accurately sized stock
+  relocated against fixed machine edge stops, so SVGnest does not lose usable
+  area to pin keep-outs. Alignment holes remain an optional later mode.

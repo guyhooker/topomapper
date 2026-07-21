@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type {
   GeoJSONSource,
   Map as MapLibreMap,
@@ -1400,6 +1400,130 @@ ${sourceParts.join("\n")}
 </svg>`;
   const proxyVertices = proxyParts.reduce((total, part) => total + (part.rings[0]?.length ?? 0), 0);
   return { svg, safeSpacing, maximumProxyError, proxyVertices, instanceCount: instances.length };
+}
+
+type SvgMatrix = { a: number; b: number; c: number; d: number; e: number; f: number };
+
+const IDENTITY_SVG_MATRIX: SvgMatrix = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+
+function multiplySvgMatrices(left: SvgMatrix, right: SvgMatrix): SvgMatrix {
+  return {
+    a: left.a * right.a + left.c * right.b,
+    b: left.b * right.a + left.d * right.b,
+    c: left.a * right.c + left.c * right.d,
+    d: left.b * right.c + left.d * right.d,
+    e: left.a * right.e + left.c * right.f + left.e,
+    f: left.b * right.e + left.d * right.f + left.f,
+  };
+}
+
+function svgTranslation(x: number, y: number): SvgMatrix {
+  return { a: 1, b: 0, c: 0, d: 1, e: x, f: y };
+}
+
+function parseSvgTransform(value: string | null): SvgMatrix {
+  if (!value?.trim()) return IDENTITY_SVG_MATRIX;
+  let result = IDENTITY_SVG_MATRIX;
+  const expression = /([a-zA-Z]+)\s*\(([^)]*)\)/g;
+  for (const match of value.matchAll(expression)) {
+    const name = match[1].toLowerCase();
+    const values = match[2].trim().split(/[\s,]+/).filter(Boolean).map(Number);
+    if (values.some((number) => !Number.isFinite(number))) throw new Error(`SVGnest contains an invalid ${name} transform.`);
+    let operation: SvgMatrix;
+    if (name === "matrix" && values.length === 6) operation = { a: values[0], b: values[1], c: values[2], d: values[3], e: values[4], f: values[5] };
+    else if (name === "translate" && (values.length === 1 || values.length === 2)) operation = svgTranslation(values[0], values[1] ?? 0);
+    else if (name === "scale" && (values.length === 1 || values.length === 2)) operation = { a: values[0], b: 0, c: 0, d: values[1] ?? values[0], e: 0, f: 0 };
+    else if (name === "rotate" && (values.length === 1 || values.length === 3)) {
+      const radians = values[0] * Math.PI / 180;
+      const rotation = { a: Math.cos(radians), b: Math.sin(radians), c: -Math.sin(radians), d: Math.cos(radians), e: 0, f: 0 };
+      operation = values.length === 3
+        ? multiplySvgMatrices(svgTranslation(values[1], values[2]), multiplySvgMatrices(rotation, svgTranslation(-values[1], -values[2])))
+        : rotation;
+    } else throw new Error(`SVGnest uses an unsupported ${name} transform.`);
+    result = multiplySvgMatrices(result, operation);
+  }
+  return result;
+}
+
+function transformSvgPoint(matrix: SvgMatrix, point: { x: number; y: number }) {
+  return { x: matrix.a * point.x + matrix.c * point.y + matrix.e, y: matrix.b * point.x + matrix.d * point.y + matrix.f };
+}
+
+function svgMoveLinePoints(pathData: string) {
+  if (/[AaCcHhQqSsTtVv]/.test(pathData)) throw new Error("The SVGnest result contains curve commands that were not present in the Topomapper proxy.");
+  const number = "[-+]?(?:\\d*\\.\\d+|\\d+\\.?)(?:[eE][-+]?\\d+)?";
+  const points = [...pathData.matchAll(new RegExp(`[ML]\\s*(${number})[\\s,]+(${number})`, "gi"))]
+    .map((match) => ({ x: Number(match[1]), y: Number(match[2]) }));
+  if (points.length < 3 || points.some((point) => !Number.isFinite(point.x) || !Number.isFinite(point.y))) throw new Error("An SVGnest part has unreadable outline coordinates.");
+  return points;
+}
+
+function elementTransformWithinSheet(element: Element, sheet: Element) {
+  let result = parseSvgTransform(element.getAttribute("transform"));
+  for (let parent = element.parentElement; parent && parent !== sheet; parent = parent.parentElement) {
+    result = multiplySvgMatrices(parseSvgTransform(parent.getAttribute("transform")), result);
+  }
+  return result;
+}
+
+function importSvgNestLayout(svgText: string, parts: LayoutPart[], rules: SheetRules) {
+  const document = new DOMParser().parseFromString(svgText.replace(/^\uFEFF/, ""), "image/svg+xml");
+  if (document.querySelector("parsererror")) throw new Error("The selected file is not readable SVG.");
+  const root = document.documentElement;
+  const sheets = Array.from(root.children).filter((element) => element.localName === "g" && Array.from(element.children).some((child) => child.localName === "rect" && child.getAttribute("id") === "TOPOMAPPER_SHEET_BIN"));
+  if (!sheets.length) throw new Error("This is not a Topomapper SVGnest result: no stock-sheet bins were found.");
+  const firstBin = Array.from(sheets[0].children).find((element) => element.localName === "rect" && element.getAttribute("id") === "TOPOMAPPER_SHEET_BIN");
+  if (!firstBin) throw new Error("The SVGnest stock-sheet definition is missing.");
+  const marginX = Number(firstBin.getAttribute("x"));
+  const marginY = Number(firstBin.getAttribute("y"));
+  const binWidth = Number(firstBin.getAttribute("width"));
+  const binHeight = Number(firstBin.getAttribute("height"));
+  if (![marginX, marginY, binWidth, binHeight].every(Number.isFinite)) throw new Error("The SVGnest stock-sheet dimensions are invalid.");
+  const exportedWidth = binWidth + marginX * 2;
+  const exportedHeight = binHeight + marginY * 2;
+  if (Math.abs(exportedWidth - rules.width) > .1 || Math.abs(exportedHeight - rules.height) > .1 || Math.abs(marginX - rules.edgeMargin) > .1 || Math.abs(marginY - rules.edgeMargin) > .1) {
+    throw new Error(`This result was made for ${exportedWidth.toFixed(1)} × ${exportedHeight.toFixed(1)} mm stock with a ${marginX.toFixed(1)} mm edge zone. Restore those Sheet Layout settings before importing it.`);
+  }
+
+  const partMap = new Map(parts.map((part) => [part.id, part]));
+  const seenInstanceIds = new Set<string>();
+  const seenPartIds = new Set<string>();
+  const placements: SheetPlacement[] = [];
+  sheets.forEach((sheet, sheetIndex) => {
+    const paths = Array.from(sheet.querySelectorAll("path[data-topomapper-part-id]"));
+    paths.forEach((path, pathIndex) => {
+      const partId = path.getAttribute("data-topomapper-part-id") ?? "";
+      const part = partMap.get(partId);
+      if (!part) throw new Error(`SVGnest part ${partId || "(unnamed)"} does not belong to the current Topomapper project.`);
+      const instanceId = path.getAttribute("id") || `svgnest-${partId}-${sheetIndex + 1}-${pathIndex + 1}`;
+      if (seenInstanceIds.has(instanceId)) throw new Error(`SVGnest contains the duplicate instance ID ${instanceId}.`);
+      seenInstanceIds.add(instanceId);
+      seenPartIds.add(partId);
+
+      const rawPoints = svgMoveLinePoints(path.getAttribute("d") ?? "");
+      const proxy = simplifyClosedRingForNesting(part.rings[0]).ring;
+      const rawMinimumX = Math.min(...rawPoints.map((point) => point.x));
+      const rawMinimumY = Math.min(...rawPoints.map((point) => point.y));
+      const proxyMinimumX = Math.min(...proxy.map((point) => point.x));
+      const proxyMinimumY = Math.min(...proxy.map((point) => point.y));
+      const stagingOffset = { x: rawMinimumX - proxyMinimumX, y: rawMinimumY - proxyMinimumY };
+      const matrix = elementTransformWithinSheet(path, sheet);
+      const scaleX = Math.hypot(matrix.a, matrix.b);
+      const scaleY = Math.hypot(matrix.c, matrix.d);
+      const determinant = matrix.a * matrix.d - matrix.b * matrix.c;
+      if (Math.abs(scaleX - 1) > .001 || Math.abs(scaleY - 1) > .001) throw new Error(`${instanceId} was scaled in SVGnest; scaled parts cannot be restored safely.`);
+      if (determinant < 0) throw new Error(`${instanceId} was mirrored in SVGnest. Disable part mirroring and nest again.`);
+      const rotation = (Math.atan2(matrix.b, matrix.a) * 180 / Math.PI + 360) % 360;
+      const exactPoints = part.rings[0].map((point) => transformSvgPoint(matrix, { x: point.x + stagingOffset.x, y: point.y + stagingOffset.y }));
+      const left = Math.min(...exactPoints.map((point) => point.x)) + marginX;
+      const top = Math.min(...exactPoints.map((point) => point.y)) + marginY;
+      placements.push(placementAtOutlineOrigin({ id: instanceId, partId }, part, sheetIndex, left, top, Number(rotation.toFixed(3))));
+    });
+  });
+  const missing = parts.filter((part) => !seenPartIds.has(part.id));
+  if (missing.length) throw new Error(`This SVGnest result is missing ${missing.length} current project part${missing.length === 1 ? "" : "s"}, beginning with ${missing.slice(0, 3).map((part) => part.id).join(", ")}.`);
+  if (!placements.length) throw new Error("No Topomapper parts were found in the SVGnest result.");
+  return { placements, sheetCount: sheets.length };
 }
 
 function svgPathForFeature(preview: FilledLayerPreview, feature: FilledLayerFeature, modelWidth: number, modelHeight: number) {
@@ -3757,6 +3881,32 @@ export function MapWorkspace() {
     setSheetExportStatus(`Lightweight SVGnest proxy downloaded: ${result.instanceCount} parts, ${result.proxyVertices.toLocaleString("en-NZ")} outline points. In SVGnest select the green rectangle, set spacing to ${result.safeSpacing.toFixed(1)} and rotations to ${svgNestRotations}. This proxy is not a cutting file; exact coastlines, water holes and drilling remain in Topomapper.`);
   }
 
+  async function importSvgNestResult(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!layoutParts.length) { setSheetExportStatus("Generate the manufacturing parts before importing an SVGnest result."); return; }
+    setSheetExportStatus(`Reading ${file.name} and restoring the exact Topomapper parts…`);
+    try {
+      const result = importSvgNestLayout(await file.text(), layoutParts, sheetRules);
+      optimizerWorkerRef.current?.terminate();
+      optimizerWorkerRef.current = null;
+      setOptimizerRunning(false);
+      setOptimizerProgress("");
+      setSheetPlacements(result.placements);
+      setSheetCount(result.sheetCount);
+      setActiveSheetIndex(0);
+      setSelectedPlacementId(null);
+      setSelectedViolationIndex(null);
+      setSheetZoom(1);
+      setSheetViewCenter({ x: sheetRules.width / 2, y: sheetRules.height / 2 });
+      const violations = checkLayoutRules(result.placements, layoutParts, sheetRules);
+      setSheetExportStatus(`Imported ${result.placements.length} exact part${result.placements.length === 1 ? "" : "s"} across ${result.sheetCount} sheet${result.sheetCount === 1 ? "" : "s"}.${violations.length ? ` Review ${violations.length} full-resolution DRC warning${violations.length === 1 ? "" : "s"} caused by restoring the exact coastlines.` : " Full-resolution DRC is clear."}`);
+    } catch (error) {
+      setSheetExportStatus(error instanceof Error ? error.message : "The SVGnest result could not be imported.");
+    }
+  }
+
   async function downloadLayoutGuidePdf() {
     const populatedSheets = Array.from({ length: sheetCount }, (_, index) => index).filter((index) => sheetPlacements.some((placement) => placement.sheetIndex === index));
     if (!populatedSheets.length) { setSheetExportStatus("There are no placed parts for a layout guide."); return; }
@@ -4484,9 +4634,9 @@ export function MapWorkspace() {
           {optimizerProgress && <p className="optimizer-progress" aria-live="polite">{optimizerProgress}</p>}
           <div className="svgnest-handoff">
             <div><span className="section-label">RECOMMENDED IRREGULAR NESTING</span><strong>Test the layout in SVGnest</strong><p>Topomapper prepares the stock boundary and a lightweight outer proxy for every part. SVGnest then searches part order and rotation with its no-fit-polygon genetic engine.</p></div>
-            <ol><li>Download the lightweight nesting proxy.</li><li>Open SVGnest and upload it.</li><li>Click the green rectangle as the bin; use the safety-adjusted spacing reported after download.</li><li>Set <label className="svgnest-rotations">rotations <select value={svgNestRotations} onChange={(event) => setSvgNestRotations(Number(event.target.value))}><option value={4}>4 · 90°</option><option value={8}>8 · 45°</option><option value={12}>12 · 30°</option><option value={24}>24 · 15°</option></select></label>, then Start Nest.</li></ol>
-            <div><button disabled={!layoutParts.length} onClick={downloadSvgNestJob}>Download SVGnest proxy</button><a href="https://svgnest.com/" target="_blank" rel="noreferrer">Open SVGnest ↗</a></div>
-            <small>The proxy deliberately contains simplified outer coastlines only, allowing SVGnest to solve placement without processing hundreds of holes or thousands of raster steps. It is not suitable for cutting. Keep part-in-part off. Importing SVGnest's transforms, restoring exact geometry, rerunning DRC and producing the matching guide are the next interoperability step.</small>
+            <ol><li>Download the lightweight nesting proxy.</li><li>Open SVGnest and upload it.</li><li>Click the green rectangle as the bin; use the safety-adjusted spacing reported after download.</li><li>Set <label className="svgnest-rotations">rotations <select value={svgNestRotations} onChange={(event) => setSvgNestRotations(Number(event.target.value))}><option value={4}>4 · 90°</option><option value={8}>8 · 45°</option><option value={12}>12 · 30°</option><option value={24}>24 · 15°</option></select></label>, then Start Nest.</li><li>Download SVGnest's result and import it here.</li></ol>
+            <div><button disabled={!layoutParts.length} onClick={downloadSvgNestJob}>Download SVGnest proxy</button><a href="https://svgnest.com/" target="_blank" rel="noreferrer">Open SVGnest ↗</a><label className={`svgnest-import-button ${!layoutParts.length ? "disabled" : ""}`}>Import SVGnest result<input disabled={!layoutParts.length} type="file" accept=".svg,image/svg+xml" onChange={(event) => void importSvgNestResult(event)} /></label></div>
+            <small>The proxy deliberately contains simplified outer coastlines only, allowing SVGnest to solve placement without processing hundreds of holes or thousands of raster steps. It is not suitable for cutting. Keep part-in-part off. Import restores exact coastlines, water holes and drilling, then reruns the full-resolution DRC before any manufacturing export.</small>
           </div>
           <div className="sheet-tabs" aria-label="Material sheets">
             {Array.from({ length: sheetCount }, (_, index) => <button key={index} className={index === activeSheetIndex ? "active" : ""} onClick={() => { setActiveSheetIndex(index); setSelectedPlacementId(null); setSheetZoom(1); setSheetViewCenter({ x: sheetRules.width / 2, y: sheetRules.height / 2 }); }}>Sheet {index + 1}<small>{sheetPlacements.filter((placement) => placement.sheetIndex === index).length} parts</small></button>)}
@@ -4516,6 +4666,7 @@ export function MapWorkspace() {
               <p className="layout-save-status" role="status">Project: {projectName || "none"} · {projectStatus}</p>
               <div className="sheet-export-actions">
                 <button disabled={!layoutParts.length} onClick={downloadSvgNestJob}>Download SVGnest proxy</button>
+                <label className={`sheet-import-action ${!layoutParts.length ? "disabled" : ""}`}>Import SVGnest result<input disabled={!layoutParts.length} type="file" accept=".svg,image/svg+xml" onChange={(event) => void importSvgNestResult(event)} /></label>
                 <button disabled={!sheetPlacements.some((placement) => placement.sheetIndex === activeSheetIndex)} onClick={downloadActiveSheetSvg}>Download Sheet {activeSheetIndex + 1} SVG</button>
                 <button disabled={!sheetPlacements.length} onClick={downloadAllSheetSvgs}>Download all sheet SVGs</button>
                 <button disabled={!sheetPlacements.length} onClick={() => void downloadLayoutGuidePdf()}>Download printable layout guide PDF</button>

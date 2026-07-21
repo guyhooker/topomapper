@@ -128,10 +128,12 @@ outer outline for each production or replacement part. Exact coastlines, water
 holes, and registration drilling remain untouched in the project. Topomapper
 adds a conservative spacing allowance for proxy error and recommends 12 initial
 rotations rather than converting a 1° or 2° editing step into hundreds of
-SVGnest rotations. SVGnest's result is not yet imported back into the named
-project, so exact-geometry DRC and a matching PDF guide wait for that step.
+SVGnest rotations. The downloaded SVGnest result can now be imported back into
+Sheet Layout: Topomapper recovers the named instances, sheets, positions and
+rotations, restores exact geometry, and reruns the full-resolution DRC.
 After that round trip is reliable, the planned manufacturing handoff offers an
-optional Side 1 SVG for two registration holes, part IDs, and assembly-north
-marks, followed by a mirrored Side 2 exact cutting SVG after an end-to-end
-flip. Side 1 may be used only as a visual hand-labelling map, and the printable
-PDF remains an optional workshop guide.
+optional Side 1 SVG for part IDs and assembly-north marks, followed by a
+mirrored Side 2 exact cutting SVG after an end-to-end flip. Initially, accurately
+sized stock is relocated against fixed machine edge stops; alignment-pin holes
+remain an optional later method. Side 1 may be used only as a visual
+hand-labelling map, and the printable PDF remains an optional workshop guide.

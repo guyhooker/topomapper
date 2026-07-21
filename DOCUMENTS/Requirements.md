@@ -122,6 +122,10 @@ boundary.
 - Keep Auto layout editable and preserve manual layout as a permanent workflow.
 - Draw the active part-spacing rule as a visible halo around every placed part;
   pair colour and DRC text so collisions are not communicated by colour alone.
+- Define part spacing as the final edge-to-edge distance between exact cut
+  outlines. Draw half that distance outside each neighbouring outline so halos
+  touch at the requested clearance and overlap only when the spacing rule is
+  violated. Accept decimal values such as 3.5 mm for a 3 mm cutter.
 - Keep tiny physical parts selectable with a minimum screen-space hit target,
   zoom/pan, library-based selection, and focus-on-selection.
 - Measure part-spacing rules between the true rotated outlines and draw the
@@ -156,6 +160,9 @@ boundary.
   spacing, and practical rotation-count guidance. Keep exact internal cutouts
   in the original named project and restore them after importing and validating
   the external nest.
+- Compensate the SVGnest stock bin for SVGnest's half-spacing inward offset so
+  the imported exact outlines retain the requested physical stock-edge zone;
+  do not subtract the full part-spacing value from the edge-zone setting.
 - Import a downloaded SVGnest result into the current named project. Recover
   every retained instance ID, part ID, sheet, translation and rotation; reject
   foreign, missing, duplicated, scaled or mirrored geometry; restore exact

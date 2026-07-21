@@ -275,6 +275,10 @@ editor, and its machining operations can be selected independently by layer.
 - A conservative SVGnest spacing value that includes measured proxy deviation,
   plus a separate practical 4–24 rotation selector. Fine 1°/2° Topomapper
   editing no longer expands into an impractical 180–360 SVGnest rotations.
+- A single physical clearance definition: Cut-edge gap is the final exact
+  outline-to-outline distance, while each visible part halo occupies half that
+  distance. Decimal cutter clearances are supported. The exported bin
+  compensates for SVGnest's half-spacing inward offset at stock boundaries.
 - SVGnest remains an explicit external nesting tool. Its downloaded result can
   be imported back into Topomapper, preserving IDs, sheets, translations and
   rotations while restoring exact geometry and rerunning DRC.

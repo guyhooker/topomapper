@@ -576,3 +576,12 @@
 - The first two-sided registration method now uses accurately sized stock
   relocated against fixed machine edge stops, so SVGnest does not lose usable
   area to pin keep-outs. Alignment holes remain an optional later mode.
+- Renamed the Sheet Layout control from Part spacing to Cut-edge gap and defined
+  it as the final exact edge-to-edge clearance. Each canvas halo is a centred
+  stroke whose visible exterior occupies half the configured gap; two halos
+  therefore touch at the design-rule limit. Decimal values such as 3.5 mm are
+  accepted.
+- SVGnest offsets every part outward by half its spacing and its bin inward by
+  half. The proxy bin now compensates outward for that behaviour and for the
+  measured simplification error, so importing exact parts restores the requested
+  physical stock-edge zone rather than adding an unintended extra border gap.

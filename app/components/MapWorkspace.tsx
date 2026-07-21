@@ -1349,6 +1349,11 @@ function buildSvgNestJob(projectName: string, rules: SheetRules, parts: LayoutPa
   const partMap = new Map(proxyParts.map((part) => [part.id, part]));
   const maximumProxyError = Math.max(0, ...proxyParts.map((part) => part.searchErrorMm ?? 0));
   const safeSpacing = rules.partSpacing + maximumProxyError * 2 + .5;
+  // SVGnest expands every part by half its spacing and shrinks the bin by the
+  // other half. Move the exported bin outward so the restored exact outline,
+  // including measured proxy error, retains Topomapper's requested edge zone.
+  const nestingBinMargin = Math.max(0, rules.edgeMargin + maximumProxyError - safeSpacing / 2);
+  const effectiveEdgeClearance = nestingBinMargin + safeSpacing / 2 - maximumProxyError;
   const placedPartIds = new Set(placements.map((placement) => placement.partId));
   const instances = [
     ...placements.map((placement) => ({ id: placement.id, partId: placement.partId })),
@@ -1375,8 +1380,8 @@ function buildSvgNestJob(projectName: string, rules: SheetRules, parts: LayoutPa
     return [`  <path id="${xmlText(instance.id)}" data-topomapper-part-id="${xmlText(part.id)}" d="${outline}" transform="translate(${svgNumber(x)} ${svgNumber(y)})" fill="#b8cfaa" fill-rule="evenodd" stroke="#214f3d" stroke-width="0.2" />`];
   });
   const stagingHeight = cursorY + rowHeight + stagingGap;
-  const usableWidth = Math.max(1, rules.width - rules.edgeMargin * 2);
-  const usableHeight = Math.max(1, rules.height - rules.edgeMargin * 2);
+  const usableWidth = Math.max(1, rules.width - nestingBinMargin * 2);
+  const usableHeight = Math.max(1, rules.height - nestingBinMargin * 2);
   const metadata = JSON.stringify({
     format: "topomapper-svgnest-job",
     project: projectName,
@@ -1386,6 +1391,8 @@ function buildSvgNestJob(projectName: string, rules: SheetRules, parts: LayoutPa
     requested_spacing_mm: rules.partSpacing,
     svgnest_spacing_mm: svgNumber(safeSpacing),
     maximum_proxy_error_mm: svgNumber(maximumProxyError),
+    nesting_bin_margin_mm: svgNumber(nestingBinMargin),
+    effective_exact_edge_clearance_mm: svgNumber(effectiveEdgeClearance),
     proxy_geometry_only: true,
     exact_geometry_and_drilling: "retained in the Topomapper project",
     instances: instances.length,
@@ -1395,11 +1402,11 @@ function buildSvgNestJob(projectName: string, rules: SheetRules, parts: LayoutPa
   <title>${xmlText(projectName)} · SVGnest input</title>
   <desc>NESTING PROXY ONLY — NOT A CUTTING FILE. Click the green rectangular outline to select it as the SVGnest bin. Set spacing to ${svgNumber(safeSpacing)} SVG units. Exact coastlines, water holes, and drilling remain in Topomapper.</desc>
   <metadata>${xmlText(metadata)}</metadata>
-  <rect id="TOPOMAPPER_SHEET_BIN" x="${svgNumber(rules.edgeMargin)}" y="${svgNumber(rules.edgeMargin)}" width="${svgNumber(usableWidth)}" height="${svgNumber(usableHeight)}" fill="none" stroke="#16815f" stroke-width="0.8" />
+  <rect id="TOPOMAPPER_SHEET_BIN" x="${svgNumber(nestingBinMargin)}" y="${svgNumber(nestingBinMargin)}" width="${svgNumber(usableWidth)}" height="${svgNumber(usableHeight)}" data-topomapper-edge-margin="${svgNumber(rules.edgeMargin)}" data-topomapper-nesting-margin="${svgNumber(nestingBinMargin)}" data-topomapper-spacing="${svgNumber(safeSpacing)}" fill="none" stroke="#16815f" stroke-width="0.8" />
 ${sourceParts.join("\n")}
 </svg>`;
   const proxyVertices = proxyParts.reduce((total, part) => total + (part.rings[0]?.length ?? 0), 0);
-  return { svg, safeSpacing, maximumProxyError, proxyVertices, instanceCount: instances.length };
+  return { svg, safeSpacing, maximumProxyError, nestingBinMargin, effectiveEdgeClearance, proxyVertices, instanceCount: instances.length };
 }
 
 type SvgMatrix = { a: number; b: number; c: number; d: number; e: number; f: number };
@@ -1476,13 +1483,14 @@ function importSvgNestLayout(svgText: string, parts: LayoutPart[], rules: SheetR
   if (!firstBin) throw new Error("The SVGnest stock-sheet definition is missing.");
   const marginX = Number(firstBin.getAttribute("x"));
   const marginY = Number(firstBin.getAttribute("y"));
+  const requestedEdgeMargin = Number(firstBin.getAttribute("data-topomapper-edge-margin") ?? firstBin.getAttribute("x"));
   const binWidth = Number(firstBin.getAttribute("width"));
   const binHeight = Number(firstBin.getAttribute("height"));
-  if (![marginX, marginY, binWidth, binHeight].every(Number.isFinite)) throw new Error("The SVGnest stock-sheet dimensions are invalid.");
+  if (![marginX, marginY, requestedEdgeMargin, binWidth, binHeight].every(Number.isFinite)) throw new Error("The SVGnest stock-sheet dimensions are invalid.");
   const exportedWidth = binWidth + marginX * 2;
   const exportedHeight = binHeight + marginY * 2;
-  if (Math.abs(exportedWidth - rules.width) > .1 || Math.abs(exportedHeight - rules.height) > .1 || Math.abs(marginX - rules.edgeMargin) > .1 || Math.abs(marginY - rules.edgeMargin) > .1) {
-    throw new Error(`This result was made for ${exportedWidth.toFixed(1)} × ${exportedHeight.toFixed(1)} mm stock with a ${marginX.toFixed(1)} mm edge zone. Restore those Sheet Layout settings before importing it.`);
+  if (Math.abs(exportedWidth - rules.width) > .1 || Math.abs(exportedHeight - rules.height) > .1 || Math.abs(requestedEdgeMargin - rules.edgeMargin) > .1) {
+    throw new Error(`This result was made for ${exportedWidth.toFixed(1)} × ${exportedHeight.toFixed(1)} mm stock with a ${requestedEdgeMargin.toFixed(1)} mm edge zone. Restore those Sheet Layout settings before importing it.`);
   }
 
   const partMap = new Map(parts.map((part) => [part.id, part]));
@@ -2260,9 +2268,11 @@ function SheetLayoutCanvas({
           if (index === 0) context.moveTo(rotated.x * scale, rotated.y * scale); else context.lineTo(rotated.x * scale, rotated.y * scale);
         });
         context.closePath();
-        context.strokeStyle = violating.has(placement.id) ? "rgba(189,60,37,.45)" : "rgba(29,111,130,.24)";
-        context.lineWidth = Math.max(2, rules.partSpacing * scale);
-        context.stroke();
+        if (rules.partSpacing > 0) {
+          context.strokeStyle = violating.has(placement.id) ? "rgba(189,60,37,.45)" : "rgba(29,111,130,.24)";
+          context.lineWidth = rules.partSpacing * scale;
+          context.stroke();
+        }
         part.rings.forEach((ring, ringIndex) => {
           context.beginPath();
           ring.forEach((point, index) => {
@@ -3878,7 +3888,7 @@ export function MapWorkspace() {
     const result = buildSvgNestJob(projectName || "Topomapper project", sheetRules, layoutParts, sheetPlacements);
     const stem = projectFilename(projectName || "topomapper-project").replace(/\.topomapper$/i, "");
     downloadFile(result.svg, "image/svg+xml;charset=utf-8", `${stem}-svgnest-proxy.svg`);
-    setSheetExportStatus(`Lightweight SVGnest proxy downloaded: ${result.instanceCount} parts, ${result.proxyVertices.toLocaleString("en-NZ")} outline points. In SVGnest select the green rectangle, set spacing to ${result.safeSpacing.toFixed(1)} and rotations to ${svgNestRotations}. This proxy is not a cutting file; exact coastlines, water holes and drilling remain in Topomapper.`);
+    setSheetExportStatus(`Lightweight SVGnest proxy downloaded: ${result.instanceCount} parts, ${result.proxyVertices.toLocaleString("en-NZ")} outline points. In SVGnest select the green rectangle, set spacing to ${result.safeSpacing.toFixed(1)} and rotations to ${svgNestRotations}. The adjusted ${result.nestingBinMargin.toFixed(1)} mm proxy-bin inset compensates for SVGnest's half-spacing border offset and provides at least ${result.effectiveEdgeClearance.toFixed(1)} mm exact edge clearance on import.`);
   }
 
   async function importSvgNestResult(event: ChangeEvent<HTMLInputElement>) {
@@ -4623,7 +4633,7 @@ export function MapWorkspace() {
             <label>Sheet H <span><input type="number" min="100" step="10" value={sheetRules.height} onChange={(event) => setSheetRules((rules) => ({ ...rules, height: Math.max(100, Number(event.target.value)) }))} /> mm</span></label>
             <label>Material <span><input type="number" min="0.5" step="0.5" value={sheetRules.thickness} onChange={(event) => setSheetRules((rules) => ({ ...rules, thickness: Math.max(.5, Number(event.target.value)) }))} /> mm</span></label>
             <label>Edge zone <span><input type="number" min="0" step="1" value={sheetRules.edgeMargin} onChange={(event) => setSheetRules((rules) => ({ ...rules, edgeMargin: Math.max(0, Number(event.target.value)) }))} /> mm</span></label>
-            <label>Part spacing <span><input type="number" min="0" step="1" value={sheetRules.partSpacing} onChange={(event) => setSheetRules((rules) => ({ ...rules, partSpacing: Math.max(0, Number(event.target.value)) }))} /> mm</span></label>
+            <label>Cut-edge gap <span><input type="number" min="0" step="0.1" value={sheetRules.partSpacing} onChange={(event) => setSheetRules((rules) => ({ ...rules, partSpacing: Math.max(0, Number(event.target.value)) }))} /> mm</span></label>
             <label>Rotation <span><select value={rotationStepDeg} onChange={(event) => setRotationStepDeg(Number(event.target.value))}><option value={1}>1°</option><option value={2}>2°</option><option value={5}>5°</option><option value={10}>10°</option><option value={15}>15°</option></select></span></label>
             <button onClick={autoLayoutUnplaced}>Auto layout unplaced</button>
             <button onClick={addReplacementSheet}>+ Replacement sheet</button>
@@ -4659,7 +4669,7 @@ export function MapWorkspace() {
                 onPan={setSheetViewCenter}
                 onDragStateChange={setSheetPartDragging}
               />
-              <div className="sheet-scale-note">{sheetRules.width} × {sheetRules.height} mm · {sheetZoom}× view · drag empty sheet to pan · blue halos show {sheetRules.partSpacing} mm clearance</div>
+              <div className="sheet-scale-note">{sheetRules.width} × {sheetRules.height} mm · {sheetZoom}× view · drag empty sheet to pan · each halo extends {(sheetRules.partSpacing / 2).toFixed(2)} mm outside its cut edge · touching halos = {sheetRules.partSpacing.toFixed(2)} mm edge-to-edge</div>
             </div>
             <aside className="sheet-layout-details">
               <div className="sheet-layout-metrics"><span><small>Sheets</small><strong>{sheetCount}</strong></span><span><small>Instances</small><strong>{sheetPlacements.length}</strong></span><span><small>Area use</small><strong>{sheetUtilisation.toFixed(1)}%</strong></span></div>

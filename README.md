@@ -131,6 +131,10 @@ rotations rather than converting a 1° or 2° editing step into hundreds of
 SVGnest rotations. The downloaded SVGnest result can now be imported back into
 Sheet Layout: Topomapper recovers the named instances, sheets, positions and
 rotations, restores exact geometry, and reruns the full-resolution DRC.
+Sheet Layout defines Cut-edge gap as the final edge-to-edge distance between
+neighbouring exact parts. Each on-screen halo extends half that value outside
+its cut outline. The SVGnest proxy bin is moved outward to compensate for
+SVGnest's own half-spacing inset, preserving the requested stock-edge zone.
 After that round trip is reliable, the planned manufacturing handoff offers an
 optional Side 1 SVG for part IDs and assembly-north marks, followed by a
 mirrored Side 2 exact cutting SVG after an end-to-end flip. Initially, accurately

@@ -122,10 +122,11 @@ and leaves every result manually editable. A separate A4 landscape PDF guide
 maps every sheet, labels all parts, preserves assembly-north arrows after
 arbitrary stock rotation, and includes a part/rotation index for hand labelling.
 For production-quality irregular nesting, Sheet Layout can now create a
-ready-to-upload SVGnest job. The file contains the usable stock boundary, one
-compound outline per production or replacement part, retained water holes, and
-registration drilling. Topomapper states the matching spacing and rotation
-settings beside the download and links to SVGnest. SVGnest's downloaded result
-is currently a separate nesting result rather than a layout that can be
-imported back into the named Topomapper project. A matching Topomapper PDF guide
-therefore waits for the result-import step.
+ready-to-upload SVGnest proxy. To avoid SVGnest stalling during no-fit-polygon
+preparation, the proxy contains the usable stock boundary and a bounded-point
+outer outline for each production or replacement part. Exact coastlines, water
+holes, and registration drilling remain untouched in the project. Topomapper
+adds a conservative spacing allowance for proxy error and recommends 12 initial
+rotations rather than converting a 1° or 2° editing step into hundreds of
+SVGnest rotations. SVGnest's result is not yet imported back into the named
+project, so exact-geometry DRC and a matching PDF guide wait for that step.

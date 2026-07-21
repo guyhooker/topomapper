@@ -553,6 +553,8 @@ button { color: inherit; }
 .svgnest-handoff strong { display: block; margin: 2px 0 3px; color: var(--forest); font-family: Georgia, serif; font-size: 14px; }
 .svgnest-handoff p, .svgnest-handoff ol, .svgnest-handoff small { margin: 0; color: var(--muted); font-size: 8px; line-height: 1.45; }
 .svgnest-handoff ol { padding-left: 16px; }
+.svgnest-rotations { color: var(--ink); font-weight: 700; white-space: nowrap; }
+.svgnest-rotations select { height: 24px; margin-left: 3px; border: 1px solid #b7c8bf; border-radius: 5px; background: #fff; color: var(--ink); font-size: 8px; }
 .svgnest-handoff > div:last-of-type { display: grid; gap: 5px; min-width: 130px; }
 .svgnest-handoff button, .svgnest-handoff a { display: flex; min-height: 30px; align-items: center; justify-content: center; padding: 5px 9px; border: 1px solid var(--forest); border-radius: 6px; background: var(--forest); color: #fff; font-size: 8px; font-weight: 760; text-align: center; text-decoration: none; cursor: pointer; }
 .svgnest-handoff a { background: #fff; color: var(--forest); }

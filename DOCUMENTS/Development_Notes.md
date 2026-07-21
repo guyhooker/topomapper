@@ -543,15 +543,21 @@
 - Added a recommended SVGnest handoff alongside the editable Topomapper quick
   optimiser. This is intentionally an honest external-tool workflow rather
   than presenting the earlier heuristic as SVGnest.
-- The generated input SVG contains one green usable-stock rectangle to select
-  as SVGnest's bin. All requested production parts, existing replacement
-  copies, retained water holes, and registration holes are staged below the bin
-  without overlap.
-- Each part is a single even-odd compound path so its internal machining remains
-  attached when SVGnest changes insertion order and rotation.
-- The interface calculates and displays SVGnest's rotation count from the
-  selected Topomapper angular step and repeats the required millimetre spacing.
-- The SVGnest result remains a separate manufacturing handoff in this first
+- The original exact input exposed 61 parts, 7,260 outline vertices, 309 closed
+  sub-shapes, and—at a 2° editing step—180 SVGnest rotations. SVGnest remained
+  at approximately 0% while preparing no-fit polygons; enlarging the bin could
+  not reduce this geometric workload.
+- Replaced that input with a nesting-only proxy. Each part's outer coastline is
+  reduced toward at most 64 retained points using a measured-error line
+  simplifier; water and registration holes remain in
+  the Topomapper project rather than participating in SVGnest's search.
+- Measures the maximum proxy deviation and adds twice that value plus a small
+  tolerance to the requested spacing, protecting the later exact outlines.
+- Added an independent SVGnest selector for 4, 8, 12, or 24 rotations, defaulting
+  to 12. Fine Topomapper manual rotation remains available after nesting.
+- The downloaded proxy and interface state plainly that it is not a cutting
+  file. Exact geometry must be restored and DRC checked during result import.
+- The SVGnest result remains a separate nesting result in this first
   stage. Topomapper's named project and manual sheet arrangement remain intact;
   its existing PDF guide does not claim to describe the external nest.
 - Added MIT attribution for SVGnest. No SVGnest source is copied into the

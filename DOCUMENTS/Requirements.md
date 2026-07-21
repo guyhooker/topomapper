@@ -152,9 +152,10 @@ boundary.
   rank fewer stock sheets ahead of a compact used envelope. Every automatic result
   remains manually editable.
 - Provide a standards-based SVG handoff to SVGnest with a selectable stock bin,
-  non-overlapping source parts, compound internal cutouts, explicit millimetre
-  spacing, and rotation-count guidance. Keep the original named project intact
-  because the first interoperability stage does not import the external nest.
+  non-overlapping bounded-complexity proxy parts, conservative proxy-aware
+  spacing, and practical rotation-count guidance. Keep exact internal cutouts
+  in the original named project because the first interoperability stage does
+  not yet import and validate the external nest.
 
 ## Preview and Analysis
 

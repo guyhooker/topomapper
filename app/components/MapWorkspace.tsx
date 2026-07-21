@@ -1298,19 +1298,64 @@ function buildSheetSvg(projectName: string, sheetIndex: number, rules: SheetRule
   return { svg, partCount: placements.length };
 }
 
-function circleSvgPath(x: number, y: number, radius: number) {
-  return `M${svgNumber(x + radius)} ${svgNumber(y)} A${svgNumber(radius)} ${svgNumber(radius)} 0 1 0 ${svgNumber(x - radius)} ${svgNumber(y)} A${svgNumber(radius)} ${svgNumber(radius)} 0 1 0 ${svgNumber(x + radius)} ${svgNumber(y)} Z`;
+function simplifyOpenLine(points: { x: number; y: number }[], tolerance: number): { x: number; y: number }[] {
+  if (points.length <= 2) return points;
+  let furthestIndex = 0;
+  let furthestDistance = 0;
+  for (let index = 1; index < points.length - 1; index += 1) {
+    const distance = distanceToSegment(points[index], points[0], points[points.length - 1]);
+    if (distance > furthestDistance) { furthestDistance = distance; furthestIndex = index; }
+  }
+  if (furthestDistance <= tolerance) return [points[0], points[points.length - 1]];
+  return [
+    ...simplifyOpenLine(points.slice(0, furthestIndex + 1), tolerance).slice(0, -1),
+    ...simplifyOpenLine(points.slice(furthestIndex), tolerance),
+  ];
 }
 
-function buildSvgNestJob(projectName: string, rules: SheetRules, parts: LayoutPart[], placements: SheetPlacement[], holeDiameter: number) {
-  const partMap = new Map(parts.map((part) => [part.id, part]));
+function simplifyClosedRingForNesting(ring: { x: number; y: number }[], targetPoints = 64) {
+  const open = ring.length > 1 && Math.hypot(ring[0].x - ring[ring.length - 1].x, ring[0].y - ring[ring.length - 1].y) < 1e-8 ? ring.slice(0, -1) : [...ring];
+  if (open.length <= 3) return { ring, errorMm: 0 };
+  const leftIndex = open.reduce((best, point, index) => point.x < open[best].x ? index : best, 0);
+  let rightIndex = open.reduce((best, point, index) => point.x > open[best].x ? index : best, 0);
+  if (rightIndex === leftIndex) rightIndex = (leftIndex + Math.floor(open.length / 2)) % open.length;
+  const chain = (start: number, end: number) => {
+    const result = [open[start]];
+    for (let index = start; index !== end;) { index = (index + 1) % open.length; result.push(open[index]); }
+    return result;
+  };
+  let tolerance = .5;
+  let simplified = ring;
+  for (let pass = 0; pass < 12; pass += 1) {
+    const first = simplifyOpenLine(chain(leftIndex, rightIndex), tolerance);
+    const second = simplifyOpenLine(chain(rightIndex, leftIndex), tolerance);
+    simplified = [...first.slice(0, -1), ...second.slice(0, -1), first[0]];
+    if (simplified.length <= targetPoints) break;
+    tolerance *= 1.45;
+  }
+  const errorMm = open.reduce((maximum, point) => {
+    let minimum = Number.POSITIVE_INFINITY;
+    for (let index = 1; index < simplified.length; index += 1) minimum = Math.min(minimum, distanceToSegment(point, simplified[index - 1], simplified[index]));
+    return Math.max(maximum, minimum);
+  }, 0);
+  return { ring: simplified, errorMm };
+}
+
+function buildSvgNestJob(projectName: string, rules: SheetRules, parts: LayoutPart[], placements: SheetPlacement[]) {
+  const proxyParts = parts.map((part) => {
+    const simplified = simplifyClosedRingForNesting(part.rings[0]);
+    return { ...part, rings: [simplified.ring], holes: [], searchErrorMm: simplified.errorMm };
+  });
+  const partMap = new Map(proxyParts.map((part) => [part.id, part]));
+  const maximumProxyError = Math.max(0, ...proxyParts.map((part) => part.searchErrorMm ?? 0));
+  const safeSpacing = rules.partSpacing + maximumProxyError * 2 + .5;
   const placedPartIds = new Set(placements.map((placement) => placement.partId));
   const instances = [
     ...placements.map((placement) => ({ id: placement.id, partId: placement.partId })),
     ...parts.filter((part) => !placedPartIds.has(part.id)).map((part, index) => ({ id: `svgnest-${part.id}-${index + 1}`, partId: part.id })),
   ];
   const stagingGap = Math.max(10, rules.partSpacing + 6);
-  const stagingWidth = Math.max(rules.width, ...parts.map((part) => part.width + stagingGap * 2));
+  const stagingWidth = Math.max(rules.width, ...proxyParts.map((part) => part.width + stagingGap * 2));
   let cursorX = stagingGap;
   let cursorY = rules.height + 30;
   let rowHeight = 0;
@@ -1326,10 +1371,7 @@ function buildSvgNestJob(projectName: string, rules: SheetRules, parts: LayoutPa
     const y = cursorY;
     cursorX += part.width + stagingGap;
     rowHeight = Math.max(rowHeight, part.height);
-    const outline = [
-      ...part.rings.map(layoutRingSvgPath),
-      ...part.holes.map((hole) => circleSvgPath(hole.x, hole.y, holeDiameter / 2)),
-    ].join(" ");
+    const outline = part.rings.map(layoutRingSvgPath).join(" ");
     return [`  <path id="${xmlText(instance.id)}" data-topomapper-part-id="${xmlText(part.id)}" d="${outline}" transform="translate(${svgNumber(x)} ${svgNumber(y)})" fill="#b8cfaa" fill-rule="evenodd" stroke="#214f3d" stroke-width="0.2" />`];
   });
   const stagingHeight = cursorY + rowHeight + stagingGap;
@@ -1341,17 +1383,23 @@ function buildSvgNestJob(projectName: string, rules: SheetRules, parts: LayoutPa
     sheet_width_mm: rules.width,
     sheet_height_mm: rules.height,
     edge_margin_mm: rules.edgeMargin,
-    spacing_mm: rules.partSpacing,
+    requested_spacing_mm: rules.partSpacing,
+    svgnest_spacing_mm: svgNumber(safeSpacing),
+    maximum_proxy_error_mm: svgNumber(maximumProxyError),
+    proxy_geometry_only: true,
+    exact_geometry_and_drilling: "retained in the Topomapper project",
     instances: instances.length,
   });
-  return `<?xml version="1.0" encoding="UTF-8"?>
+  const svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${svgNumber(stagingWidth)}mm" height="${svgNumber(stagingHeight)}mm" viewBox="0 0 ${svgNumber(stagingWidth)} ${svgNumber(stagingHeight)}">
   <title>${xmlText(projectName)} · SVGnest input</title>
-  <desc>Click the green rectangular outline to select it as the SVGnest bin. Set spacing to ${svgNumber(rules.partSpacing)} mm. All other outlined shapes are parts.</desc>
+  <desc>NESTING PROXY ONLY — NOT A CUTTING FILE. Click the green rectangular outline to select it as the SVGnest bin. Set spacing to ${svgNumber(safeSpacing)} SVG units. Exact coastlines, water holes, and drilling remain in Topomapper.</desc>
   <metadata>${xmlText(metadata)}</metadata>
   <rect id="TOPOMAPPER_SHEET_BIN" x="${svgNumber(rules.edgeMargin)}" y="${svgNumber(rules.edgeMargin)}" width="${svgNumber(usableWidth)}" height="${svgNumber(usableHeight)}" fill="none" stroke="#16815f" stroke-width="0.8" />
 ${sourceParts.join("\n")}
 </svg>`;
+  const proxyVertices = proxyParts.reduce((total, part) => total + (part.rings[0]?.length ?? 0), 0);
+  return { svg, safeSpacing, maximumProxyError, proxyVertices, instanceCount: instances.length };
 }
 
 function svgPathForFeature(preview: FilledLayerPreview, feature: FilledLayerFeature, modelWidth: number, modelHeight: number) {
@@ -2256,6 +2304,7 @@ export function MapWorkspace() {
   const [selectedViolationIndex, setSelectedViolationIndex] = useState<number | null>(null);
   const [sheetPartDragging, setSheetPartDragging] = useState(false);
   const [rotationStepDeg, setRotationStepDeg] = useState(5);
+  const [svgNestRotations, setSvgNestRotations] = useState(12);
   const [optimizerRunning, setOptimizerRunning] = useState(false);
   const [optimizerStatus, setOptimizerStatus] = useState("Ready to search for a tighter polygon-aware layout.");
   const [optimizerProgress, setOptimizerProgress] = useState("");
@@ -3702,11 +3751,10 @@ export function MapWorkspace() {
 
   function downloadSvgNestJob() {
     if (!layoutParts.length) { setSheetExportStatus("Generate the manufacturing parts before creating an SVGnest job."); return; }
-    const svg = buildSvgNestJob(projectName || "Topomapper project", sheetRules, layoutParts, sheetPlacements, holeDiameterMm);
+    const result = buildSvgNestJob(projectName || "Topomapper project", sheetRules, layoutParts, sheetPlacements);
     const stem = projectFilename(projectName || "topomapper-project").replace(/\.topomapper$/i, "");
-    downloadFile(svg, "image/svg+xml;charset=utf-8", `${stem}-svgnest-input.svg`);
-    const rotations = Math.max(1, Math.round(360 / rotationStepDeg));
-    setSheetExportStatus(`SVGnest input downloaded with ${layoutParts.length} production part${layoutParts.length === 1 ? "" : "s"} plus any replacement copies. In SVGnest, select the green rectangle as the bin, use ${sheetRules.partSpacing} mm spacing and ${rotations} rotations.`);
+    downloadFile(result.svg, "image/svg+xml;charset=utf-8", `${stem}-svgnest-proxy.svg`);
+    setSheetExportStatus(`Lightweight SVGnest proxy downloaded: ${result.instanceCount} parts, ${result.proxyVertices.toLocaleString("en-NZ")} outline points. In SVGnest select the green rectangle, set spacing to ${result.safeSpacing.toFixed(1)} and rotations to ${svgNestRotations}. This proxy is not a cutting file; exact coastlines, water holes and drilling remain in Topomapper.`);
   }
 
   async function downloadLayoutGuidePdf() {
@@ -3898,7 +3946,7 @@ export function MapWorkspace() {
                 </>
               )}
               {workspaceView === "sheet-layout" && (
-                <><button onClick={downloadSvgNestJob}>Download SVGnest input</button><button onClick={downloadActiveSheetSvg}>Download active sheet SVG</button><button onClick={downloadAllSheetSvgs}>Download all sheet SVGs</button><button onClick={() => void downloadLayoutGuidePdf()}>Download layout guide PDF</button></>
+                <><button onClick={downloadSvgNestJob}>Download SVGnest proxy</button><button onClick={downloadActiveSheetSvg}>Download active sheet SVG</button><button onClick={downloadAllSheetSvgs}>Download all sheet SVGs</button><button onClick={() => void downloadLayoutGuidePdf()}>Download layout guide PDF</button></>
               )}
               {workspaceView === "manufacturing" && (
                 <><button onClick={downloadSelectedLayerSvg}>Download selected layer SVG</button><button onClick={downloadManufacturingPackage}>Download all manufacturing SVGs</button></>
@@ -4435,10 +4483,10 @@ export function MapWorkspace() {
           <p className={`optimizer-status ${optimizerRunning ? "running" : ""}`} role="status">{optimizerStatus}</p>
           {optimizerProgress && <p className="optimizer-progress" aria-live="polite">{optimizerProgress}</p>}
           <div className="svgnest-handoff">
-            <div><span className="section-label">RECOMMENDED IRREGULAR NESTING</span><strong>Finish the layout in SVGnest</strong><p>Topomapper prepares the stock boundary, every part outline and all internal holes. SVGnest then searches part order and rotation with its no-fit-polygon genetic engine.</p></div>
-            <ol><li>Download the prepared SVG.</li><li>Open SVGnest and upload it.</li><li>Click the green rectangle as the bin; set spacing to {sheetRules.partSpacing} mm and rotations to {Math.max(1, Math.round(360 / rotationStepDeg))}.</li><li>Start Nest, let it improve, then download its SVG.</li></ol>
-            <div><button disabled={!layoutParts.length} onClick={downloadSvgNestJob}>Download SVGnest input</button><a href="https://svgnest.com/" target="_blank" rel="noreferrer">Open SVGnest ↗</a></div>
-            <small>SVGnest runs separately, so its downloaded nest does not overwrite this saved Topomapper project. Keep part-in-part off initially so lakes and registration holes remain unambiguous. The current Topomapper layout guide still describes the Topomapper arrangement; importing an SVGnest result for a matching guide is the next interoperability step.</small>
+            <div><span className="section-label">RECOMMENDED IRREGULAR NESTING</span><strong>Test the layout in SVGnest</strong><p>Topomapper prepares the stock boundary and a lightweight outer proxy for every part. SVGnest then searches part order and rotation with its no-fit-polygon genetic engine.</p></div>
+            <ol><li>Download the lightweight nesting proxy.</li><li>Open SVGnest and upload it.</li><li>Click the green rectangle as the bin; use the safety-adjusted spacing reported after download.</li><li>Set <label className="svgnest-rotations">rotations <select value={svgNestRotations} onChange={(event) => setSvgNestRotations(Number(event.target.value))}><option value={4}>4 · 90°</option><option value={8}>8 · 45°</option><option value={12}>12 · 30°</option><option value={24}>24 · 15°</option></select></label>, then Start Nest.</li></ol>
+            <div><button disabled={!layoutParts.length} onClick={downloadSvgNestJob}>Download SVGnest proxy</button><a href="https://svgnest.com/" target="_blank" rel="noreferrer">Open SVGnest ↗</a></div>
+            <small>The proxy deliberately contains simplified outer coastlines only, allowing SVGnest to solve placement without processing hundreds of holes or thousands of raster steps. It is not suitable for cutting. Keep part-in-part off. Importing SVGnest's transforms, restoring exact geometry, rerunning DRC and producing the matching guide are the next interoperability step.</small>
           </div>
           <div className="sheet-tabs" aria-label="Material sheets">
             {Array.from({ length: sheetCount }, (_, index) => <button key={index} className={index === activeSheetIndex ? "active" : ""} onClick={() => { setActiveSheetIndex(index); setSelectedPlacementId(null); setSheetZoom(1); setSheetViewCenter({ x: sheetRules.width / 2, y: sheetRules.height / 2 }); }}>Sheet {index + 1}<small>{sheetPlacements.filter((placement) => placement.sheetIndex === index).length} parts</small></button>)}
@@ -4467,7 +4515,7 @@ export function MapWorkspace() {
               <div className="sheet-layout-metrics"><span><small>Sheets</small><strong>{sheetCount}</strong></span><span><small>Instances</small><strong>{sheetPlacements.length}</strong></span><span><small>Area use</small><strong>{sheetUtilisation.toFixed(1)}%</strong></span></div>
               <p className="layout-save-status" role="status">Project: {projectName || "none"} · {projectStatus}</p>
               <div className="sheet-export-actions">
-                <button disabled={!layoutParts.length} onClick={downloadSvgNestJob}>Download SVGnest input</button>
+                <button disabled={!layoutParts.length} onClick={downloadSvgNestJob}>Download SVGnest proxy</button>
                 <button disabled={!sheetPlacements.some((placement) => placement.sheetIndex === activeSheetIndex)} onClick={downloadActiveSheetSvg}>Download Sheet {activeSheetIndex + 1} SVG</button>
                 <button disabled={!sheetPlacements.length} onClick={downloadAllSheetSvgs}>Download all sheet SVGs</button>
                 <button disabled={!sheetPlacements.length} onClick={() => void downloadLayoutGuidePdf()}>Download printable layout guide PDF</button>

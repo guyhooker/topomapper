@@ -268,21 +268,23 @@ editor, and its machining operations can be selected independently by layer.
 - A printable A4 PDF sheet guide with readable full IDs, transformed
   assembly-north arrows, and indexed stock rotations/positions, so parts can be
   labelled by hand after cutting.
-- A prepared SVGnest input containing the usable stock bin and every requested
-  production/replacement part as non-overlapping compound geometry. Water
-  cutouts, internal holes, and registration drilling travel with their parent
-  part.
-- Direct guidance for matching Topomapper's millimetre spacing and selected
-  angular resolution to SVGnest's spacing and rotation-count controls.
+- A prepared SVGnest proxy containing the usable stock bin and a non-overlapping
+  bounded-point outer outline for every requested production/replacement part.
+  Exact water cutouts, internal holes, and registration drilling remain in the
+  project for restoration after nesting.
+- A conservative SVGnest spacing value that includes measured proxy deviation,
+  plus a separate practical 4–24 rotation selector. Fine 1°/2° Topomapper
+  editing no longer expands into an impractical 180–360 SVGnest rotations.
 - SVGnest remains an explicit external manufacturing handoff in this stage;
   importing its winning transforms back into Topomapper, rerunning DRC, and
   generating a matching layout guide are the next integration.
 
 ### Acceptance Test
 
-The SVGnest result uses no more sheets than a careful manual layout for the
-Taranaki regression model and preserves all cut/drill geometry. The downloaded
-nest is inspected for collisions and boundary violations before CAM.
+After its result is imported, the SVGnest layout uses no more sheets than a
+careful manual layout for the Taranaki regression model. Exact cut/drill
+geometry is restored and inspected for collisions and boundary violations
+before CAM.
 
 ## Stage 12 — Paint Colour Planning
 

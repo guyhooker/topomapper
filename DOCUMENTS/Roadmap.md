@@ -251,7 +251,7 @@ editor, and its machining operations can be selected independently by layer.
 
 ## Stage 11 — Automatic Sheet Nesting
 
-**Status: Initial implementation complete — acceptance test pending**
+**Status: Internal prototype plus SVGnest handoff complete — acceptance test pending**
 
 ### Adds
 
@@ -268,11 +268,21 @@ editor, and its machining operations can be selected independently by layer.
 - A printable A4 PDF sheet guide with readable full IDs, transformed
   assembly-north arrows, and indexed stock rotations/positions, so parts can be
   labelled by hand after cutting.
+- A prepared SVGnest input containing the usable stock bin and every requested
+  production/replacement part as non-overlapping compound geometry. Water
+  cutouts, internal holes, and registration drilling travel with their parent
+  part.
+- Direct guidance for matching Topomapper's millimetre spacing and selected
+  angular resolution to SVGnest's spacing and rotation-count controls.
+- SVGnest remains an explicit external manufacturing handoff in this stage;
+  importing its winning transforms back into Topomapper, rerunning DRC, and
+  generating a matching layout guide are the next integration.
 
 ### Acceptance Test
 
-The automatic layout uses no more sheets than a careful manual layout for the
-Taranaki regression model and has no collisions or boundary violations.
+The SVGnest result uses no more sheets than a careful manual layout for the
+Taranaki regression model and preserves all cut/drill geometry. The downloaded
+nest is inspected for collisions and boundary violations before CAM.
 
 ## Stage 12 — Paint Colour Planning
 

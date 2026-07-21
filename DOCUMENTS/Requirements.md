@@ -151,6 +151,10 @@ boundary.
 - Keep the optimiser interruptible, publish only valid best-so-far layouts, and
   rank fewer stock sheets ahead of a compact used envelope. Every automatic result
   remains manually editable.
+- Provide a standards-based SVG handoff to SVGnest with a selectable stock bin,
+  non-overlapping source parts, compound internal cutouts, explicit millimetre
+  spacing, and rotation-count guidance. Keep the original named project intact
+  because the first interoperability stage does not import the external nest.
 
 ## Preview and Analysis
 

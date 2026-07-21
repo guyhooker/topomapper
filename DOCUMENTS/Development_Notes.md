@@ -537,3 +537,22 @@
 - Moved Colour Chart output controls into a consistent top-bar Output menu. The
   same menu exposes existing Sheet Layout and Manufacture downloads and reserves
   a visible home for future 2D, 3D, and Assembly outputs.
+
+### Stage 11 — SVGnest interoperability
+
+- Added a recommended SVGnest handoff alongside the editable Topomapper quick
+  optimiser. This is intentionally an honest external-tool workflow rather
+  than presenting the earlier heuristic as SVGnest.
+- The generated input SVG contains one green usable-stock rectangle to select
+  as SVGnest's bin. All requested production parts, existing replacement
+  copies, retained water holes, and registration holes are staged below the bin
+  without overlap.
+- Each part is a single even-odd compound path so its internal machining remains
+  attached when SVGnest changes insertion order and rotation.
+- The interface calculates and displays SVGnest's rotation count from the
+  selected Topomapper angular step and repeats the required millimetre spacing.
+- The SVGnest result remains a separate manufacturing handoff in this first
+  stage. Topomapper's named project and manual sheet arrangement remain intact;
+  its existing PDF guide does not claim to describe the external nest.
+- Added MIT attribution for SVGnest. No SVGnest source is copied into the
+  application at this stage.

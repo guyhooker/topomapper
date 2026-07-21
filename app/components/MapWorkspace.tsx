@@ -1298,6 +1298,62 @@ function buildSheetSvg(projectName: string, sheetIndex: number, rules: SheetRule
   return { svg, partCount: placements.length };
 }
 
+function circleSvgPath(x: number, y: number, radius: number) {
+  return `M${svgNumber(x + radius)} ${svgNumber(y)} A${svgNumber(radius)} ${svgNumber(radius)} 0 1 0 ${svgNumber(x - radius)} ${svgNumber(y)} A${svgNumber(radius)} ${svgNumber(radius)} 0 1 0 ${svgNumber(x + radius)} ${svgNumber(y)} Z`;
+}
+
+function buildSvgNestJob(projectName: string, rules: SheetRules, parts: LayoutPart[], placements: SheetPlacement[], holeDiameter: number) {
+  const partMap = new Map(parts.map((part) => [part.id, part]));
+  const placedPartIds = new Set(placements.map((placement) => placement.partId));
+  const instances = [
+    ...placements.map((placement) => ({ id: placement.id, partId: placement.partId })),
+    ...parts.filter((part) => !placedPartIds.has(part.id)).map((part, index) => ({ id: `svgnest-${part.id}-${index + 1}`, partId: part.id })),
+  ];
+  const stagingGap = Math.max(10, rules.partSpacing + 6);
+  const stagingWidth = Math.max(rules.width, ...parts.map((part) => part.width + stagingGap * 2));
+  let cursorX = stagingGap;
+  let cursorY = rules.height + 30;
+  let rowHeight = 0;
+  const sourceParts = instances.flatMap((instance) => {
+    const part = partMap.get(instance.partId);
+    if (!part) return [];
+    if (cursorX + part.width + stagingGap > stagingWidth && cursorX > stagingGap) {
+      cursorX = stagingGap;
+      cursorY += rowHeight + stagingGap;
+      rowHeight = 0;
+    }
+    const x = cursorX;
+    const y = cursorY;
+    cursorX += part.width + stagingGap;
+    rowHeight = Math.max(rowHeight, part.height);
+    const outline = [
+      ...part.rings.map(layoutRingSvgPath),
+      ...part.holes.map((hole) => circleSvgPath(hole.x, hole.y, holeDiameter / 2)),
+    ].join(" ");
+    return [`  <path id="${xmlText(instance.id)}" data-topomapper-part-id="${xmlText(part.id)}" d="${outline}" transform="translate(${svgNumber(x)} ${svgNumber(y)})" fill="#b8cfaa" fill-rule="evenodd" stroke="#214f3d" stroke-width="0.2" />`];
+  });
+  const stagingHeight = cursorY + rowHeight + stagingGap;
+  const usableWidth = Math.max(1, rules.width - rules.edgeMargin * 2);
+  const usableHeight = Math.max(1, rules.height - rules.edgeMargin * 2);
+  const metadata = JSON.stringify({
+    format: "topomapper-svgnest-job",
+    project: projectName,
+    sheet_width_mm: rules.width,
+    sheet_height_mm: rules.height,
+    edge_margin_mm: rules.edgeMargin,
+    spacing_mm: rules.partSpacing,
+    instances: instances.length,
+  });
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${svgNumber(stagingWidth)}mm" height="${svgNumber(stagingHeight)}mm" viewBox="0 0 ${svgNumber(stagingWidth)} ${svgNumber(stagingHeight)}">
+  <title>${xmlText(projectName)} · SVGnest input</title>
+  <desc>Click the green rectangular outline to select it as the SVGnest bin. Set spacing to ${svgNumber(rules.partSpacing)} mm. All other outlined shapes are parts.</desc>
+  <metadata>${xmlText(metadata)}</metadata>
+  <rect id="TOPOMAPPER_SHEET_BIN" x="${svgNumber(rules.edgeMargin)}" y="${svgNumber(rules.edgeMargin)}" width="${svgNumber(usableWidth)}" height="${svgNumber(usableHeight)}" fill="none" stroke="#16815f" stroke-width="0.8" />
+${sourceParts.join("\n")}
+</svg>`;
+}
+
 function svgPathForFeature(preview: FilledLayerPreview, feature: FilledLayerFeature, modelWidth: number, modelHeight: number) {
   return feature.geometry.coordinates.map((ring) => ring.map((point, index) => {
     const physical = physicalPoint(preview, modelWidth, modelHeight, point);
@@ -3644,6 +3700,15 @@ export function MapWorkspace() {
     setSheetExportStatus(`${populatedSheets.length} populated cutting SVG${populatedSheets.length === 1 ? "" : "s"} downloaded as a ZIP.`);
   }
 
+  function downloadSvgNestJob() {
+    if (!layoutParts.length) { setSheetExportStatus("Generate the manufacturing parts before creating an SVGnest job."); return; }
+    const svg = buildSvgNestJob(projectName || "Topomapper project", sheetRules, layoutParts, sheetPlacements, holeDiameterMm);
+    const stem = projectFilename(projectName || "topomapper-project").replace(/\.topomapper$/i, "");
+    downloadFile(svg, "image/svg+xml;charset=utf-8", `${stem}-svgnest-input.svg`);
+    const rotations = Math.max(1, Math.round(360 / rotationStepDeg));
+    setSheetExportStatus(`SVGnest input downloaded with ${layoutParts.length} production part${layoutParts.length === 1 ? "" : "s"} plus any replacement copies. In SVGnest, select the green rectangle as the bin, use ${sheetRules.partSpacing} mm spacing and ${rotations} rotations.`);
+  }
+
   async function downloadLayoutGuidePdf() {
     const populatedSheets = Array.from({ length: sheetCount }, (_, index) => index).filter((index) => sheetPlacements.some((placement) => placement.sheetIndex === index));
     if (!populatedSheets.length) { setSheetExportStatus("There are no placed parts for a layout guide."); return; }
@@ -3833,7 +3898,7 @@ export function MapWorkspace() {
                 </>
               )}
               {workspaceView === "sheet-layout" && (
-                <><button onClick={downloadActiveSheetSvg}>Download active sheet SVG</button><button onClick={downloadAllSheetSvgs}>Download all sheet SVGs</button><button onClick={() => void downloadLayoutGuidePdf()}>Download layout guide PDF</button></>
+                <><button onClick={downloadSvgNestJob}>Download SVGnest input</button><button onClick={downloadActiveSheetSvg}>Download active sheet SVG</button><button onClick={downloadAllSheetSvgs}>Download all sheet SVGs</button><button onClick={() => void downloadLayoutGuidePdf()}>Download layout guide PDF</button></>
               )}
               {workspaceView === "manufacturing" && (
                 <><button onClick={downloadSelectedLayerSvg}>Download selected layer SVG</button><button onClick={downloadManufacturingPackage}>Download all manufacturing SVGs</button></>
@@ -4364,11 +4429,17 @@ export function MapWorkspace() {
             <label>Rotation <span><select value={rotationStepDeg} onChange={(event) => setRotationStepDeg(Number(event.target.value))}><option value={1}>1°</option><option value={2}>2°</option><option value={5}>5°</option><option value={10}>10°</option><option value={15}>15°</option></select></span></label>
             <button onClick={autoLayoutUnplaced}>Auto layout unplaced</button>
             <button onClick={addReplacementSheet}>+ Replacement sheet</button>
-            <button disabled={optimizerRunning || !layoutParts.length} onClick={() => void startNestingOptimiser()}>Optimise irregular shapes</button>
+            <button disabled={optimizerRunning || !layoutParts.length} onClick={() => void startNestingOptimiser()}>Topomapper quick optimise</button>
             <button disabled={!optimizerRunning} onClick={stopNestingOptimiser}>Stop</button>
           </div>
           <p className={`optimizer-status ${optimizerRunning ? "running" : ""}`} role="status">{optimizerStatus}</p>
           {optimizerProgress && <p className="optimizer-progress" aria-live="polite">{optimizerProgress}</p>}
+          <div className="svgnest-handoff">
+            <div><span className="section-label">RECOMMENDED IRREGULAR NESTING</span><strong>Finish the layout in SVGnest</strong><p>Topomapper prepares the stock boundary, every part outline and all internal holes. SVGnest then searches part order and rotation with its no-fit-polygon genetic engine.</p></div>
+            <ol><li>Download the prepared SVG.</li><li>Open SVGnest and upload it.</li><li>Click the green rectangle as the bin; set spacing to {sheetRules.partSpacing} mm and rotations to {Math.max(1, Math.round(360 / rotationStepDeg))}.</li><li>Start Nest, let it improve, then download its SVG.</li></ol>
+            <div><button disabled={!layoutParts.length} onClick={downloadSvgNestJob}>Download SVGnest input</button><a href="https://svgnest.com/" target="_blank" rel="noreferrer">Open SVGnest ↗</a></div>
+            <small>SVGnest runs separately, so its downloaded nest does not overwrite this saved Topomapper project. Keep part-in-part off initially so lakes and registration holes remain unambiguous. The current Topomapper layout guide still describes the Topomapper arrangement; importing an SVGnest result for a matching guide is the next interoperability step.</small>
+          </div>
           <div className="sheet-tabs" aria-label="Material sheets">
             {Array.from({ length: sheetCount }, (_, index) => <button key={index} className={index === activeSheetIndex ? "active" : ""} onClick={() => { setActiveSheetIndex(index); setSelectedPlacementId(null); setSheetZoom(1); setSheetViewCenter({ x: sheetRules.width / 2, y: sheetRules.height / 2 }); }}>Sheet {index + 1}<small>{sheetPlacements.filter((placement) => placement.sheetIndex === index).length} parts</small></button>)}
             <div className="sheet-view-controls"><span>View</span>{[1, 2, 4, 8].map((value) => <button key={value} className={sheetZoom === value ? "active" : ""} onClick={() => setSheetZoom(value)}>{value}×</button>)}<button onClick={() => { setSheetZoom(1); setSheetViewCenter({ x: sheetRules.width / 2, y: sheetRules.height / 2 }); }}>Fit</button><button disabled={!selectedPlacement} onClick={() => selectedPlacement && focusSheetPlacement(selectedPlacement)}>Focus selected</button><button disabled={!selectedPlacement} onClick={() => { setSelectedPlacementId(null); setSelectedViolationIndex(null); }}>Deselect</button></div>
@@ -4396,6 +4467,7 @@ export function MapWorkspace() {
               <div className="sheet-layout-metrics"><span><small>Sheets</small><strong>{sheetCount}</strong></span><span><small>Instances</small><strong>{sheetPlacements.length}</strong></span><span><small>Area use</small><strong>{sheetUtilisation.toFixed(1)}%</strong></span></div>
               <p className="layout-save-status" role="status">Project: {projectName || "none"} · {projectStatus}</p>
               <div className="sheet-export-actions">
+                <button disabled={!layoutParts.length} onClick={downloadSvgNestJob}>Download SVGnest input</button>
                 <button disabled={!sheetPlacements.some((placement) => placement.sheetIndex === activeSheetIndex)} onClick={downloadActiveSheetSvg}>Download Sheet {activeSheetIndex + 1} SVG</button>
                 <button disabled={!sheetPlacements.length} onClick={downloadAllSheetSvgs}>Download all sheet SVGs</button>
                 <button disabled={!sheetPlacements.length} onClick={() => void downloadLayoutGuidePdf()}>Download printable layout guide PDF</button>

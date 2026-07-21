@@ -112,6 +112,12 @@ original source files remain external and are only needed for regeneration.
   and continues until
   the user stops it. A future no-fit-polygon/genetic engine can replace the
   search without changing the saved placement format.
+- A separate SVGnest interoperability path exports a deliberately unnested SVG
+  workspace: the usable sheet rectangle is the bin and every requested part is
+  a compound path staged below it without overlap. The compound path keeps
+  terrain/water holes and registration drilling attached through arbitrary
+  SVGnest rotation and translation. SVGnest uses its own no-fit-polygon genetic
+  engine; its result is not yet parsed back into `SheetPlacement` records.
 - Controller-specific G-code generated only from a validated manufacturing and
   sheet-layout plan; SVG remains the visual audit format.
 - G-code only through a later, explicitly configured CAM/postprocessor stage.

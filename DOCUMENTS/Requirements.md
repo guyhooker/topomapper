@@ -156,6 +156,26 @@ boundary.
   spacing, and practical rotation-count guidance. Keep exact internal cutouts
   in the original named project because the first interoperability stage does
   not yet import and validate the external nest.
+- After an SVGnest result has been imported and validated, support an optional
+  registered two-sided workflow for each populated stock sheet. Side 1 drills
+  the registration holes before engraving part IDs and assembly-north marks;
+  Side 2 contains the mirrored exact profile, water-cutout, and drilling
+  operations and is cut only after the sheet is flipped on the pins.
+- Make the physical flip unambiguous with a diagram and an explicit coordinate
+  transform. The initial convention is an end-to-end flip: a pair of alignment
+  holes centred 10 mm from the top edge and 10 mm from the left and right ends
+  exchange places after the flip. Keep this distinct from a long-axis flip,
+  which would exchange the top and bottom edges.
+- Allow Side 1 machining to be omitted. Its SVG must remain usable as a visual
+  identification and orientation map for manually writing IDs on the underside
+  of the parts. Keep the printable PDF guide as a convenient optional output,
+  not a prerequisite for manufacture.
+- Generate separate, plainly named outputs for Side 1 registration/annotation
+  and Side 2 cutting. Never combine the two faces into one ambiguous machining
+  layer or silently mirror a cutting file.
+- Reserve visible no-part keep-outs around both registration holes before
+  nesting. Include cutter/pin clearance in their radius and report any imported
+  SVGnest placement that intrudes into either keep-out as a DRC violation.
 
 ## Preview and Analysis
 

@@ -278,6 +278,15 @@ editor, and its machining operations can be selected independently by layer.
 - SVGnest remains an explicit external manufacturing handoff in this stage;
   importing its winning transforms back into Topomapper, rerunning DRC, and
   generating a matching layout guide are the next integration.
+- Once the round trip is reliable, offer two manufacturing outputs per sheet:
+  an optional Side 1 registration/annotation SVG and a mirrored Side 2 exact
+  cutting SVG. The first registered convention is an end-to-end flip using two
+  4 mm alignment holes 10 mm from the top edge and 10 mm from the left/right
+  ends. A diagram must show which ends exchange places after flipping, and the
+  nesting/DRC stages must reserve clearance around both pin locations.
+- The Side 1 SVG doubles as the layout-identification reference when the user
+  elects to hand-write IDs instead of engraving. The existing printable PDF is
+  retained as an optional workshop guide rather than a required extra file.
 
 ### Acceptance Test
 

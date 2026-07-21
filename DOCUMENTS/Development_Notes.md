@@ -562,3 +562,14 @@
   its existing PDF guide does not claim to describe the external nest.
 - Added MIT attribution for SVGnest. No SVGnest source is copied into the
   application at this stage.
+- Recorded the agreed post-import manufacturing direction: register and
+  optionally engrave Side 1 first, flip the sheet end-to-end on two alignment
+  pins, then machine mirrored exact geometry on Side 2. The proposed holes are
+  4 mm diameter with centres 10 mm from the top edge and 10 mm from the left
+  and right ends. This is intentionally documented as an end-to-end transform,
+  because a long-axis flip would require different registration geometry.
+- Registration-pin keep-outs must participate in nesting and post-import DRC;
+  the alignment holes cannot be allowed to land inside an exact part outline.
+- Side 1 machining will be optional; its SVG can instead serve as the visual
+  map for hand-written underside IDs. The PDF layout guide remains a useful but
+  optional companion output.

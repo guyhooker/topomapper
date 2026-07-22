@@ -144,8 +144,10 @@ annotation file for Side 1 and a mirrored Side 2 file with independent layers
 for internal machining, profiles to the bridge floor, and full-depth release
 segments between the retained bridges.
 Its initial settings are stock thickness (1–12 mm), cutting speed, maximum depth
-per pass and remaining bridge height. The generated pass schedule is shown and
-checked before machining files can be exported.
+per pass, remaining bridge height and cut-through allowance (default 0.2 mm).
+The generated pass schedule is shown and checked before machining files can be
+exported; full-depth operations extend below the stock by the allowance while
+the bridge floor remains unchanged.
 After that round trip is reliable, the planned manufacturing handoff offers an
 optional Side 1 SVG for part IDs and assembly-north marks, followed by a
 mirrored Side 2 exact cutting SVG after an end-to-end flip. Initially, accurately

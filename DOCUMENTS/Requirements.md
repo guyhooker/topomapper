@@ -210,8 +210,10 @@ boundary.
   and other weak features; display them at physical size and allow manual edits.
 - Accept stock from 1 mm through 12 mm and provide initial machining fields for
   stock thickness in mm, cutting speed in mm/min, maximum cut depth per pass in
-  mm, and bridge height in mm. Bridge height means the material remaining at a
-  bridge, not a cutting depth.
+  mm, bridge height in mm, and cut-through allowance in mm. Bridge height means
+  the material remaining at a bridge, not a cutting depth. Cut-through allowance
+  is the extra depth below the stock bottom used to accommodate a bed that is not
+  perfectly flat; default it to 0.2 mm and permit zero.
 - Calculate monotonically increasing depth passes without exceeding the maximum
   depth increment. Stop complete outer-profile passes at `stock thickness −
   bridge height`, then add one full-depth release pass containing only the
@@ -219,7 +221,11 @@ boundary.
   drilling and internal openings, which have no retaining bridges.
 - Show the numerical pass schedule before export. For 12 mm stock, 3 mm maximum
   depth and 1 mm bridges, show complete-profile depths of 3, 6, 9 and 11 mm,
-  followed by non-bridge release segments at 12 mm.
+  followed by non-bridge release segments at 12.2 mm when the cut-through
+  allowance is 0.2 mm. Apply the allowance only to full-depth cuts; do not lower
+  the bridge floor or use the allowance when calculating ordinary pass spacing.
+  An unbridged internal cut in this example uses 3, 6, 9 and 12 mm passes, then
+  a final 12.2 mm cut-through pass.
 - Keep drilling and every internal opening ahead of external release cuts so a
   part cannot move before its interior machining is complete.
 - Retain alignment-pin holes as an optional later registration method. Only when

@@ -567,6 +567,10 @@
 - Recorded the 12 mm regression example: with 3 mm maximum passes and 1 mm
   bridges, full-outline depths are 3, 6, 9 and 11 mm, then the non-bridge
   release geometry reaches 12 mm.
+- Added a cut-through allowance setting for uneven CNC beds, defaulting to
+  0.2 mm. In the 12 mm example, internal cuts and non-bridge release segments
+  finish at 12.2 mm while the retained bridge floor remains at 11 mm. Unbridged
+  cuts use 3, 6, 9, 12 and 12.2 mm depths so the allowance is a final skim pass.
 
 ### Stage 11 — SVGnest interoperability
 

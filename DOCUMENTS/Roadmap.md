@@ -341,13 +341,16 @@ chart preserves readable swatches, product names, layer numbers, and elevations.
   addition, movement and removal.
 - Initial machining settings for stock thickness (1–12 mm), horizontal cutting
   speed (mm/min), maximum cut depth per pass (mm), and remaining bridge height
-  (mm). Validate that bridge height is below stock thickness and all cutting
-  values are positive.
+  (mm), plus cut-through allowance (mm, default 0.2). Validate that bridge height
+  is below stock thickness, the allowance is zero or positive, and all other
+  cutting values are positive.
 - A visible calculated pass schedule. For 12 mm stock, 3 mm maximum depth and a
   1 mm bridge, the complete profile passes are at Z depths 3, 6, 9 and 11 mm;
-  the final non-bridge release segments reach 12 mm. Internal openings that do
-  not use bridges continue through their own safe depth passes to full depth
-  before the outer profile is released.
+  the final non-bridge release segments reach 12.2 mm with a 0.2 mm cut-through
+  allowance. Internal openings that do not use bridges continue through their
+  own safe depth passes to the same final depth before the outer profile is
+  released: 3, 6, 9, 12 and 12.2 mm in this example. The allowance must not
+  alter the 11 mm bridge floor.
 - Plain operation names and depth metadata suitable for visual inspection,
   external CAM import and the later Topomapper G-code generator. Also offer
   separate per-operation SVG downloads when a CAM package cannot reliably

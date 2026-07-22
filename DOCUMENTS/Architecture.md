@@ -186,7 +186,9 @@ so selecting Banks Peninsula does not require downloading a national raster.
   around retained bridges. Keep operation names and depths machine-readable.
 - Derive pass depths from stock thickness, maximum depth per pass and remaining
   bridge height. Full outlines stop at the bridge floor; only discontinuous
-  release geometry descends from that floor to full stock depth.
+  release geometry descends from that floor to full stock depth plus the
+  configured cut-through allowance. Apply that allowance to other full-depth
+  cuts as well, but never to the bridge floor.
 - Add DXF export and validate output in existing CAM software.
 
 ### Phase 5 — CNC integration

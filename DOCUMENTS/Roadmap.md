@@ -330,13 +330,21 @@ chart preserves readable swatches, product names, layer numbers, and elevations.
   origin, and postprocessor.
 - Safe operation ordering: engraving, drilling, internal cuts, then tabbed
   external profiles.
+- Cutter-reachability checks for narrow river slots, small holes and other
+  internal features, with explicit omit, widen, centreline-engrave, or
+  smaller-tool resolutions rather than invalid G-code.
+- Optional east-facing sacrificial label tails for selected small parts or all
+  parts below a configurable size. Tail geometry participates in SVGnest and
+  DRC, carries the part ID/orientation, and is removed before final assembly.
 - Toolpath preview, time estimate, safety checks, G-code download, and setup
   sheet.
 
 ### Acceptance Test
 
 G-code is independently reviewed, simulated, air-cut, and tested on scrap MDF
-before any project sheet is machined.
+before any project sheet is machined. No water channel narrower than the chosen
+tool is accepted without an explicit resolution, and a tailed-part test confirms
+that identification survives cutting while the tail can be removed cleanly.
 
 ## Stage 14 — Coast and Bathymetry
 

@@ -534,6 +534,15 @@
   files are only needed again when layers are regenerated.
 - Existing smoothing removes water holes below the selected practical feature
   size in the same manner as tiny terrain holes.
+- Recorded a future CAM preflight rule for fine rivers: a cut-through water
+  channel narrower than the selected cutter cannot silently become G-code. The
+  user must omit or widen it, use a suitable centreline engraving treatment, or
+  select a smaller cutter.
+- Recorded an optional small-part handling feature. A sacrificial label tail is
+  united with the part before nesting, extends toward geographic east, carries
+  the stable ID/orientation, and rotates with the nested part. Automatic
+  threshold selection and per-part overrides are required; tails participate
+  in exact DRC and are removed before assembly.
 - Moved Colour Chart output controls into a consistent top-bar Output menu. The
   same menu exposes existing Sheet Layout and Manufacture downloads and reserves
   a visible home for future 2D, 3D, and Assembly outputs.

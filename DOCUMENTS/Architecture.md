@@ -177,12 +177,17 @@ so selecting Banks Peninsula does not require downloading a national raster.
 
 - Add map scale, sheet thickness, vertical exaggeration, kerf allowance,
   simplification, minimum-piece checks, alignment holes, and layer labels.
+- Add optional sacrificial label tails to selected small-part geometry before
+  nesting. The attachment direction is model east, independent of later stock
+  rotation; the finished assembly geometry remains the original terrain part.
 - Add DXF export and validate output in existing CAM software.
 
 ### Phase 5 — CNC integration
 
 - Specify the CNC controller, cutter, stock, feeds, speeds, tabs, safe height,
   origin, and postprocessor.
+- Analyse cutter reachability for every water channel, hole and internal slot
+  before offsetting paths or emitting G-code.
 - Decide whether direct G-code adds value over a proven CAM workflow.
 
 ## Why Not the Alternatives Initially?

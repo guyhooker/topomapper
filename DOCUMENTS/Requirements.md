@@ -82,6 +82,11 @@ boundary.
   optional tool-change workflow.
 - Warn about pieces smaller than the selected cutter or practical material
   limit.
+- Before G-code export, compare every retained water channel and internal cut
+  with the selected cutter diameter. Never silently emit an impossible offset
+  toolpath: identify the affected river/part and offer to omit the feature,
+  widen it deliberately, engrave a centreline where appropriate, or require a
+  smaller cutter.
 
 ## Parts and Assembly
 
@@ -89,6 +94,15 @@ boundary.
   L01A or L03B.
 - Provide a layer-by-layer assembly sheet even when a piece is too small for
   machined text.
+- Offer optional sacrificial label tails for small detached parts. Tails are
+  added to exact part geometry before SVGnest export, extend toward geographic
+  east, rotate with the part during nesting, and provide enough area for the
+  stable part ID and north mark. Allow automatic selection below a configurable
+  practical-size threshold plus manual per-part overrides.
+- Size the tail neck and label pad from the selected cutter and material rules,
+  include the complete tail in nesting and DRC, and mark where it should be
+  snapped or trimmed after identification. The assembly outline and finished
+  terrain geometry must exclude the sacrificial tail.
 - Allow covered engraving of a part identifier and north arrow without marking
   the finished terrain surface.
 - Generate alignment-dowel holes only through layers that have a solid local

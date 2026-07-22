@@ -135,6 +135,10 @@ Sheet Layout defines Cut-edge gap as the final edge-to-edge distance between
 neighbouring exact parts. Each on-screen halo extends half that value outside
 its cut outline. The SVGnest proxy bin is moved outward to compensate for
 SVGnest's own half-spacing inset, preserving the requested stock-edge zone.
+Future CAM preparation will warn when a retained river or internal slot is too
+narrow for the selected cutter. It will also offer optional east-facing,
+sacrificial label tails for small detached parts; these will be added before
+nesting and removed before final assembly.
 After that round trip is reliable, the planned manufacturing handoff offers an
 optional Side 1 SVG for part IDs and assembly-north marks, followed by a
 mirrored Side 2 exact cutting SVG after an end-to-end flip. Initially, accurately

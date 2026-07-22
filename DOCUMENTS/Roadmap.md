@@ -339,6 +339,15 @@ chart preserves readable swatches, product names, layer numbers, and elevations.
   placement away from corners, narrow necks, label tails, holes and fragile
   coastline features. Show every bridge in the sheet preview and permit manual
   addition, movement and removal.
+- Initial machining settings for stock thickness (1–12 mm), horizontal cutting
+  speed (mm/min), maximum cut depth per pass (mm), and remaining bridge height
+  (mm). Validate that bridge height is below stock thickness and all cutting
+  values are positive.
+- A visible calculated pass schedule. For 12 mm stock, 3 mm maximum depth and a
+  1 mm bridge, the complete profile passes are at Z depths 3, 6, 9 and 11 mm;
+  the final non-bridge release segments reach 12 mm. Internal openings that do
+  not use bridges continue through their own safe depth passes to full depth
+  before the outer profile is released.
 - Plain operation names and depth metadata suitable for visual inspection,
   external CAM import and the later Topomapper G-code generator. Also offer
   separate per-operation SVG downloads when a CAM package cannot reliably
@@ -353,7 +362,8 @@ For every populated sheet, Side 1 and Side 2 align after the documented physical
 flip. Internal cuts precede the outer profile. The first profile operation leaves
 the configured bridge thickness everywhere, and the release operation reaches
 full depth everywhere except the visible bridge segments. Opening the SVGs in a
-vector editor allows each operation to be selected independently.
+vector editor allows each operation to be selected independently. The displayed
+pass schedule never exceeds the configured maximum depth per pass.
 
 ## Stage 14 — Toolpaths and Direct G-code
 

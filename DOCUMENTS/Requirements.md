@@ -208,6 +208,18 @@ boundary.
 - Make bridge width, remaining thickness and count configurable. Place bridges
   away from sharp corners, holes, narrow terrain, sacrificial label-tail necks
   and other weak features; display them at physical size and allow manual edits.
+- Accept stock from 1 mm through 12 mm and provide initial machining fields for
+  stock thickness in mm, cutting speed in mm/min, maximum cut depth per pass in
+  mm, and bridge height in mm. Bridge height means the material remaining at a
+  bridge, not a cutting depth.
+- Calculate monotonically increasing depth passes without exceeding the maximum
+  depth increment. Stop complete outer-profile passes at `stock thickness −
+  bridge height`, then add one full-depth release pass containing only the
+  non-bridge profile segments. Calculate full-depth passes separately for
+  drilling and internal openings, which have no retaining bridges.
+- Show the numerical pass schedule before export. For 12 mm stock, 3 mm maximum
+  depth and 1 mm bridges, show complete-profile depths of 3, 6, 9 and 11 mm,
+  followed by non-bridge release segments at 12 mm.
 - Keep drilling and every internal opening ahead of external release cuts so a
   part cannot move before its interior machining is complete.
 - Retain alignment-pin holes as an optional later registration method. Only when

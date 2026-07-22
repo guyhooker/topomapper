@@ -560,6 +560,13 @@
   thickness, automatic weak-feature avoidance and manual editing. Face files
   share an explicit flip diagram and datum so edge-stop repositioning can be
   checked before machining.
+- Added the initial machining inputs to the planned stage: 1–12 mm stock
+  thickness, cutting speed in mm/min, maximum depth per pass and remaining
+  bridge height. The pass builder stops full profiles at the bridge floor and
+  uses a final full-depth operation only on the segments between bridges.
+- Recorded the 12 mm regression example: with 3 mm maximum passes and 1 mm
+  bridges, full-outline depths are 3, 6, 9 and 11 mm, then the non-bridge
+  release geometry reaches 12 mm.
 
 ### Stage 11 — SVGnest interoperability
 

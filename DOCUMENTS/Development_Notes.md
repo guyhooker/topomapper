@@ -519,9 +519,10 @@
   small peaks and islands. Tiny water features may therefore disappear, but
   significant features and land islands enclosed by them must be preserved.
 - Importing and subtracting mapped water geometry is implemented as the first
-  part of Stage 14.
+  part of Stage 15 after inserting machining-ready SVG preparation ahead of
+  direct G-code.
 
-### Stage 14 — Inland water cutouts (partial)
+### Stage 15 — Inland water cutouts (partial)
 
 - Added an optional Step 2 water-boundary chooser for cropped WGS84 GeoJSON and
   KML lake, lagoon, and significant-river polygon files.
@@ -546,6 +547,19 @@
 - Moved Colour Chart output controls into a consistent top-bar Output menu. The
   same menu exposes existing Sheet Layout and Manufacture downloads and reserves
   a visible home for future 2D, 3D, and Assembly outputs.
+
+### Stage 13 — Machining-ready sheet SVGs (planned)
+
+- Inserted a controller-independent manufacturing stage between accepted sheet
+  nesting and direct G-code.
+- Side 1 will contain shallow text and orientation annotations. Side 2 will
+  separate drilling/internal openings, full profiles down to material thickness
+  minus remaining bridge thickness, and final full-depth release segments that
+  stop at every configured bridge.
+- Bridges require physical preview, configurable width/count/remaining
+  thickness, automatic weak-feature avoidance and manual editing. Face files
+  share an explicit flip diagram and datum so edge-stop repositioning can be
+  checked before machining.
 
 ### Stage 11 — SVGnest interoperability
 

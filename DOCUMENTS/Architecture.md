@@ -180,6 +180,10 @@ so selecting Banks Peninsula does not require downloading a national raster.
 - Add optional sacrificial label tails to selected small-part geometry before
   nesting. The attachment direction is model east, independent of later stock
   rotation; the finished assembly geometry remains the original terrain part.
+- Convert each accepted sheet arrangement into registered face-specific SVGs.
+  Side 1 contains annotations; Side 2 contains drilling/internal cuts, complete
+  profiles to the bridge floor, and discontinuous full-depth release segments
+  around retained bridges. Keep operation names and depths machine-readable.
 - Add DXF export and validate output in existing CAM software.
 
 ### Phase 5 — CNC integration

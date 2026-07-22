@@ -197,6 +197,19 @@ boundary.
 - Generate separate, plainly named outputs for Side 1 registration/annotation
   and Side 2 cutting. Never combine the two faces into one ambiguous machining
   layer or silently mirror a cutting file.
+- Treat machining-ready SVG preparation as a separate stage before direct
+  G-code. Side 1 contains shallow annotations. Side 2 separates drilling and
+  internal openings, the complete outer profiles down to material thickness
+  minus bridge thickness, and the final full-depth release segments with every
+  bridge interval omitted.
+- Store operation intent and target depth as named SVG layers and metadata, and
+  offer split operation files for external CAM software. The same geometry and
+  operation order must feed the later direct G-code generator.
+- Make bridge width, remaining thickness and count configurable. Place bridges
+  away from sharp corners, holes, narrow terrain, sacrificial label-tail necks
+  and other weak features; display them at physical size and allow manual edits.
+- Keep drilling and every internal opening ahead of external release cuts so a
+  part cannot move before its interior machining is complete.
 - Retain alignment-pin holes as an optional later registration method. Only when
   enabled should their visible no-part keep-outs participate in nesting and DRC;
   the initial edge-stop workflow must not reserve otherwise usable stock.

@@ -139,6 +139,10 @@ Future CAM preparation will warn when a retained river or internal slot is too
 narrow for the selected cutter. It will also offer optional east-facing,
 sacrificial label tails for small detached parts; these will be added before
 nesting and removed before final assembly.
+Before direct G-code, a separate machining-SVG stage will create a shallow
+annotation file for Side 1 and a mirrored Side 2 file with independent layers
+for internal machining, profiles to the bridge floor, and full-depth release
+segments between the retained bridges.
 After that round trip is reliable, the planned manufacturing handoff offers an
 optional Side 1 SVG for part IDs and assembly-north marks, followed by a
 mirrored Side 2 exact cutting SVG after an end-to-end flip. Initially, accurately

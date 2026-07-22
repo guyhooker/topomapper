@@ -321,7 +321,41 @@ A 10-layer project uses five named terrain colours across two adjacent layers
 each. A 20-layer project adds a white top layer in Automatic mode. Printing the
 chart preserves readable swatches, product names, layer numbers, and elevations.
 
-## Stage 13 — Toolpaths and Direct G-code
+## Stage 13 — Machining SVG Sheet Preparation
+
+### Adds
+
+- A registered Side 1 SVG containing text, part IDs, assembly-north arrows and
+  any other shallow annotation operations.
+- A registered and correctly mirrored Side 2 SVG with independently selectable
+  layers for drilling and internal openings, including alignment/vent holes and
+  retained lake or river cutouts.
+- A complete outer-profile layer cut to the tab floor: material thickness minus
+  the configured remaining bridge thickness.
+- A final release layer containing only the outer-profile segments that descend
+  to full depth; configured bridge segments are deliberately omitted so every
+  part remains attached to the parent sheet.
+- Configurable bridge width, remaining thickness and count, plus automatic
+  placement away from corners, narrow necks, label tails, holes and fragile
+  coastline features. Show every bridge in the sheet preview and permit manual
+  addition, movement and removal.
+- Plain operation names and depth metadata suitable for visual inspection,
+  external CAM import and the later Topomapper G-code generator. Also offer
+  separate per-operation SVG downloads when a CAM package cannot reliably
+  select named layers.
+- A prominent flip diagram and matching sheet datum/origin on both faces. The
+  first workflow uses accurately sized stock relocated against fixed edge stops;
+  future alignment holes may use the existing border zone.
+
+### Acceptance Test
+
+For every populated sheet, Side 1 and Side 2 align after the documented physical
+flip. Internal cuts precede the outer profile. The first profile operation leaves
+the configured bridge thickness everywhere, and the release operation reaches
+full depth everywhere except the visible bridge segments. Opening the SVGs in a
+vector editor allows each operation to be selected independently.
+
+## Stage 14 — Toolpaths and Direct G-code
 
 ### Adds
 
@@ -346,7 +380,7 @@ before any project sheet is machined. No water channel narrower than the chosen
 tool is accepted without an explicit resolution, and a tailed-part test confirms
 that identification survives cutting while the tail can be removed cleanly.
 
-## Stage 14 — Coast and Bathymetry
+## Stage 15 — Coast and Bathymetry
 
 **Status: In progress — inland water polygon cutouts implemented**
 
@@ -371,7 +405,7 @@ gap or silent zero-level mismatch. Its significant coastal and inland lakes
 appear as retained holes suitable for separate inserts. Low-resolution offshore
 geometry is visibly identified.
 
-## Stage 15 — Physical Test Model
+## Stage 16 — Physical Test Model
 
 ### Adds
 
@@ -384,7 +418,7 @@ geometry is visibly identified.
 Produce a small test map on the CNC machine. Record fit, loose-piece problems,
 useful simplification, tolerances, paint allowance, and assembly experience.
 
-## Stage 16 — Packaged Mac Application
+## Stage 17 — Packaged Mac Application
 
 ### Adds
 
@@ -406,6 +440,7 @@ Python, a terminal, or a development server.
 - **Prototype C — Manufacturing geometry:** Stages 7–9.
 - **Prototype D — Manually nested sheets:** Stage 10.
 - **Prototype E — Automatically nested paint plan:** Stages 11–12.
-- **Prototype F — Direct G-code:** Stage 13.
-- **Prototype G — Coastal model:** Stage 14.
-- **Version 1.0 — Proven Mac fabrication tool:** Stages 15–16.
+- **Prototype F — Machining-ready sheets:** Stage 13.
+- **Prototype G — Direct G-code:** Stage 14.
+- **Prototype H — Coastal model:** Stage 15.
+- **Version 1.0 — Proven Mac fabrication tool:** Stages 16–17.

@@ -4091,6 +4091,7 @@ export function MapWorkspace() {
             <button disabled={!filledLayerPreview} className={workspaceView === "manufacturing" ? "active" : ""} onClick={() => setWorkspaceView("manufacturing")}>Manufacture</button>
             <button disabled={!filledLayerPreview} className={workspaceView === "smoothing" ? "active" : ""} onClick={() => setWorkspaceView("smoothing")}>Smoothing</button>
             <button disabled={!filledLayerPreview} className={workspaceView === "sheet-layout" ? "active" : ""} onClick={() => setWorkspaceView("sheet-layout")}>Sheet Layout</button>
+            <button disabled>Machining SVG</button>
             <button disabled>G-code</button>
             <button disabled={!filledLayerPreview} className={workspaceView === "colour-chart" ? "active" : ""} onClick={() => setWorkspaceView("colour-chart")}>Colour Chart</button>
             <button disabled>BOM</button>
@@ -4114,7 +4115,7 @@ export function MapWorkspace() {
               {!(["colour-chart", "sheet-layout", "manufacturing"] as WorkspaceView[]).includes(workspaceView) && <p>Print and download options for this view will appear here when available.</p>}
             </div>
           </details>
-          <div className="stage-pill"><span /> Stage 14 · Water Cutouts</div>
+          <div className="stage-pill"><span /> Stage 15 · Water Cutouts</div>
         </div>
       </header>
 

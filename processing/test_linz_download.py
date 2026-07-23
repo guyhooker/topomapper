@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 from linz_download import (
     LinzDownloadError,
+    _authorised_request,
     _extract_geotiffs,
     build_elevation_export,
     has_api_key,
@@ -30,6 +31,14 @@ BOUNDS = {
 
 
 class LinzDownloadTests(unittest.TestCase):
+    def test_export_request_uses_koordinates_lowercase_key_scheme(self) -> None:
+        request = _authorised_request(
+            "https://data.linz.govt.nz/services/api/v1/exports/",
+            "a" * 32,
+            payload=build_elevation_export(BOUNDS),
+        )
+        self.assertEqual(request.get_header("Authorization"), f"key {'a' * 32}")
+
     def test_export_uses_8m_grid_and_wgs84_crop(self) -> None:
         payload = build_elevation_export(BOUNDS)
         self.assertEqual(payload["crs"], "EPSG:2193")

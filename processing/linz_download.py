@@ -151,7 +151,9 @@ def _authorised_request(url: str, api_key: str, *, payload: dict[str, Any] | Non
         "User-Agent": "Topomapper/0.1",
     }
     if urlparse(url).hostname == "data.linz.govt.nz":
-        headers["Authorization"] = f"Key {api_key}"
+        # Koordinates' HeaderTokenAuthentication prefix is case-sensitive in
+        # practice, and is documented as lowercase "key ".
+        headers["Authorization"] = f"key {api_key}"
     if data is not None:
         headers["Content-Type"] = "application/json"
     return Request(url, data=data, headers=headers, method="POST" if data is not None else "GET")

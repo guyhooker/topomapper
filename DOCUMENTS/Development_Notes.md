@@ -626,3 +626,11 @@
   half. The proxy bin now compensates outward for that behaviour and for the
   measured simplification error, so importing exact parts restores the requested
   physical stock-edge zone rather than adding an unintended extra border gap.
+
+### LINZ download authentication correction
+
+- Corrected the Koordinates REST API authentication prefix from `Key` to the
+  documented lowercase `key`. The LINZ export endpoint treats this prefix
+  strictly and otherwise rejects a valid LDS key with HTTP 401.
+- Added an offline regression check for the exact authorization header without
+  recording or exposing a user's key.

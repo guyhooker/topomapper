@@ -15,11 +15,16 @@ Cloud Optimised GeoTIFFs in the New Zealand Elevation open-data collection:
 - [LINZ Data Service](https://data.linz.govt.nz/)
 - [NZ 8m Digital Elevation Model (2012)](https://data.linz.govt.nz/layer/51768-nz-8m-digital-elevation-model-2012/)
 
-For Stage 3, manually download the `.tif` or `.tiff` tiles that overlap the
-selected Mount Taranaki rectangle. The file chooser accepts several files at
-once: use Command-click in the macOS chooser to select adjoining tiles such as
-BJ29 and BH29. Topomapper mosaics them and clearly reports any part of the
-selection that remains uncovered.
+Topomapper's recommended Stage 3 path automatically requests a cropped export
+from the NZ 8m Digital Elevation Model for the selected rectangle. The user
+creates a free LINZ data-access API key once; Topomapper stores it in the Mac
+application-support folder with owner-only permissions, never in a project or
+Git repository. Downloads are cached under `~/Library/Caches/Topomapper/linz`.
+
+Manual `.tif` or `.tiff` selection remains available. The chooser accepts
+several files at once: use Command-click in the macOS chooser to select
+adjoining tiles such as BJ29 and BH29. Topomapper mosaics them and clearly
+reports any part of the selection that remains uncovered.
 
 ## Lakes and significant rivers
 
@@ -31,7 +36,9 @@ area from:
 - [NZ River Polygons (Topo, 1:50k)](https://data.linz.govt.nz/layer/50328-nz-river-polygons-topo-150k/)
 - [NZ Lagoon Polygons (Topo, 1:50k)](https://data.linz.govt.nz/layer/50292-nz-lagoon-polygons-topo-150k/)
 
-Crop each dataset to the model area and export it as WGS84 GeoJSON or KML.
+The automatic download uses LINZ WFS bounding-box queries to request only the
+lake, lagoon and river polygons intersecting the current selection. Empty
+datasets are omitted. Manual WGS84 GeoJSON or KML import remains available.
 Topomapper accepts several files together and subtracts every imported polygon
 from all affected physical layers. This produces cut-through lake and river
 holes for later blue-painted inserts. Do not choose the river centrelines
@@ -67,5 +74,6 @@ not be used for fabrication or treated as LINZ survey data.
 
 Keep the LINZ dataset title, download date, source link, resolution, horizontal
 CRS, vertical datum, licensor, and licence with every eventual Topomapper
-project. Automatic provenance capture belongs to a later stage; Stage 3 exposes
-the metadata required to detect obvious source or datum problems.
+project. The automatic cache records the 8 m dataset, source, download time,
+selection and CC BY 4.0 licence. The processed project continues to retain the
+source filenames and GeoTIFF metadata required to detect obvious datum problems.

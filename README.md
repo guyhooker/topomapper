@@ -49,6 +49,12 @@ Missing data is reported separately from real zero elevation. See
 [`DOCUMENTS/Elevation_Data.md`](DOCUMENTS/Elevation_Data.md) for suitable LINZ
 sources and the included synthetic test fixture.
 
+The recommended path downloads a cropped copy of the national LINZ 8 m DEM for
+the selected rectangle and retrieves matching lake, lagoon and river polygons
+automatically. A free LINZ data-access API key is saved privately on the Mac and
+downloaded sources are cached outside project files. The original manual
+GeoTIFF and water-file controls remain available as a fallback.
+
 Stage 4 adds an editable land-elevation plan. Sea level and the analysed
 maximum remain fixed; Log or Linear spacing can be combined
 with an adjustable 2–40 layer count. Intermediate boundaries can also be added,

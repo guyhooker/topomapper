@@ -271,6 +271,16 @@ controller/postprocessor are specified.
 - Live navigation or marine navigation.
 - Buildings and vegetation from surface models.
 - Fully automatic toolpath and G-code generation.
-- Automatic elevation-tile discovery or downloading. A project may manually
-  select up to 24 adjoining GeoTIFF files.
+- Elevation resolutions finer than the national 8 m DEM. A project may still
+  manually select up to 24 adjoining higher-resolution GeoTIFF files.
 - Cloud accounts or multi-user collaboration.
+
+## Automatic LINZ acquisition
+
+- Automatically request a cropped NZ 8m DEM for the selected rectangle and
+  matching LINZ Topo50 lake, lagoon and river polygons. Cache the files locally,
+  reuse an exact matching selection, and retain manual GeoTIFF and water-file
+  import as a fallback.
+- Store the user's LINZ data-access API key outside `.topomapper` projects and
+  outside the repository with owner-only file permissions. Never return the key
+  to the browser after saving it or include it in errors, exports or provenance.

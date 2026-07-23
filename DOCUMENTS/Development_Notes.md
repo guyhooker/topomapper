@@ -102,6 +102,13 @@
 ### Stage 3 — First Elevation Dataset and Analysis
 
 - Implemented 17 July 2026; awaiting acceptance with a real LINZ GeoTIFF.
+- Added the first automatic LINZ acquisition path. A selected rectangle creates
+  a cropped NZ 8m DEM export and WFS requests for Topo50 lakes, lagoons and river
+  polygons. Results are cached outside projects and passed into the existing
+  analysis and layer-generation paths as ordinary GeoTIFF and GeoJSON files.
+- The LINZ data-access key is entered once and stored in macOS Application
+  Support with owner-only permissions. Manual terrain and water file selection
+  remains available, and downloaded elevation is analysed automatically.
 - Added an isolated Python processing environment under `.venv`; it is created
   automatically on the first Stage 3 start and is excluded from Git.
 - Added a localhost-only elevation service using Rasterio and NumPy.

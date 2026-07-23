@@ -67,6 +67,22 @@ type ElevationAnalysis = {
 
 type ProcessorStatus = "checking" | "ready" | "unavailable";
 
+type LinzFile = {
+  name: string;
+  url: string;
+};
+
+type LinzDownload = {
+  cache_id: string;
+  cached: boolean;
+  dataset: string;
+  source: string;
+  downloaded_at: string;
+  license: string;
+  elevation: LinzFile[];
+  water: LinzFile[];
+};
+
 type LayerBoundary = {
   id: string;
   value: string;
@@ -2393,6 +2409,10 @@ export function MapWorkspace() {
   const [elevationFiles, setElevationFiles] = useState<File[]>([]);
   const [waterFiles, setWaterFiles] = useState<File[]>([]);
   const [waterSourceFilenames, setWaterSourceFilenames] = useState<string[]>([]);
+  const [linzApiKey, setLinzApiKey] = useState("");
+  const [linzApiKeyConfigured, setLinzApiKeyConfigured] = useState(false);
+  const [downloadingLinz, setDownloadingLinz] = useState(false);
+  const [linzDownloadStatus, setLinzDownloadStatus] = useState("Download the national 8 m terrain and matching water boundaries for this rectangle.");
   const [analysing, setAnalysing] = useState(false);
   const [analysis, setAnalysis] = useState<ElevationAnalysis | null>(null);
   const [analysisStatus, setAnalysisStatus] = useState("Choose a LINZ elevation GeoTIFF for this area.");
@@ -2878,7 +2898,11 @@ export function MapWorkspace() {
       try {
         const response = await fetch(`${PROCESSOR_ENDPOINT}/health`);
         if (!response.ok) throw new Error("Processor unavailable");
-        if (!cancelled) setProcessorStatus("ready");
+        const payload = await response.json() as { linz_api_key_configured?: boolean };
+        if (!cancelled) {
+          setProcessorStatus("ready");
+          setLinzApiKeyConfigured(Boolean(payload.linz_api_key_configured));
+        }
       } catch {
         if (cancelled) return;
         if (attempts < 4) retryTimer = setTimeout(checkProcessor, 1200);
@@ -3158,7 +3182,9 @@ export function MapWorkspace() {
     try {
       const response = await fetch(`${PROCESSOR_ENDPOINT}/health`);
       if (!response.ok) throw new Error("Processor unavailable");
+      const payload = await response.json() as { linz_api_key_configured?: boolean };
       setProcessorStatus("ready");
+      setLinzApiKeyConfigured(Boolean(payload.linz_api_key_configured));
       setAnalysisStatus(elevationFiles.length
         ? `${elevationFiles.length} GeoTIFF tile${elevationFiles.length === 1 ? " is" : "s are"} ready to analyse.`
         : "Choose one or more LINZ elevation GeoTIFFs for this area.");
@@ -3168,16 +3194,15 @@ export function MapWorkspace() {
     }
   }
 
-  async function analyseElevation(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!selection || !elevationFiles.length || analysing) return;
+  async function runElevationAnalysis(files: File[]) {
+    if (!selection || !files.length || analysing) return;
     setAnalysing(true);
-    setAnalysisStatus(elevationFiles.length === 1
+    setAnalysisStatus(files.length === 1
       ? "Clipping the GeoTIFF and finding its highest and lowest points…"
-      : `Combining ${elevationFiles.length} tiles and finding the mosaic's highest and lowest points…`);
+      : `Combining ${files.length} tiles and finding the mosaic's highest and lowest points…`);
 
     const form = new FormData();
-    elevationFiles.forEach((file) => form.append("geotiff", file));
+    files.forEach((file) => form.append("geotiff", file));
     form.append("bounds", JSON.stringify(selection));
 
     try {
@@ -3201,6 +3226,58 @@ export function MapWorkspace() {
       setAnalysisStatus(error instanceof Error ? error.message : "The GeoTIFF could not be analysed.");
     } finally {
       setAnalysing(false);
+    }
+  }
+
+  async function analyseElevation(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await runElevationAnalysis(elevationFiles);
+  }
+
+  async function fetchLinzFile(entry: LinzFile) {
+    const response = await fetch(`${PROCESSOR_ENDPOINT}${entry.url}`);
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({})) as { error?: string };
+      throw new Error(payload.error ?? `${entry.name} could not be read from the local LINZ cache.`);
+    }
+    return new File([await response.blob()], entry.name, {
+      type: entry.name.toLowerCase().endsWith(".geojson") ? "application/geo+json" : "image/tiff",
+    });
+  }
+
+  async function downloadLinzData() {
+    if (!selection || downloadingLinz || processorStatus !== "ready") return;
+    if (!linzApiKeyConfigured && !linzApiKey.trim()) {
+      setLinzDownloadStatus("Enter the data-access API key from your LINZ account first.");
+      return;
+    }
+    setDownloadingLinz(true);
+    setLinzDownloadStatus("LINZ is preparing the cropped 8 m terrain. This can take several minutes…");
+    try {
+      const response = await fetch(`${PROCESSOR_ENDPOINT}/linz/download`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bounds: selection, api_key: linzApiKey.trim() }),
+      });
+      const payload = await response.json() as LinzDownload | { error?: string };
+      if (!response.ok || !("elevation" in payload)) {
+        throw new Error("error" in payload && payload.error ? payload.error : "The LINZ data could not be downloaded.");
+      }
+      setLinzApiKey("");
+      setLinzApiKeyConfigured(true);
+      setLinzDownloadStatus(payload.cached
+        ? "The matching LINZ data was already cached on this Mac. Loading it now…"
+        : "Download complete. Loading the terrain and water data…");
+      const downloadedElevation = await Promise.all(payload.elevation.map(fetchLinzFile));
+      const downloadedWater = await Promise.all(payload.water.map(fetchLinzFile));
+      chooseElevationFiles(downloadedElevation);
+      chooseWaterFiles(downloadedWater);
+      setLinzDownloadStatus(`${payload.dataset} loaded${downloadedWater.length ? ` with ${downloadedWater.length} water dataset${downloadedWater.length === 1 ? "" : "s"}` : ""}. Licensed ${payload.license}.`);
+      await runElevationAnalysis(downloadedElevation);
+    } catch (error) {
+      setLinzDownloadStatus(error instanceof Error ? error.message : "The LINZ data could not be downloaded.");
+    } finally {
+      setDownloadingLinz(false);
     }
   }
 
@@ -4251,6 +4328,35 @@ export function MapWorkspace() {
             </span>
           </div>
 
+          <div className="linz-automatic">
+            <span className="section-label">RECOMMENDED · AUTOMATIC</span>
+            <strong>LINZ 8 m terrain + water</strong>
+            <p>Downloads only this rectangle, including available lake, lagoon and river polygons.</p>
+            <label className="linz-key-field">
+              <span>{linzApiKeyConfigured ? "LINZ API key · saved locally" : "LINZ data-access API key"}</span>
+              <input
+                type="password"
+                autoComplete="off"
+                value={linzApiKey}
+                onChange={(event) => setLinzApiKey(event.target.value)}
+                placeholder={linzApiKeyConfigured ? "Paste here only to replace the saved key" : "Paste the key once"}
+              />
+            </label>
+            <button
+              type="button"
+              className="linz-download-button"
+              disabled={!selection || downloadingLinz || processorStatus !== "ready" || (!linzApiKeyConfigured && !linzApiKey.trim())}
+              onClick={() => { void downloadLinzData(); }}
+            >
+              {downloadingLinz ? "Downloading from LINZ…" : "Download and analyse selected area"}
+            </button>
+            <p className="linz-download-status" role="status">{linzDownloadStatus}</p>
+            <a className="linz-data-link" href="https://data.linz.govt.nz/my/api/" target="_blank" rel="noreferrer">
+              {linzApiKeyConfigured ? "Manage LINZ API keys" : "Create a free LINZ API key"} <span aria-hidden="true">↗</span>
+            </a>
+          </div>
+
+          <div className="manual-import-label"><span>OR USE FILES ALREADY ON THIS MAC</span></div>
           <form className="elevation-form" onSubmit={analyseElevation}>
             <label className="file-picker">
               <input

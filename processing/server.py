@@ -5,6 +5,7 @@ from __future__ import annotations
 import cgi
 import json
 import os
+import re
 import shutil
 import tempfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -14,6 +15,12 @@ from urllib.parse import urlparse
 from analyse import AnalysisError, analyse_geotiffs, generate_filled_layers
 from colour_guide import ColourGuideError, generate_colour_guide
 from layout_guide import LayoutGuideError, generate_layout_guide
+from linz_download import (
+    LinzDownloadError,
+    cached_file,
+    download_linz_data,
+    has_api_key,
+)
 
 
 HOST = "127.0.0.1"
@@ -53,6 +60,20 @@ class RequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(contents)
 
+    def _send_file(self, path: Path) -> None:
+        size = path.stat().st_size
+        suffix = path.suffix.lower()
+        content_type = "image/tiff" if suffix in {".tif", ".tiff"} else "application/geo+json"
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(size))
+        self.send_header("Content-Disposition", f'attachment; filename="{path.name}"')
+        self.send_header("Access-Control-Allow-Origin", self._allowed_origin())
+        self.send_header("Vary", "Origin")
+        self.end_headers()
+        with path.open("rb") as source:
+            shutil.copyfileobj(source, self.wfile, length=1024 * 1024)
+
     def do_OPTIONS(self) -> None:  # noqa: N802
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", self._allowed_origin())
@@ -62,20 +83,35 @@ class RequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self) -> None:  # noqa: N802
-        if urlparse(self.path).path == "/health":
-            self._send_json(200, {"status": "ready", "service": "topomapper elevation processor"})
+        request_path = urlparse(self.path).path
+        if request_path == "/health":
+            self._send_json(200, {
+                "status": "ready",
+                "service": "topomapper elevation processor",
+                "linz_api_key_configured": has_api_key(),
+            })
+            return
+        match = re.fullmatch(r"/linz/files/([a-f0-9]{20})/([^/]+)", request_path)
+        if match:
+            try:
+                self._send_file(cached_file(match.group(1), match.group(2)))
+            except LinzDownloadError as error:
+                self._send_json(404, {"error": str(error)})
             return
         self._send_json(404, {"error": "Not found"})
 
     def do_POST(self) -> None:  # noqa: N802
         request_path = urlparse(self.path).path
-        if request_path not in {"/analyze", "/layers", "/layout-guide", "/colour-guide"}:
+        if request_path not in {"/analyze", "/layers", "/layout-guide", "/colour-guide", "/linz/download"}:
             self._send_json(404, {"error": "Not found"})
             return
         try:
             length = int(self.headers.get("Content-Length", "0"))
         except ValueError:
             length = 0
+        if request_path == "/linz/download":
+            self._download_linz_data(length)
+            return
         if request_path == "/layout-guide":
             self._create_layout_guide(length)
             return
@@ -158,6 +194,29 @@ class RequestHandler(BaseHTTPRequestHandler):
         finally:
             for temporary_path in temporary_paths:
                 temporary_path.unlink(missing_ok=True)
+
+    def _download_linz_data(self, length: int) -> None:
+        if length <= 0:
+            self._send_json(400, {"error": "No map area was supplied."})
+            return
+        if length > 64 * 1024:
+            self._send_json(413, {"error": "The LINZ download request is too large."})
+            return
+        if not self.headers.get("Content-Type", "").startswith("application/json"):
+            self._send_json(400, {"error": "The LINZ download request must be JSON."})
+            return
+        try:
+            payload = json.loads(self.rfile.read(length))
+            if not isinstance(payload, dict):
+                raise LinzDownloadError("The LINZ download request is malformed.")
+            result = download_linz_data(payload.get("bounds"), str(payload.get("api_key", "")))
+            self._send_json(200, result)
+        except LinzDownloadError as error:
+            self._send_json(422, {"error": str(error)})
+        except json.JSONDecodeError:
+            self._send_json(400, {"error": "The LINZ download request could not be read."})
+        except Exception as error:
+            self._send_json(500, {"error": f"The LINZ download failed: {error}"})
 
     def _create_layout_guide(self, length: int) -> None:
         if length <= 0:

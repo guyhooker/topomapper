@@ -55,7 +55,12 @@ same numerical bounds after reopening a saved example.
 
 - Local Python processing service.
 - GDAL/Rasterio toolchain.
-- Import of one or more manually downloaded LINZ GeoTIFF tiles.
+- Recommended automatic cropped download from the national LINZ 8 m DEM, with
+  an API key saved privately on the Mac and exact-selection local caching.
+- Automatic bounding-box downloads of LINZ Topo50 lake, lagoon and river
+  polygons, omitting empty datasets.
+- Import of manually downloaded LINZ GeoTIFF and water files remains available
+  as a fallback.
 - Clip elevation data to the selected rectangle.
 - Display minimum and maximum elevation and their map locations.
 - Hillshade or coloured elevation preview.

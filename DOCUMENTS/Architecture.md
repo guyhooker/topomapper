@@ -75,6 +75,10 @@ original source files remain external and are only needed for regeneration.
   local cap layers, peak-to-base vent columns, supplemental grid holes, and
   covered engraving eligibility.
 - GeoTIFF cache for clipped elevation data.
+- Local LINZ acquisition service. It stores the user's data-access key outside
+  project files with owner-only permissions, creates a cropped NZ 8m DEM
+  export, downloads matching Topo50 water polygons through WFS, and exposes
+  cached files only to the localhost interface.
 - GeoPackage or GeoJSON for intermediate polygons.
 - Finished-size SVG as the inspectable manufacturing-geometry source, with
   separate profile and drilling groups. Stock-sheet SVG currently uses
@@ -163,7 +167,8 @@ so selecting Banks Peninsula does not require downloading a national raster.
 
 - Add searchable MapLibre map.
 - Draw and edit the selection.
-- Manually select up to 24 appropriate LINZ elevation tiles.
+- Automatically download and cache a cropped NZ 8m DEM for the selected area,
+  or manually select up to 24 appropriate LINZ elevation tiles.
 - Package the implemented project library in the native Mac application.
 
 ### Phase 3 — Coast and bathymetry

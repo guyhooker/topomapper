@@ -654,3 +654,7 @@
   Manual terrain/water imports and source metadata remain available under
   clearly labelled Advanced and Technical disclosures for recovery and
   diagnostics, without making file formats part of the normal workflow.
+- Began explicit stage-progress reporting with Step 1. Its stage number, name,
+  red/green LED and text status remain visible when the section is collapsed.
+  A new project starts red because Free selection is not a chosen frame; the
+  LED turns green as soon as a standard, square or custom frame is selected.

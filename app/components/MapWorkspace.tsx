@@ -2471,6 +2471,7 @@ export function MapWorkspace() {
   const [projectLibrary, setProjectLibrary] = useState<TopomapperProject[]>([]);
   const [projectStatus, setProjectStatus] = useState("Opening project library…");
   const [workflowDrawerOpen, setWorkflowDrawerOpen] = useState(true);
+  const [frameStageOpen, setFrameStageOpen] = useState(true);
   const workflowDrawerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const placementCounterRef = useRef(1);
   const layoutViolationsRef = useRef<LayoutViolation[]>([]);
@@ -4237,11 +4238,18 @@ export function MapWorkspace() {
           onClick={openWorkflowDrawer}
         ><span>Setup</span><b aria-hidden="true">{workflowDrawerOpen ? "‹" : "›"}</b></button>
         <aside className="selection-panel" aria-label="Project setup and model controls">
-        <div className="selection-heading">
-          <span className="section-label">STEP 1 · AREA &amp; FORMAT</span>
-          <strong>{selection ? "Selection ready" : "Draw a rectangle"}</strong>
-          <p role="status">{selectionStatus}</p>
-        </div>
+        <details className="workflow-stage" open={frameStageOpen} onToggle={(event) => setFrameStageOpen(event.currentTarget.open)}>
+          <summary className="workflow-stage-summary">
+            <i className={`stage-status-led ${outputFormat !== "free" ? "complete" : "incomplete"}`} aria-hidden="true" />
+            <span><small>STEP 1</small><strong>Frame &amp; area</strong></span>
+            <em>{outputFormat !== "free" ? "Complete" : "Select frame"}</em>
+            <b aria-hidden="true">{frameStageOpen ? "−" : "+"}</b>
+          </summary>
+          <div className="workflow-stage-body">
+            <div className="selection-heading">
+              <strong>{selection ? "Selection ready" : "Draw a rectangle"}</strong>
+              <p role="status">{selectionStatus}</p>
+            </div>
 
         <div className="output-format-controls">
           <label htmlFor="output-format">Finished format</label>
@@ -4310,6 +4318,8 @@ export function MapWorkspace() {
           <button onClick={clearSelection} disabled={!selection}>Clear</button>
           <button onClick={resetTaranakiExample}>Reset Taranaki</button>
         </div>
+          </div>
+        </details>
 
         <section className="elevation-section" aria-labelledby="elevation-heading">
           <div className="elevation-heading-row">

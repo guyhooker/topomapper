@@ -233,6 +233,19 @@ button { color: inherit; }
 .workflow-drawer-handle span { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 9px; font-weight: 820; letter-spacing: .12em; text-transform: uppercase; }
 .workflow-drawer-handle b { font-size: 17px; font-weight: 500; }
 .workflow-drawer.open .workflow-drawer-handle { top: 12px; min-height: 42px; }
+.workflow-stage { border: 1px solid var(--line); border-radius: 11px; background: rgba(255,255,255,.34); overflow: hidden; }
+.workflow-stage-summary { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto 18px; align-items: center; gap: 8px; min-height: 52px; padding: 8px 10px; cursor: pointer; list-style: none; }
+.workflow-stage-summary::-webkit-details-marker { display: none; }
+.workflow-stage-summary span small, .workflow-stage-summary span strong { display: block; }
+.workflow-stage-summary span small { color: var(--forest-soft); font-size: 8px; font-weight: 820; letter-spacing: .13em; }
+.workflow-stage-summary span strong { margin-top: 2px; font-size: 12px; }
+.workflow-stage-summary em { color: var(--muted); font-size: 8px; font-style: normal; font-weight: 760; text-transform: uppercase; }
+.workflow-stage-summary > b { display: grid; place-items: center; width: 18px; height: 18px; border-radius: 5px; background: rgba(33,79,61,.07); color: var(--forest); font-size: 13px; font-weight: 650; }
+.stage-status-led { width: 9px; height: 9px; border-radius: 50%; }
+.stage-status-led.incomplete { background: #d84d36; box-shadow: 0 0 0 4px rgba(216,77,54,.13); }
+.stage-status-led.complete { background: #4b9569; box-shadow: 0 0 0 4px rgba(75,149,105,.14); }
+.workflow-stage[open] > .workflow-stage-summary { border-bottom: 1px solid var(--line); }
+.workflow-stage-body { padding: 0 11px 12px; }
 .selection-heading strong { display: block; margin-top: 7px; font-family: Georgia, "Times New Roman", serif; font-size: 23px; font-weight: 500; letter-spacing: -.025em; }
 .selection-heading p { min-height: 34px; margin: 6px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .output-format-controls { margin-top: 13px; padding: 11px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.38); }

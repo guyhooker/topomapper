@@ -4160,7 +4160,7 @@ export function MapWorkspace() {
     workflowDrawerTimerRef.current = setTimeout(() => {
       setWorkflowDrawerOpen(false);
       workflowDrawerTimerRef.current = null;
-    }, 2200);
+    }, 10000);
   }
 
   return (
@@ -4219,6 +4219,8 @@ export function MapWorkspace() {
           <div className="stage-pill"><span /> Setup → Output</div>
         </div>
       </header>
+
+      <div className="workflow-edge-hotspot" aria-hidden="true" onPointerEnter={openWorkflowDrawer} />
 
       <div
         className={`workflow-drawer ${workflowDrawerOpen ? "open" : "closed"}`}

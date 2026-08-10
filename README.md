@@ -33,8 +33,9 @@ checkout, enable Corepack and run `pnpm install` once before `pnpm run dev`.
 Open `http://localhost:3000` and leave Terminal running while using the app.
 
 The numbered inputs are arranged from source choices to fabrication outputs in
-the left-hand Setup drawer. Move to its Setup handle or click it for a fast
-open; after the pointer leaves, the drawer waits briefly and retreats slowly.
+the left-hand Setup drawer. Move to its Setup handle or anywhere along the left
+screen edge to open it; after the pointer leaves, the drawer waits 10 seconds
+and then retreats gently.
 Technical terrain-file controls are kept under Advanced so the normal workflow
 shows preparation progress rather than GeoTIFF implementation detail.
 

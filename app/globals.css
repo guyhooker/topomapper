@@ -210,8 +210,9 @@ button { color: inherit; }
   box-shadow: var(--shadow);
   backdrop-filter: blur(18px);
 }
-.workflow-drawer { position: fixed; z-index: 9; top: 116px; bottom: 47px; left: 0; width: 360px; transform: translateX(-100%); transition-property: transform; transition-duration: 650ms; transition-timing-function: cubic-bezier(.2,.75,.25,1); }
-.workflow-drawer.open { transform: translateX(0); transition-duration: 160ms; }
+.workflow-edge-hotspot { position: fixed; z-index: 9; top: 0; bottom: 0; left: 0; width: 12px; }
+.workflow-drawer { position: fixed; z-index: 9; top: 116px; bottom: 47px; left: 0; width: 360px; transform: translateX(-100%); transition-property: transform; transition-duration: 1950ms; transition-timing-function: cubic-bezier(.2,.75,.25,1); }
+.workflow-drawer.open { transform: translateX(0); transition-duration: 320ms; }
 .workflow-drawer-handle {
   position: absolute;
   top: 20px;

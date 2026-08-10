@@ -641,6 +641,9 @@
   with one left-hand Setup drawer. It opens quickly on hover, focus or click,
   remains open while a control has focus, and retreats more slowly after a short
   period without interaction. Its handle remains available in every model view.
+- Tuned the drawer after physical use: the entire 12 px left screen edge now
+  activates it, opening takes 320 ms, it waits 10 seconds after pointer exit,
+  and its deliberately gentle retreat takes 1.95 seconds.
 - Reordered the main views to follow the actual dependency chain: 2D Map, 3D
   Model, Smoothing, Assembly, Sheet Layout and Manufacture. Future machining,
   G-code and BOM controls remain visible but disabled until implemented.

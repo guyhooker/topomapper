@@ -634,3 +634,20 @@
   strictly and otherwise rejects a valid LDS key with HTTP 401.
 - Added an offline regression check for the exact authorization header without
   recording or exposing a user's key.
+
+### Workflow interface reorganisation
+
+- Replaced the separate location-search card and fixed right-hand setup panel
+  with one left-hand Setup drawer. It opens quickly on hover, focus or click,
+  remains open while a control has focus, and retreats more slowly after a short
+  period without interaction. Its handle remains available in every model view.
+- Reordered the main views to follow the actual dependency chain: 2D Map, 3D
+  Model, Smoothing, Assembly, Sheet Layout and Manufacture. Future machining,
+  G-code and BOM controls remain visible but disabled until implemented.
+- Moved snow appearance and material-per-layer inputs into the layer-planning
+  section, before the generated geometry and 3D actions. Generated layers now
+  offer explicit Show 3D model and Then review smoothing actions.
+- Simplified normal terrain preparation to one progress-reporting action.
+  Manual terrain/water imports and source metadata remain available under
+  clearly labelled Advanced and Technical disclosures for recovery and
+  diagnostics, without making file formats part of the normal workflow.

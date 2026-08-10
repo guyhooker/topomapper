@@ -2470,6 +2470,8 @@ export function MapWorkspace() {
   const [projectCreatedAt, setProjectCreatedAt] = useState("");
   const [projectLibrary, setProjectLibrary] = useState<TopomapperProject[]>([]);
   const [projectStatus, setProjectStatus] = useState("Opening project library…");
+  const [workflowDrawerOpen, setWorkflowDrawerOpen] = useState(true);
+  const workflowDrawerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const placementCounterRef = useRef(1);
   const layoutViolationsRef = useRef<LayoutViolation[]>([]);
   const layoutDirtyReadyRef = useRef(false);
@@ -2483,6 +2485,9 @@ export function MapWorkspace() {
     setSheetZoom(1);
   }, [sheetRules.width, sheetRules.height]);
   useEffect(() => () => { optimizerWorkerRef.current?.terminate(); }, []);
+  useEffect(() => () => {
+    if (workflowDrawerTimerRef.current) clearTimeout(workflowDrawerTimerRef.current);
+  }, []);
   useEffect(() => {
     if (!optimizerWorkerRef.current) return;
     optimizerWorkerRef.current.terminate();
@@ -4138,6 +4143,26 @@ export function MapWorkspace() {
     setExportStatus(`${files.length} manufacturing files downloaded as one package.`);
   }
 
+  function cancelWorkflowDrawerRetreat() {
+    if (workflowDrawerTimerRef.current) {
+      clearTimeout(workflowDrawerTimerRef.current);
+      workflowDrawerTimerRef.current = null;
+    }
+  }
+
+  function openWorkflowDrawer() {
+    cancelWorkflowDrawerRetreat();
+    setWorkflowDrawerOpen(true);
+  }
+
+  function scheduleWorkflowDrawerRetreat() {
+    cancelWorkflowDrawerRetreat();
+    workflowDrawerTimerRef.current = setTimeout(() => {
+      setWorkflowDrawerOpen(false);
+      workflowDrawerTimerRef.current = null;
+    }, 2200);
+  }
+
   return (
     <main className={`workspace ${drawing ? "is-drawing" : ""} view-${workspaceView}`}>
       <div ref={mapNode} className="map" aria-label="Interactive map of New Zealand" />
@@ -4164,10 +4189,10 @@ export function MapWorkspace() {
           <div className="workspace-view-toggle" aria-label="Topomapper workflow">
             <button className={workspaceView === "two-dimensional" ? "active" : ""} onClick={() => setWorkspaceView("two-dimensional")}>2D Map</button>
             <button disabled={!filledLayerPreview} className={workspaceView === "three-dimensional" ? "active" : ""} onClick={() => setWorkspaceView("three-dimensional")}>3D Model</button>
-            <button disabled={!filledLayerPreview} className={workspaceView === "assembly" ? "active" : ""} onClick={() => setWorkspaceView("assembly")}>Assembly</button>
-            <button disabled={!filledLayerPreview} className={workspaceView === "manufacturing" ? "active" : ""} onClick={() => setWorkspaceView("manufacturing")}>Manufacture</button>
             <button disabled={!filledLayerPreview} className={workspaceView === "smoothing" ? "active" : ""} onClick={() => setWorkspaceView("smoothing")}>Smoothing</button>
+            <button disabled={!filledLayerPreview} className={workspaceView === "assembly" ? "active" : ""} onClick={() => setWorkspaceView("assembly")}>Assembly</button>
             <button disabled={!filledLayerPreview} className={workspaceView === "sheet-layout" ? "active" : ""} onClick={() => setWorkspaceView("sheet-layout")}>Sheet Layout</button>
+            <button disabled={!filledLayerPreview} className={workspaceView === "manufacturing" ? "active" : ""} onClick={() => setWorkspaceView("manufacturing")}>Manufacture</button>
             <button disabled>Machining SVG</button>
             <button disabled>G-code</button>
             <button disabled={!filledLayerPreview} className={workspaceView === "colour-chart" ? "active" : ""} onClick={() => setWorkspaceView("colour-chart")}>Colour Chart</button>
@@ -4178,7 +4203,6 @@ export function MapWorkspace() {
             <div className="output-menu-panel">
               {workspaceView === "colour-chart" && (
                 <>
-                  <label>Snow cap<select value={snowCapMode} onChange={(event) => setSnowCapMode(event.target.value as SnowCapMode)}><option value="automatic">Automatic at 20+ layers</option><option value="on">White top layer</option><option value="off">No snow</option></select></label>
                   <button onClick={() => void downloadColourChartPdf()}>Download colour chart PDF</button>
                   <button onClick={() => window.print()}>Print colour chart</button>
                 </>
@@ -4192,56 +4216,25 @@ export function MapWorkspace() {
               {!(["colour-chart", "sheet-layout", "manufacturing"] as WorkspaceView[]).includes(workspaceView) && <p>Print and download options for this view will appear here when available.</p>}
             </div>
           </details>
-          <div className="stage-pill"><span /> Stage 15 · Water Cutouts</div>
+          <div className="stage-pill"><span /> Setup → Output</div>
         </div>
       </header>
 
-      <section className="search-panel" aria-label="Place search">
-        <div className="panel-heading">
-          <span className="eyebrow">NEW ZEALAND WORKSPACE</span>
-          <h1>Find a location</h1>
-          <p>Navigate the map here. The numbered model-making workflow is on the right.</p>
-        </div>
-
-        <form className="search-form" onSubmit={searchPlaces}>
-          <label htmlFor="place-search">Place name</label>
-          <div className="search-row">
-            <input
-              id="place-search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="e.g. Mount Taranaki"
-              autoComplete="off"
-            />
-            <button type="submit" disabled={searching || !query.trim()}>{searching ? "…" : "Find"}</button>
-          </div>
-          <span className="search-message" role="status">{searchMessage}</span>
-        </form>
-
-        {results.length > 0 && (
-          <div className="search-results">
-            {results.map((result) => (
-              <button key={`${result.lat}-${result.lon}`} onClick={() => selectResult(result)}>
-                <strong>{result.display_name.split(",")[0]}</strong>
-                <span>{result.display_name.split(",").slice(1, 3).join(",")}</span>
-              </button>
-            ))}
-          </div>
-        )}
-
-        <div className="quick-places">
-          <span className="section-label">QUICK LOCATIONS</span>
-          {QUICK_PLACES.map((place) => (
-            <button key={place.name} onClick={() => showPlace(place)}>
-              <span className="location-dot" aria-hidden="true" />
-              <span><strong>{place.name}</strong><small>{place.subtitle}</small></span>
-              <b aria-hidden="true">›</b>
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <aside className="selection-panel" aria-label="Area selection and elevation analysis">
+      <div
+        className={`workflow-drawer ${workflowDrawerOpen ? "open" : "closed"}`}
+        onPointerEnter={openWorkflowDrawer}
+        onPointerLeave={scheduleWorkflowDrawerRetreat}
+        onFocus={openWorkflowDrawer}
+        onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) scheduleWorkflowDrawerRetreat(); }}
+      >
+        <button
+          type="button"
+          className="workflow-drawer-handle"
+          aria-expanded={workflowDrawerOpen}
+          aria-label="Open project setup"
+          onClick={openWorkflowDrawer}
+        ><span>Setup</span><b aria-hidden="true">{workflowDrawerOpen ? "‹" : "›"}</b></button>
+        <aside className="selection-panel" aria-label="Project setup and model controls">
         <div className="selection-heading">
           <span className="section-label">STEP 1 · AREA &amp; FORMAT</span>
           <strong>{selection ? "Selection ready" : "Draw a rectangle"}</strong>
@@ -4320,18 +4313,18 @@ export function MapWorkspace() {
           <div className="elevation-heading-row">
             <div>
               <span className="section-label">STEP 2 · ELEVATION DATA</span>
-              <strong id="elevation-heading">Analyse GeoTIFF mosaic</strong>
+              <strong id="elevation-heading">Prepare the selected terrain</strong>
             </div>
             <span className={`processor-state ${processorStatus}`}>
               <i aria-hidden="true" />
-              {processorStatus === "ready" ? "Local ready" : processorStatus === "checking" ? "Checking" : "Offline"}
+              {processorStatus === "ready" ? "Ready" : processorStatus === "checking" ? "Starting" : "Offline"}
             </span>
           </div>
 
           <div className="linz-automatic">
-            <span className="section-label">RECOMMENDED · AUTOMATIC</span>
-            <strong>LINZ 8 m terrain + water</strong>
-            <p>Downloads only this rectangle, including available lake, lagoon and river polygons.</p>
+            <span className="section-label">AUTOMATIC MAP PREPARATION</span>
+            <strong>Terrain and water</strong>
+            <p>Prepare the selected rectangle. This can take several minutes; progress remains visible below.</p>
             <label className="linz-key-field">
               <span>{linzApiKeyConfigured ? "LINZ API key · saved locally" : "LINZ data-access API key"}</span>
               <input
@@ -4356,8 +4349,10 @@ export function MapWorkspace() {
             </a>
           </div>
 
-          <div className="manual-import-label"><span>OR USE FILES ALREADY ON THIS MAC</span></div>
-          <form className="elevation-form" onSubmit={analyseElevation}>
+          <details className="advanced-data-import">
+            <summary>Advanced: use terrain or water files from this Mac</summary>
+            <div className="manual-import-label"><span>LOCAL TERRAIN FILES</span></div>
+            <form className="elevation-form" onSubmit={analyseElevation}>
             <label className="file-picker">
               <input
                 type="file"
@@ -4384,18 +4379,18 @@ export function MapWorkspace() {
                 {analysing ? "Analysing…" : elevationFiles.length > 1 ? `Combine ${elevationFiles.length} tiles and analyse` : "Analyse selected area"}
               </button>
             )}
-          </form>
-          <p className={`analysis-status ${analysisStatus.includes("no usable") || analysisStatus.includes("not running") || analysisStatus.includes("could not") ? "warning" : ""}`} role="status">{analysisStatus}</p>
-          <a
-            className="linz-data-link"
-            href="https://www.linz.govt.nz/products-services/data/types-linz-data/elevation-data/access-elevation-data"
-            target="_blank"
-            rel="noreferrer"
-          >
-            Open LINZ elevation downloads <span aria-hidden="true">↗</span>
-          </a>
+            </form>
+            <p className={`analysis-status ${analysisStatus.includes("no usable") || analysisStatus.includes("not running") || analysisStatus.includes("could not") ? "warning" : ""}`} role="status">{analysisStatus}</p>
+            <a
+              className="linz-data-link"
+              href="https://www.linz.govt.nz/products-services/data/types-linz-data/elevation-data/access-elevation-data"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Open LINZ elevation downloads <span aria-hidden="true">↗</span>
+            </a>
 
-          <div className="water-import">
+            <div className="water-import">
             <span className="section-label">OPTIONAL · WATER CUTOUTS</span>
             <label className="file-picker">
               <input type="file" accept=".geojson,.json,.kml,application/geo+json,application/vnd.google-earth.kml+xml" multiple onChange={(event) => chooseWaterFiles(Array.from(event.target.files ?? []))} />
@@ -4404,7 +4399,8 @@ export function MapWorkspace() {
             </label>
             <p className="water-status" role="status">{waterStatus}</p>
             <div className="water-source-links"><a href="https://data.linz.govt.nz/layer/50293-nz-lake-polygons-topo-150k/" target="_blank" rel="noreferrer">LINZ lakes ↗</a><a href="https://data.linz.govt.nz/layer/50328-nz-river-polygons-topo-150k/" target="_blank" rel="noreferrer">LINZ river polygons ↗</a></div>
-          </div>
+            </div>
+          </details>
 
           {analysis && (
             <div className="analysis-results">
@@ -4423,14 +4419,17 @@ export function MapWorkspace() {
               <div className="terrain-legend" aria-label="Elevation preview colour scale">
                 <span>Low</span><i /><span>High</span>
               </div>
-              <dl className="dataset-summary">
-                <div><dt>Coverage</dt><dd>{analysis.coverage.valid_data_percent.toFixed(1)}%</dd></div>
-                <div><dt>Tiles used</dt><dd>{analysis.datasets.filter((dataset) => dataset.overlaps_selection).length} of {analysis.datasets.length}</dd></div>
-                <div><dt>Cell size</dt><dd>{Array.from(new Set(analysis.datasets.map((dataset) => `${dataset.resolution_x.toFixed(1)} × ${dataset.resolution_y.toFixed(1)} m`))).join(", ")}</dd></div>
-                <div><dt>Coordinates</dt><dd>{Array.from(new Set(analysis.datasets.map((dataset) => dataset.crs))).join(", ")}</dd></div>
-                <div><dt>Vertical datum</dt><dd>{Array.from(new Set(analysis.datasets.map((dataset) => dataset.vertical_datum))).join(", ")}</dd></div>
-              </dl>
-              <p className="dataset-name" title={analysis.datasets.map((dataset) => dataset.filename).join(", ")}>{analysis.datasets.map((dataset) => dataset.filename).join(" + ")}</p>
+              <details className="terrain-details">
+                <summary>Technical terrain details</summary>
+                <dl className="dataset-summary">
+                  <div><dt>Coverage</dt><dd>{analysis.coverage.valid_data_percent.toFixed(1)}%</dd></div>
+                  <div><dt>Sources used</dt><dd>{analysis.datasets.filter((dataset) => dataset.overlaps_selection).length} of {analysis.datasets.length}</dd></div>
+                  <div><dt>Cell size</dt><dd>{Array.from(new Set(analysis.datasets.map((dataset) => `${dataset.resolution_x.toFixed(1)} × ${dataset.resolution_y.toFixed(1)} m`))).join(", ")}</dd></div>
+                  <div><dt>Coordinates</dt><dd>{Array.from(new Set(analysis.datasets.map((dataset) => dataset.crs))).join(", ")}</dd></div>
+                  <div><dt>Vertical datum</dt><dd>{Array.from(new Set(analysis.datasets.map((dataset) => dataset.vertical_datum))).join(", ")}</dd></div>
+                </dl>
+                <p className="dataset-name" title={analysis.datasets.map((dataset) => dataset.filename).join(", ")}>{analysis.datasets.map((dataset) => dataset.filename).join(" + ")}</p>
+              </details>
             </div>
           )}
         </section>
@@ -4483,6 +4482,21 @@ export function MapWorkspace() {
                 </div>
                 <small>{MIN_LAYER_COUNT}–{MAX_LAYER_COUNT} layers</small>
               </div>
+            </div>
+
+            <div className="model-appearance-controls">
+              <label>
+                <span>Snow appearance</span>
+                <select value={snowCapMode} onChange={(event) => setSnowCapMode(event.target.value as SnowCapMode)}>
+                  <option value="automatic">Automatic at 20+ layers</option>
+                  <option value="on">White top layer</option>
+                  <option value="off">No snow</option>
+                </select>
+              </label>
+              <label>
+                <span>Material per layer</span>
+                <strong><input type="number" min="0.5" max="50" step="0.5" value={materialThicknessMm} onChange={(event) => setMaterialThicknessMm(Math.max(0.5, Number(event.target.value)))} /> mm</strong>
+              </label>
             </div>
 
             <form className="add-boundary" onSubmit={(event) => { event.preventDefault(); addLayerBoundary(); }}>
@@ -4566,17 +4580,22 @@ export function MapWorkspace() {
                     );
                   })}
                 </ol>
+                <div className="next-view-actions" aria-label="Continue modelling">
+                  <button onClick={() => setWorkspaceView("three-dimensional")}>Show 3D model</button>
+                  <button onClick={() => setWorkspaceView("smoothing")}>Then review smoothing</button>
+                </div>
               </div>
             )}
           </section>
         )}
-      </aside>
+        </aside>
+      </div>
 
       {fabricationPreview && measurements && workspaceView === "three-dimensional" && (
         <section className="stack-preview" aria-labelledby="stack-preview-heading">
           <div className="stack-preview-heading">
             <div>
-              <span className="section-label">STEP 5 · PHYSICAL STACK</span>
+              <span className="section-label">STEP 5 · 3D REVIEW</span>
               <strong id="stack-preview-heading">Equal-thickness 3D preview</strong>
             </div>
               <span>{previewDimensions.label} · {Math.round(stackYaw)}° / {Math.round(stackPitch)}°</span>
@@ -4588,7 +4607,6 @@ export function MapWorkspace() {
               <button className={stackView === "top" ? "active" : ""} onClick={() => { setStackView("top"); setStackPitch(90); }}>Top</button>
               <button onClick={() => { setStackView("three-dimensional"); setStackYaw(0); setStackPitch(34); }}>North up</button>
             </div>
-            <label className="thickness-control">Material <span><input type="number" min="0.5" max="50" step="0.5" value={materialThicknessMm} onChange={(event) => setMaterialThicknessMm(Math.max(0.5, Number(event.target.value)))} /> mm</span></label>
             <label className="true-profile-toggle"><input type="checkbox" checked={showTrueElevation} onChange={(event) => setShowTrueElevation(event.target.checked)} disabled={stackView === "top"} /> True-elevation reference</label>
           </div>
           <div className="stack-canvas-wrap">
@@ -4622,7 +4640,7 @@ export function MapWorkspace() {
         <section className="assembly-preview" aria-labelledby="assembly-preview-heading">
           <div className="assembly-preview-heading">
             <div>
-              <span className="section-label">STAGE 7 · PARTS &amp; REGISTRATION</span>
+              <span className="section-label">STEP 7 · PARTS &amp; REGISTRATION</span>
               <strong id="assembly-preview-heading">Assembly machining plan</strong>
             </div>
             <span className={assemblyPlan.ventComplete ? "ready" : "warning"}>{assemblyPlan.ventComplete ? "Peak vents ready" : "Peak vents need attention"}</span>
@@ -4688,7 +4706,7 @@ export function MapWorkspace() {
       {filledLayerPreview && fabricationPreview && originalSmoothingMetrics && smoothedSmoothingMetrics && workspaceView === "smoothing" && (
         <section className="smoothing-preview" aria-labelledby="smoothing-preview-heading">
           <div className="smoothing-preview-heading">
-            <div><span className="section-label">STAGE 9 · CUTTER-SCALE CLEANUP</span><strong id="smoothing-preview-heading">Smooth manufacturing outlines</strong></div>
+            <div><span className="section-label">STEP 6 · CUTTER-SCALE CLEANUP</span><strong id="smoothing-preview-heading">Smooth manufacturing outlines</strong></div>
             <span>{(smoothingLevels[smoothingLayerIndex] ?? 0).toFixed(1)} mm cleanup</span>
           </div>
           <div className="smoothing-toolbar">
@@ -4732,7 +4750,7 @@ export function MapWorkspace() {
       {fabricationPreview && assemblyPlan && workspaceView === "sheet-layout" && (
         <section className="sheet-layout-preview" aria-labelledby="sheet-layout-heading">
           <div className="sheet-layout-heading">
-            <div><span className="section-label">STAGE 10 · MANUAL SHEET LAYOUT</span><strong id="sheet-layout-heading">Place production or replacement parts</strong></div>
+            <div><span className="section-label">STEP 8 · SHEET FITTING</span><strong id="sheet-layout-heading">Place production or replacement parts</strong></div>
             <span className={sheetPartDragging ? "checking" : layoutViolations.length ? "warning" : "ready"}>{sheetPartDragging ? "Moving · DRC on release" : layoutViolations.length ? `${layoutViolations.length} DRC warning${layoutViolations.length === 1 ? "" : "s"}` : "DRC clear"}</span>
           </div>
           <div className="sheet-rules-toolbar">
@@ -4870,7 +4888,7 @@ export function MapWorkspace() {
         <section className="manufacturing-preview" aria-labelledby="manufacturing-preview-heading">
           <div className="manufacturing-preview-heading">
             <div>
-              <span className="section-label">STAGE 8 · MANUFACTURING GEOMETRY</span>
+              <span className="section-label">STEP 9 · MANUFACTURING GEOMETRY</span>
               <strong id="manufacturing-preview-heading">Finished-size SVG files</strong>
             </div>
             <span className="ready">Scale verified in millimetres</span>

@@ -115,8 +115,8 @@ or CNC integration until this stage produces convincing geometry.
 
 ### Adds
 
-- Consistent numbered workflow on the right; location search remains a map tool
-  on the left rather than appearing to be a separate production stage.
+- Consistent numbered workflow in a left-hand Setup drawer that remains
+  reachable from every view; the redundant location-search card is removed.
 - Early format choice: 8 × 12 inch, A2, square, custom millimetres, or free.
 - Portrait/landscape orientation and ground-crop aspect-ratio locking during
   both drawing and corner adjustment.

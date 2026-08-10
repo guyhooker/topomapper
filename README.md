@@ -32,6 +32,12 @@ checkout, enable Corepack and run `pnpm install` once before `pnpm run dev`.
 
 Open `http://localhost:3000` and leave Terminal running while using the app.
 
+The numbered inputs are arranged from source choices to fabrication outputs in
+the left-hand Setup drawer. Move to its Setup handle or click it for a fast
+open; after the pointer leaves, the drawer waits briefly and retreats slowly.
+Technical terrain-file controls are kept under Advanced so the normal workflow
+shows preparation progress rather than GeoTIFF implementation detail.
+
 Topomapper now works with named projects. Each project autosaves after roughly
 1.5 seconds of inactivity and includes its area, physical output size, layer
 plan, processed geometry, 3D view, smoothing, assembly settings, sheets, and

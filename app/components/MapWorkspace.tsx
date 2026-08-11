@@ -248,6 +248,7 @@ type TopomapperProject = {
   colour?: {
     paletteId: "molotow-terrain";
     snowCapMode: SnowCapMode;
+    snowLayers?: number;
     paintNotes: Record<string, string>;
   };
   view: {
@@ -288,8 +289,11 @@ const PROJECT_DB_NAME = "topomapper-projects";
 const PROJECT_STORE_NAME = "projects";
 const ACTIVE_PROJECT_KEY = "topomapper:active-project";
 const DEFAULT_LAYER_COUNT = 10;
-const MIN_LAYER_COUNT = 2;
-const MAX_LAYER_COUNT = 40;
+const MIN_LAYER_COUNT = 5;
+const MAX_LAYER_COUNT = 30;
+const DEFAULT_SNOW_LAYERS = 1;
+const MIN_SNOW_LAYERS = 1;
+const MAX_SNOW_LAYERS = 5;
 const LOG_CURVE_STRENGTH = 2.2;
 const EARTH_RADIUS_METRES = 6_371_008.8;
 const FRAME_PRESETS = [
@@ -555,14 +559,14 @@ function layerColour(value: number, maximum: number) {
   return MOLOTOW_TERRAIN_PALETTE[index].hex;
 }
 
-function snowLayerCount(layerCount: number, mode: SnowCapMode) {
+function effectiveSnowLayerCount(layerCount: number, mode: SnowCapMode, requested = DEFAULT_SNOW_LAYERS) {
   if (mode === "off") return 0;
-  if (mode === "on") return layerCount > 0 ? 1 : 0;
-  return layerCount >= 20 ? 1 : 0;
+  if (mode === "automatic" && layerCount < 20) return 0;
+  return Math.min(layerCount, Math.max(MIN_SNOW_LAYERS, Math.min(MAX_SNOW_LAYERS, Math.round(requested))));
 }
 
-function paintForLayer(layerIndex: number, layerCount: number, snowMode: SnowCapMode) {
-  const snowLayers = snowLayerCount(layerCount, snowMode);
+function paintForLayer(layerIndex: number, layerCount: number, snowMode: SnowCapMode, requestedSnowLayers = DEFAULT_SNOW_LAYERS) {
+  const snowLayers = effectiveSnowLayerCount(layerCount, snowMode, requestedSnowLayers);
   const terrainLayers = Math.max(1, layerCount - snowLayers);
   if (snowLayers && layerIndex >= terrainLayers) return MOLOTOW_SNOW;
   const paletteIndex = Math.min(MOLOTOW_TERRAIN_PALETTE.length - 1, Math.floor(layerIndex * MOLOTOW_TERRAIN_PALETTE.length / terrainLayers));
@@ -1861,6 +1865,7 @@ function StackPreviewCanvas({
   onYawChange,
   pitch,
   snowCapMode,
+  snowLevelCount,
   onViewChange,
 }: {
   preview: FilledLayerPreview;
@@ -1875,6 +1880,7 @@ function StackPreviewCanvas({
   onYawChange: (yaw: number) => void;
   pitch: number;
   snowCapMode: SnowCapMode;
+  snowLevelCount: number;
   onViewChange: (yaw: number, pitch: number) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -1955,7 +1961,7 @@ function StackPreviewCanvas({
         if (!visibleSet.has(layer.index)) return;
         const bottom = layer.index * materialThickness;
         const top = bottom + materialThickness;
-        const colour = paintForLayer(layer.index, preview.layers.length, snowCapMode).hex;
+        const colour = paintForLayer(layer.index, preview.layers.length, snowCapMode, snowLevelCount).hex;
         const features = preview.feature_collection.features.filter((feature) => feature.properties.layer_index === layer.index);
         features.forEach((feature) => {
           feature.geometry.coordinates.forEach((ring) => {
@@ -2022,7 +2028,7 @@ function StackPreviewCanvas({
     const observer = new ResizeObserver(draw);
     observer.observe(canvas);
     return () => observer.disconnect();
-  }, [preview, visibleLayers, modelWidth, modelHeight, materialThickness, groundWidth, view, yaw, pitch, showTrueElevation, snowCapMode]);
+  }, [preview, visibleLayers, modelWidth, modelHeight, materialThickness, groundWidth, view, yaw, pitch, showTrueElevation, snowCapMode, snowLevelCount]);
 
   return (
     <canvas
@@ -2050,6 +2056,7 @@ function AssemblyPreviewCanvas({
   modelHeight,
   holeDiameter,
   snowCapMode,
+  snowLevelCount,
 }: {
   preview: FilledLayerPreview;
   plan: AssemblyPlan;
@@ -2058,6 +2065,7 @@ function AssemblyPreviewCanvas({
   modelHeight: number;
   holeDiameter: number;
   snowCapMode: SnowCapMode;
+  snowLevelCount: number;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
@@ -2100,7 +2108,7 @@ function AssemblyPreviewCanvas({
           });
           context.closePath();
         });
-        context.fillStyle = paintForLayer(layer.index, preview.layers.length, snowCapMode).hex;
+        context.fillStyle = paintForLayer(layer.index, preview.layers.length, snowCapMode, snowLevelCount).hex;
         context.fill("evenodd");
         context.strokeStyle = "rgba(28,49,40,.72)";
         context.lineWidth = 1;
@@ -2152,7 +2160,7 @@ function AssemblyPreviewCanvas({
     const observer = new ResizeObserver(draw);
     observer.observe(canvas);
     return () => observer.disconnect();
-  }, [preview, plan, layerIndex, modelWidth, modelHeight, holeDiameter, snowCapMode]);
+  }, [preview, plan, layerIndex, modelWidth, modelHeight, holeDiameter, snowCapMode, snowLevelCount]);
 
   return <canvas ref={canvasRef} aria-label={`Assembly and machining preview for layer ${layerIndex + 1}`} />;
 }
@@ -2446,7 +2454,6 @@ export function MapWorkspace() {
   const [layerBoundaries, setLayerBoundaries] = useState<LayerBoundary[]>([]);
   const [layerDistribution, setLayerDistribution] = useState<LayerDistribution>("log");
   const [layerCount, setLayerCount] = useState(DEFAULT_LAYER_COUNT);
-  const [newBoundaryValue, setNewBoundaryValue] = useState("");
   const [layerStatus, setLayerStatus] = useState("Analyse elevation data to begin a layer plan.");
   const [filledLayerPreview, setFilledLayerPreview] = useState<FilledLayerPreview | null>(null);
   const [visibleLayerIndices, setVisibleLayerIndices] = useState<number[]>([]);
@@ -2456,7 +2463,7 @@ export function MapWorkspace() {
   const [outputOrientation, setOutputOrientation] = useState<OutputOrientation>("landscape");
   const [customWidthMm, setCustomWidthMm] = useState(600);
   const [customHeightMm, setCustomHeightMm] = useState(400);
-  const [materialThicknessMm, setMaterialThicknessMm] = useState(6);
+  const [materialThicknessMm, setMaterialThicknessMm] = useState(3);
   const [stackView, setStackView] = useState<StackView>("three-dimensional");
   const [stackYaw, setStackYaw] = useState(0);
   const [stackPitch, setStackPitch] = useState(34);
@@ -2488,7 +2495,8 @@ export function MapWorkspace() {
   const [optimizerRunning, setOptimizerRunning] = useState(false);
   const [optimizerStatus, setOptimizerStatus] = useState("Ready to search for a tighter polygon-aware layout.");
   const [optimizerProgress, setOptimizerProgress] = useState("");
-  const [snowCapMode, setSnowCapMode] = useState<SnowCapMode>("automatic");
+  const [snowCapMode, setSnowCapMode] = useState<SnowCapMode>("on");
+  const [snowLevelCount, setSnowLevelCount] = useState(DEFAULT_SNOW_LAYERS);
   const [paintNotes, setPaintNotes] = useState<Record<string, string>>({});
   const [layoutSaveStatus, setLayoutSaveStatus] = useState("Layout changes have not been saved locally yet.");
   const [projectId, setProjectId] = useState<string | null>(null);
@@ -2573,7 +2581,7 @@ export function MapWorkspace() {
     setProjectStatus("Changes waiting to autosave…");
     projectAutosaveTimerRef.current = setTimeout(() => { void saveCurrentProject(true); }, 1500);
     return () => { if (projectAutosaveTimerRef.current) clearTimeout(projectAutosaveTimerRef.current); };
-  }, [projectId, projectName, selection, query, analysis, filledLayerPreview, visibleLayerIndices, waterSourceFilenames, outputFormat, outputOrientation, customWidthMm, customHeightMm, materialThicknessMm, layerDistribution, layerCount, layerBoundaries, stackView, stackYaw, stackPitch, showTrueElevation, smoothingLevels, gridPitchMm, dowelDiameterMm, holeDiameterMm, holeEdgeClearanceMm, sheetRules, sheetCount, activeSheetIndex, sheetPlacements, rotationStepDeg, snowCapMode, paintNotes, workspaceView, assemblyLayerIndex, smoothingLayerIndex]);
+  }, [projectId, projectName, selection, query, analysis, filledLayerPreview, visibleLayerIndices, waterSourceFilenames, outputFormat, outputOrientation, customWidthMm, customHeightMm, materialThicknessMm, layerDistribution, layerCount, layerBoundaries, stackView, stackYaw, stackPitch, showTrueElevation, smoothingLevels, gridPitchMm, dowelDiameterMm, holeDiameterMm, holeEdgeClearanceMm, sheetRules, sheetCount, activeSheetIndex, sheetPlacements, rotationStepDeg, snowCapMode, snowLevelCount, paintNotes, workspaceView, assemblyLayerIndex, smoothingLayerIndex]);
   const elevationDataComplete = hasUsableElevationAnalysis(analysis, selection);
   const chosenOutput = outputDimensions(outputFormat, outputOrientation, customWidthMm, customHeightMm);
   const selectedFramePreset = chosenOutput
@@ -2651,7 +2659,7 @@ export function MapWorkspace() {
     if (map.getLayer(ELEVATION_LAYER)) map.setPaintProperty(ELEVATION_LAYER, "raster-opacity", 0.86);
   }
 
-  function visibleFeatureCollection(result: FilledLayerPreview, visible: number[], mode: SnowCapMode = snowCapMode) {
+  function visibleFeatureCollection(result: FilledLayerPreview, visible: number[], mode: SnowCapMode = snowCapMode, snowLevels = snowLevelCount) {
     const visibleSet = new Set(visible);
     return {
       type: "FeatureCollection" as const,
@@ -2661,20 +2669,20 @@ export function MapWorkspace() {
           ...feature,
           properties: {
             ...feature.properties,
-            colour: paintForLayer(feature.properties.layer_index, result.layers.length, mode).hex,
+            colour: paintForLayer(feature.properties.layer_index, result.layers.length, mode, snowLevels).hex,
           },
         })),
     };
   }
 
-  function showFilledLayerOverlay(result: FilledLayerPreview, visible: number[], mode: SnowCapMode = snowCapMode) {
+  function showFilledLayerOverlay(result: FilledLayerPreview, visible: number[], mode: SnowCapMode = snowCapMode, snowLevels = snowLevelCount) {
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded()) return;
     clearFilledLayerOverlay();
     if (map.getLayer(ELEVATION_LAYER)) map.setPaintProperty(ELEVATION_LAYER, "raster-opacity", 0.18);
     map.addSource(FILLED_LAYER_SOURCE, {
       type: "geojson",
-      data: visibleFeatureCollection(result, visible, mode),
+      data: visibleFeatureCollection(result, visible, mode, snowLevels),
     });
     map.addLayer({
       id: FILLED_LAYER_FILL,
@@ -2873,8 +2881,8 @@ export function MapWorkspace() {
     if (mapStatus !== "Map ready") return;
     if (selection) applySelection(selection);
     if (analysis?.preview_png) showElevationOverlay(analysis);
-    if (filledLayerPreview) showFilledLayerOverlay(filledLayerPreview, visibleLayerIndices, snowCapMode);
-  }, [mapStatus, analysis, filledLayerPreview, visibleLayerIndices, snowCapMode]);
+    if (filledLayerPreview) showFilledLayerOverlay(filledLayerPreview, visibleLayerIndices, snowCapMode, snowLevelCount);
+  }, [mapStatus, analysis, filledLayerPreview, visibleLayerIndices, snowCapMode, snowLevelCount]);
 
   useEffect(() => {
     try {
@@ -3125,25 +3133,10 @@ export function MapWorkspace() {
   }
 
   function initialiseLayerPlan(maximum: number) {
-    try {
-      const saved = JSON.parse(window.localStorage.getItem(LAYER_PLAN_KEY) ?? "null") as { maximum?: number; values?: number[] } | null;
-      if (saved && Number.isFinite(saved.maximum) && Array.isArray(saved.values)
-        && Math.abs(Number(saved.maximum) - maximum) < 0.05 && saved.values.length >= 2) {
-        const restored = boundarySet(saved.values, maximum, "restored");
-        if (!validateLayerBoundaries(restored, maximum)) {
-          setLayerBoundaries(restored);
-          setLayerCount(restored.length - 1);
-          setLayerStatus("Your saved layer plan has been restored for this elevation range.");
-          return;
-        }
-      }
-    } catch {
-      window.localStorage.removeItem(LAYER_PLAN_KEY);
-    }
-    const logarithmic = presetBoundaries("log", maximum, DEFAULT_LAYER_COUNT);
-    setLayerDistribution("log");
-    setLayerCount(DEFAULT_LAYER_COUNT);
-    storeLayerPlan(logarithmic, maximum, "Logarithmic terrain boundaries are ready to edit.");
+    const count = Math.max(MIN_LAYER_COUNT, Math.min(MAX_LAYER_COUNT, layerCount || DEFAULT_LAYER_COUNT));
+    const boundaries = presetBoundaries(layerDistribution, maximum, count);
+    setLayerCount(count);
+    storeLayerPlan(boundaries, maximum, `${layerDistribution === "log" ? "Logarithmic" : "Linear"} terrain levels are ready.`);
   }
 
   function applyLayerDistribution(distribution: LayerDistribution, count = layerCount) {
@@ -3156,58 +3149,20 @@ export function MapWorkspace() {
       : `${count} equal elevation layers applied.`);
   }
 
-  function adjustLayerCount(change: -1 | 1) {
-    const nextCount = Math.max(MIN_LAYER_COUNT, Math.min(MAX_LAYER_COUNT, layerCount + change));
-    if (nextCount === layerCount) return;
-    applyLayerDistribution(layerDistribution, nextCount);
+  function setLayerCountFromEntry(value: number) {
+    if (!Number.isFinite(value)) return;
+    applyLayerDistribution(layerDistribution, Math.max(MIN_LAYER_COUNT, Math.min(MAX_LAYER_COUNT, Math.round(value))));
   }
 
-  function editLayerBoundary(id: string, value: string) {
-    if (!analysis) return;
-    const next = layerBoundaries.map((boundary) => boundary.id === id ? { ...boundary, value } : boundary);
-    storeLayerPlan(next, analysis.maximum.elevation, "Layer boundary updated and saved on this Mac.");
+  function setMaterialThicknessFromEntry(value: number) {
+    if (!Number.isFinite(value)) return;
+    const thickness = Math.max(1, Math.min(12, value));
+    setMaterialThicknessMm(thickness);
+    setSheetRules((rules) => ({ ...rules, thickness }));
   }
 
-  function addLayerBoundary() {
-    if (!analysis) return;
-    const value = Number(newBoundaryValue);
-    const maximum = analysis.maximum.elevation;
-    if (!newBoundaryValue.trim() || !Number.isFinite(value)) {
-      setLayerStatus("Enter a valid elevation before adding a boundary.");
-      return;
-    }
-    if (value <= 0 || value >= maximum) {
-      setLayerStatus(`New boundaries must be above 0 m and below ${formatBoundaryValue(maximum)} m.`);
-      return;
-    }
-    if (layerBoundaries.some((boundary) => Math.abs(parseBoundary(boundary) - value) < 0.001)) {
-      setLayerStatus(`A ${formatBoundaryValue(value)} m boundary already exists.`);
-      return;
-    }
-    const custom = layerBoundaries.filter((boundary) => boundary.role === "custom");
-    custom.push({ id: `custom-${Date.now()}`, value: formatBoundaryValue(value), role: "custom" });
-    custom.sort((left, right) => parseBoundary(left) - parseBoundary(right));
-    const next = [layerBoundaries[0], ...custom, layerBoundaries[layerBoundaries.length - 1]];
-    setLayerCount(next.length - 1);
-    setNewBoundaryValue("");
-    storeLayerPlan(next, maximum, `${formatBoundaryValue(value)} m boundary added.`);
-  }
-
-  function removeLayerBoundary(id: string) {
-    if (!analysis) return;
-    const next = layerBoundaries.filter((boundary) => boundary.id !== id);
-    setLayerCount(next.length - 1);
-    storeLayerPlan(next, analysis.maximum.elevation, "Boundary removed.");
-  }
-
-  function moveLayerBoundary(id: string, direction: -1 | 1) {
-    if (!analysis) return;
-    const index = layerBoundaries.findIndex((boundary) => boundary.id === id);
-    const target = index + direction;
-    if (index < 1 || target < 1 || target >= layerBoundaries.length - 1) return;
-    const next = [...layerBoundaries];
-    [next[index], next[target]] = [next[target], next[index]];
-    storeLayerPlan(next, analysis.maximum.elevation, "Boundary order updated.");
+  function setSnowLevelCountFromEntry(value: number) {
+    if (Number.isFinite(value)) setSnowLevelCount(Math.max(MIN_SNOW_LAYERS, Math.min(MAX_SNOW_LAYERS, Math.round(value))));
   }
 
   function chooseElevationFiles(files: File[]) {
@@ -3462,8 +3417,8 @@ export function MapWorkspace() {
   const sheetUtilisation = sheetCount > 0 ? placedArea / (sheetRules.width * sheetRules.height * sheetCount) * 100 : 0;
   const colourAssignments = useMemo(() => fabricationPreview?.layers.map((layer) => ({
     layer,
-    paint: paintForLayer(layer.index, fabricationPreview.layers.length, snowCapMode),
-  })) ?? [], [fabricationPreview, snowCapMode]);
+    paint: paintForLayer(layer.index, fabricationPreview.layers.length, snowCapMode, snowLevelCount),
+  })) ?? [], [fabricationPreview, snowCapMode, snowLevelCount]);
   const colourGroups = useMemo(() => [...MOLOTOW_TERRAIN_PALETTE, MOLOTOW_SNOW].map((paint) => ({
     paint,
     assignments: colourAssignments.filter((assignment) => assignment.paint.id === paint.id),
@@ -3495,12 +3450,12 @@ export function MapWorkspace() {
       selection: null,
       query: "",
       elevation: { sourceFilenames: [], waterSourceFilenames: [], analysis: null, filledLayerPreview: null, visibleLayerIndices: [] },
-      output: { format: "free", orientation: "landscape", customWidthMm: 600, customHeightMm: 400, materialThicknessMm: 6 },
+      output: { format: "free", orientation: "landscape", customWidthMm: 600, customHeightMm: 400, materialThicknessMm: 3 },
       layers: { distribution: "log", count: DEFAULT_LAYER_COUNT, boundaries: [] },
       model: { stackView: "three-dimensional", stackYaw: 0, stackPitch: 34, showTrueElevation: true, smoothingLevels: {} },
       assembly: { gridPitchMm: 100, dowelDiameterMm: 4, holeDiameterMm: 4.2, holeEdgeClearanceMm: 6 },
       layout: { sheetRules: { width: 1200, height: 600, thickness: 3, edgeMargin: 15, partSpacing: 8 }, sheetCount: 1, activeSheetIndex: 0, placements: [], rotationStepDeg: 5 },
-      colour: { paletteId: "molotow-terrain", snowCapMode: "automatic", paintNotes: {} },
+      colour: { paletteId: "molotow-terrain", snowCapMode: "on", snowLayers: DEFAULT_SNOW_LAYERS, paintNotes: {} },
       view: { workspaceView: "two-dimensional", assemblyLayerIndex: 0, smoothingLayerIndex: 0 },
     };
   }
@@ -3577,7 +3532,7 @@ export function MapWorkspace() {
       model: { stackView, stackYaw, stackPitch, showTrueElevation, smoothingLevels },
       assembly: { gridPitchMm, dowelDiameterMm, holeDiameterMm, holeEdgeClearanceMm },
       layout: { sheetRules, sheetCount, activeSheetIndex, placements: sheetPlacements, rotationStepDeg },
-      colour: { paletteId: "molotow-terrain", snowCapMode, paintNotes },
+      colour: { paletteId: "molotow-terrain", snowCapMode, snowLayers: snowLevelCount, paintNotes },
       view: { workspaceView, assemblyLayerIndex, smoothingLayerIndex },
     };
   }
@@ -3633,11 +3588,16 @@ export function MapWorkspace() {
     setOutputOrientation(project.output.orientation);
     setCustomWidthMm(project.output.customWidthMm);
     setCustomHeightMm(project.output.customHeightMm);
-    setMaterialThicknessMm(project.output.materialThicknessMm);
+    const restoredMaterialThickness = Math.max(1, Math.min(12, project.output.materialThicknessMm));
+    setMaterialThicknessMm(restoredMaterialThickness);
+    const restoredLayerCount = Math.max(MIN_LAYER_COUNT, Math.min(MAX_LAYER_COUNT, project.layers.count));
+    const restoredBoundaries = restoredAnalysis && project.layers.boundaries.length - 1 !== restoredLayerCount
+      ? presetBoundaries(project.layers.distribution, restoredAnalysis.maximum.elevation, restoredLayerCount)
+      : project.layers.boundaries;
     setLayerDistribution(project.layers.distribution);
-    setLayerCount(project.layers.count);
-    setLayerBoundaries(project.layers.boundaries);
-    setLayerStatus(project.layers.boundaries.length ? `${project.layers.count} saved layer boundaries restored.` : "Analyse elevation data to begin a layer plan.");
+    setLayerCount(restoredLayerCount);
+    setLayerBoundaries(restoredBoundaries);
+    setLayerStatus(restoredBoundaries.length ? `${restoredLayerCount} saved terrain levels restored.` : "Analyse elevation data to begin a layer plan.");
     setLayerGenerationStatus(project.elevation.filledLayerPreview ? `${project.elevation.filledLayerPreview.layers.length} processed terrain layers restored from the project.` : "Choose valid boundaries, then generate the filled 2D preview.");
     setStackView(project.model.stackView);
     setStackYaw(project.model.stackYaw);
@@ -3648,13 +3608,15 @@ export function MapWorkspace() {
     setDowelDiameterMm(project.assembly.dowelDiameterMm);
     setHoleDiameterMm(project.assembly.holeDiameterMm);
     setHoleEdgeClearanceMm(project.assembly.holeEdgeClearanceMm);
-    setSheetRules(project.layout.sheetRules);
+    setSheetRules({ ...project.layout.sheetRules, thickness: restoredMaterialThickness });
     setSheetCount(project.layout.sheetCount);
     setActiveSheetIndex(Math.min(project.layout.activeSheetIndex, Math.max(0, project.layout.sheetCount - 1)));
     setSheetPlacements(project.layout.placements);
     setRotationStepDeg(project.layout.rotationStepDeg && project.layout.rotationStepDeg >= 1 ? project.layout.rotationStepDeg : 5);
-    const projectSnowCapMode = project.colour?.snowCapMode ?? "automatic";
+    const projectSnowCapMode: SnowCapMode = project.colour?.snowCapMode === "off" ? "off" : "on";
+    const projectSnowLevelCount = Math.max(MIN_SNOW_LAYERS, Math.min(MAX_SNOW_LAYERS, project.colour?.snowLayers ?? DEFAULT_SNOW_LAYERS));
     setSnowCapMode(projectSnowCapMode);
+    setSnowLevelCount(projectSnowLevelCount);
     setPaintNotes(project.colour?.paintNotes ?? {});
     setSelectedPlacementId(null);
     setSelectedViolationIndex(null);
@@ -3668,7 +3630,7 @@ export function MapWorkspace() {
     window.localStorage.setItem(ACTIVE_PROJECT_KEY, project.id);
     if (project.selection) mapRef.current?.fitBounds([[project.selection.west, project.selection.south], [project.selection.east, project.selection.north]], { padding: 130, maxZoom: 12, duration: 600 });
     if (restoredAnalysis) showElevationOverlay(restoredAnalysis);
-    if (project.elevation.filledLayerPreview) showFilledLayerOverlay(project.elevation.filledLayerPreview, project.elevation.visibleLayerIndices.length ? project.elevation.visibleLayerIndices : project.elevation.filledLayerPreview.layers.map((layer) => layer.index), projectSnowCapMode);
+    if (project.elevation.filledLayerPreview) showFilledLayerOverlay(project.elevation.filledLayerPreview, project.elevation.visibleLayerIndices.length ? project.elevation.visibleLayerIndices : project.elevation.filledLayerPreview.layers.map((layer) => layer.index), projectSnowCapMode, projectSnowLevelCount);
     setProjectStatus(`Opened ${project.name}`);
     projectReadyRef.current = true;
   }
@@ -4124,7 +4086,7 @@ export function MapWorkspace() {
       hex: paint.hex,
       note: paintNotes[paint.id] ?? "",
     }));
-    const snowMode = snowCapMode === "automatic" ? "automatic at 20+ layers" : snowCapMode === "on" ? "white top layer" : "none";
+    const snowMode = snowCapMode === "off" ? "none" : `${snowLevelCount} white top layer${snowLevelCount === 1 ? "" : "s"}`;
     setColourChartStatus("Creating the printable colour chart…");
     try {
       const response = await fetch(`${PROCESSOR_ENDPOINT}/colour-guide`, {
@@ -4460,13 +4422,13 @@ export function MapWorkspace() {
             <div className="layer-editor-heading">
               <div>
                 <span className="section-label">STEP 4 · LAYER PLAN</span>
-                <strong id="layer-editor-heading">Elevation boundaries</strong>
+                <strong id="layer-editor-heading">Layer settings</strong>
               </div>
               <span className={`layer-ready ${layerValidation ? "invalid" : ""}`}>
                 {layerValidation ? "Needs attention" : `${layerBoundaries.length - 1} layers`}
               </span>
             </div>
-            <p className="layer-intro">Choose how the heights are spaced, then set the number of plywood layers. Sea level and the analysed maximum stay fixed.</p>
+            <p className="layer-intro">Choose the physical stack. Topomapper calculates the altitude of every level from sea level to the analysed maximum.</p>
 
             <div className="elevation-range" aria-label={`Elevation boundaries from 0 to ${formatBoundaryValue(layerMaximum)} metres`}>
               <div className="range-bar" />
@@ -4485,63 +4447,42 @@ export function MapWorkspace() {
               <div className="range-labels"><span>Sea level · 0 m</span><span>Maximum · {formatBoundaryValue(layerMaximum)} m</span></div>
             </div>
 
-            <div className="layer-generation-controls">
-              <div className="distribution-control">
-                <label className="layer-distribution-toggle">
-                  <span>Logarithmic Vertical Spacing</span>
-                  <input type="checkbox" checked={layerDistribution === "log"} onChange={(event) => applyLayerDistribution(event.target.checked ? "log" : "linear")} />
-                  <i aria-hidden="true"><b /></i>
-                </label>
-              </div>
-              <div className="layer-count-control">
+            <div className="layer-setting-list">
+              <label className="layer-distribution-toggle">
+                <span>Log Layering</span>
+                <input type="checkbox" checked={layerDistribution === "log"} onChange={(event) => applyLayerDistribution(event.target.checked ? "log" : "linear")} />
+                <i aria-hidden="true"><b /></i>
+              </label>
+              <label className="layer-number-setting">
                 <span>Number of layers</span>
-                <div className="layer-stepper">
-                  <button onClick={() => adjustLayerCount(-1)} disabled={layerCount <= MIN_LAYER_COUNT} aria-label="Decrease number of layers">−</button>
-                  <output aria-live="polite" aria-label={`${layerCount} layers`}>{layerCount}</output>
-                  <button onClick={() => adjustLayerCount(1)} disabled={layerCount >= MAX_LAYER_COUNT} aria-label="Increase number of layers">+</button>
-                </div>
-                <small>{MIN_LAYER_COUNT}–{MAX_LAYER_COUNT} layers</small>
-              </div>
-            </div>
-
-            <div className="model-appearance-controls">
-              <label>
-                <span>Snow appearance</span>
-                <select value={snowCapMode} onChange={(event) => setSnowCapMode(event.target.value as SnowCapMode)}>
-                  <option value="automatic">Automatic at 20+ layers</option>
-                  <option value="on">White top layer</option>
-                  <option value="off">No snow</option>
-                </select>
+                <input type="number" min={MIN_LAYER_COUNT} max={MAX_LAYER_COUNT} step="1" value={layerCount} onChange={(event) => setLayerCountFromEntry(Number(event.target.value))} />
               </label>
-              <label>
-                <span>Material per layer</span>
-                <strong><input type="number" min="0.5" max="50" step="0.5" value={materialThicknessMm} onChange={(event) => setMaterialThicknessMm(Math.max(0.5, Number(event.target.value)))} /> mm</strong>
+              <label className="layer-number-setting">
+                <span>Sheet Thickness</span>
+                <strong><input type="number" min="1" max="12" step="0.1" value={materialThicknessMm} onChange={(event) => setMaterialThicknessFromEntry(Number(event.target.value))} /><em>mm</em></strong>
+              </label>
+              <label className="layer-distribution-toggle">
+                <span>Snow Coverage</span>
+                <input type="checkbox" checked={snowCapMode !== "off"} onChange={(event) => setSnowCapMode(event.target.checked ? "on" : "off")} />
+                <i aria-hidden="true"><b /></i>
+              </label>
+              <label className="layer-number-setting">
+                <span>Snow levels</span>
+                <input type="number" min={MIN_SNOW_LAYERS} max={MAX_SNOW_LAYERS} step="1" value={snowLevelCount} disabled={snowCapMode === "off"} onChange={(event) => setSnowLevelCountFromEntry(Number(event.target.value))} />
               </label>
             </div>
 
-            <form className="add-boundary" onSubmit={(event) => { event.preventDefault(); addLayerBoundary(); }}>
-              <label htmlFor="new-boundary">Add boundary</label>
-              <div><input id="new-boundary" type="number" step="any" min="0" max={layerMaximum} value={newBoundaryValue} onChange={(event) => setNewBoundaryValue(event.target.value)} placeholder="e.g. 1250" /><span>m</span><button type="submit">Add</button></div>
-            </form>
-
-            <ol className="boundary-list">
-              {layerBoundaries.map((boundary, index) => {
-                const value = parseBoundary(boundary);
-                const isCustom = boundary.role === "custom";
+            <ol className="layer-level-list" aria-label="Calculated terrain levels">
+              {Array.from({ length: layerBoundaries.length - 1 }, (_, index) => index).reverse().map((index) => {
+                const lower = parseBoundary(layerBoundaries[index]);
+                const upper = parseBoundary(layerBoundaries[index + 1]);
+                const paint = paintForLayer(index, layerBoundaries.length - 1, snowCapMode, snowLevelCount);
+                const isTop = index === layerBoundaries.length - 2;
                 return (
-                  <li key={boundary.id} className={!Number.isFinite(value) ? "invalid" : ""}>
-                    <span className="layer-swatch" style={{ backgroundColor: Number.isFinite(value) ? layerColour(value, layerMaximum) : "#d35a36" }} />
-                    <span className="boundary-label">
-                      <small>{boundary.role === "sea-level" ? "SEA LEVEL" : boundary.role === "maximum" ? "ANALYSED MAXIMUM" : `BOUNDARY ${index}`}</small>
-                      {isCustom ? (
-                        <span><input type="number" step="any" value={boundary.value} onChange={(event) => editLayerBoundary(boundary.id, event.target.value)} aria-label={`Boundary ${index} elevation`} /> m</span>
-                      ) : <strong>{formatBoundaryValue(value)} m</strong>}
-                    </span>
-                    <span className="boundary-controls">
-                      <button onClick={() => moveLayerBoundary(boundary.id, -1)} disabled={!isCustom || index <= 1} aria-label={`Move ${boundary.value} metre boundary up`}>↑</button>
-                      <button onClick={() => moveLayerBoundary(boundary.id, 1)} disabled={!isCustom || index >= layerBoundaries.length - 2} aria-label={`Move ${boundary.value} metre boundary down`}>↓</button>
-                      <button className="remove" onClick={() => removeLayerBoundary(boundary.id)} disabled={!isCustom} aria-label={`Remove ${boundary.value} metre boundary`}>×</button>
-                    </span>
+                  <li key={`${layerBoundaries[index].id}-${index}`}>
+                    <strong>Level {index + 1}</strong>
+                    <span><i style={{ backgroundColor: paint.hex }} aria-hidden="true" />{paint === MOLOTOW_SNOW ? "White" : paint.name}</span>
+                    <em>{isTop ? `${formatBoundaryValue(lower)} m+` : `${formatBoundaryValue(lower)}–${formatBoundaryValue(upper)} m`}</em>
                   </li>
                 );
               })}
@@ -4589,7 +4530,7 @@ export function MapWorkspace() {
                     return (
                       <li key={layer.index} className={visible ? "visible" : ""}>
                         <button onClick={() => toggleFilledLayer(layer.index)} aria-pressed={visible}>
-                          <i style={{ backgroundColor: paintForLayer(layer.index, filledLayerPreview.layers.length, snowCapMode).hex }} aria-hidden="true" />
+                          <i style={{ backgroundColor: paintForLayer(layer.index, filledLayerPreview.layers.length, snowCapMode, snowLevelCount).hex }} aria-hidden="true" />
                           <span>
                             <strong>Layer {layer.index + 1}</strong>
                             <small>{formatBoundaryValue(layer.lower_elevation)}–{formatBoundaryValue(layer.upper_elevation)} m · {layer.piece_count} piece{layer.piece_count === 1 ? "" : "s"}{layer.hole_count ? ` · ${layer.hole_count} hole${layer.hole_count === 1 ? "" : "s"}` : ""}</small>
@@ -4642,6 +4583,7 @@ export function MapWorkspace() {
               pitch={stackPitch}
               showTrueElevation={showTrueElevation}
               snowCapMode={snowCapMode}
+              snowLevelCount={snowLevelCount}
               onYawChange={setStackYaw}
               onViewChange={(nextYaw, nextPitch) => { setStackYaw(nextYaw); setStackPitch(nextPitch); setStackView("three-dimensional"); }}
             />
@@ -4690,6 +4632,7 @@ export function MapWorkspace() {
                 modelHeight={previewDimensions.height}
                 holeDiameter={holeDiameterMm}
                 snowCapMode={snowCapMode}
+                snowLevelCount={snowLevelCount}
               />
               <div className="assembly-legend"><span><i className="grid-hole" /> Buried grid hole</span><span><i className="vent-hole" /> Peak-to-base vent</span><span><b>↑N</b> covered engraving</span></div>
             </div>
@@ -4776,7 +4719,7 @@ export function MapWorkspace() {
           <div className="sheet-rules-toolbar">
             <label>Sheet W <span><input type="number" min="100" step="10" value={sheetRules.width} onChange={(event) => setSheetRules((rules) => ({ ...rules, width: Math.max(100, Number(event.target.value)) }))} /> mm</span></label>
             <label>Sheet H <span><input type="number" min="100" step="10" value={sheetRules.height} onChange={(event) => setSheetRules((rules) => ({ ...rules, height: Math.max(100, Number(event.target.value)) }))} /> mm</span></label>
-            <label>Material <span><input type="number" min="0.5" step="0.5" value={sheetRules.thickness} onChange={(event) => setSheetRules((rules) => ({ ...rules, thickness: Math.max(.5, Number(event.target.value)) }))} /> mm</span></label>
+            <label>Material <span><input type="number" min="1" max="12" step="0.1" value={sheetRules.thickness} onChange={(event) => setMaterialThicknessFromEntry(Number(event.target.value))} /> mm</span></label>
             <label>Edge zone <span><input type="number" min="0" step="1" value={sheetRules.edgeMargin} onChange={(event) => setSheetRules((rules) => ({ ...rules, edgeMargin: Math.max(0, Number(event.target.value)) }))} /> mm</span></label>
             <label>Cut-edge gap <span><input type="number" min="0" step="0.1" value={sheetRules.partSpacing} onChange={(event) => setSheetRules((rules) => ({ ...rules, partSpacing: Math.max(0, Number(event.target.value)) }))} /> mm</span></label>
             <label>Rotation <span><select value={rotationStepDeg} onChange={(event) => setRotationStepDeg(Number(event.target.value))}><option value={1}>1°</option><option value={2}>2°</option><option value={5}>5°</option><option value={10}>10°</option><option value={15}>15°</option></select></span></label>

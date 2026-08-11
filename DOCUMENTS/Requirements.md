@@ -16,7 +16,7 @@ and Mount Taranaki. International support, such as central Paris, may follow.
 3. Select a rectangular or polygonal area.
 4. Inspect the selected area's dimensions, highest elevation, lowest elevation,
    and data resolution.
-5. Define independent, non-linear layer boundaries above and below sea level.
+5. Define a Log or Linear land-layer plan; add an independent subsea rule later.
 6. Preview the terrain, contour boundaries, and physical layer stack.
 7. Set finished-map size, material thickness, and optional vertical
    exaggeration.
@@ -29,11 +29,13 @@ and Mount Taranaki. International support, such as central Paris, may follow.
 
 ## Elevation Layers
 
-Layer boundaries must be explicitly editable rather than restricted to a fixed
-interval. An example set might be:
+Land layer boundaries are calculated from the selected Log or Linear rule and
+the requested physical layer count. The user inspects a read-only list of the
+resulting altitude bands rather than editing individual land boundaries.
+
+Future subsea examples might include:
 
 - Below sea level: minimum, -80 m, -20 m, 0 m.
-- Above sea level: 0 m, 10 m, 20 m, 50 m, 100 m, 250 m, 500 m, maximum.
 
 Land and seabed require separate controls because useful physical and visual
 scales differ substantially. Sea level must always be available as a special
@@ -45,7 +47,7 @@ boundary.
   saved settings.
 - Persist the output size and orientation, selected geographic rectangle,
   elevation metadata and processed geometry, log/linear layer plan and count,
-  editable boundaries, material thickness, 3D settings, smoothing, assembly
+  calculated altitude bands, material thickness, snow settings, 3D settings, smoothing, assembly
   settings, sheet rules, sheet count, and every part transform.
 - Autosave the active project after a short idle delay and save immediately when
   switching, closing, or explicitly choosing Save.

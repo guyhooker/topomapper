@@ -23,7 +23,7 @@ Swift.
 - MapLibre GL JS for the interactive map, hillshade, and terrain preview.
 - Terra Draw or an equivalent MapLibre control for rectangular and polygonal
   area selection.
-- A layer-boundary editor with separate land and subsea lists.
+- A calculated Log/Linear land-layer plan, with separate subsea controls later.
 
 ### Processing Engine
 
@@ -159,7 +159,7 @@ so selecting Banks Peninsula does not require downloading a national raster.
 - Use a manually downloaded New Zealand DEM sample.
 - Select or enter a rectangular area.
 - Report minimum and maximum elevation.
-- Accept arbitrary elevation boundaries.
+- Calculate land boundaries from the chosen distribution and layer count.
 - Generate and preview filled layer polygons.
 - Export SVG layers.
 

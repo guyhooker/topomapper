@@ -197,27 +197,27 @@
   beside the summit, and 100% coverage.
 - Stage 3 was accepted on 18 July 2026.
 
-### Stage 4 — Layer Boundary Editor
+### Stage 4 — Layer Plan
 
 - Implemented and accepted 18 July 2026.
-- Added a land-elevation boundary editor after a successful raster analysis.
+- Added a calculated land-elevation plan after a successful raster analysis.
 - Sea level is a named, fixed 0 m boundary and the analysed maximum is a fixed
   final boundary.
 - Added logarithmic and linear spacing styles. The style and physical
   layer count are independent, so either distribution can be regenerated with
-  between 2 and 40 layers using decrease/increase controls.
+  between 5 and 30 layers using a numeric entry.
 - Added a colour-coded elevation range showing every active boundary.
-- Added controls to enter a new boundary, edit intermediate values, remove
-  them, and move them up or down in the ordered list.
-- Duplicate values, blank/invalid values, and descending/out-of-order values
-  produce a clear validation message and suppress the ready summary.
+- Replaced individual boundary editing with a read-only list of every level,
+  its assigned paint colour, and its calculated altitude band.
+- Added sheet-thickness entry and explicit snow coverage controls. Snow is on
+  by default and can cover between one and five top layers.
 - The interface reports the resulting physical elevation-band count.
 - Valid working layer plans are saved locally and restored when the analysed
   maximum matches.
 - Subsea boundaries remain deferred until the coastal and bathymetry stage.
 - Production build passes successfully.
 - After acceptance, the spacing buttons were relabelled Log and Linear. Either
-  distribution can still be regenerated with the independent 2–40 layer count.
+  distribution can still be regenerated with the independent 5–30 layer count.
 
 ### Stage 5 — Filled Layer Generation and 2D Preview
 
@@ -505,9 +505,9 @@
 - Added a six-colour Molotow Premium buying palette from the supplied local art
   shop chart: moss green, evil olive, nature green middle, cocoa middle, stone
   grey middle, and optional signal white snow.
-- Assigns the five terrain colours evenly by physical layer order. Automatic
-  snow remains off below 20 layers and assigns the highest layer to signal
-  white for models of 20 layers or more; Always and None overrides are provided.
+- Assigns the five terrain colours evenly by physical layer order. Snow can be
+  enabled or disabled and can assign signal white to the highest one through
+  five physical layers.
 - Uses the same assignment in the map overlay, 3D stack, assembly preview,
   layer list, and printable chart.
 - The buying cards list manufacturer, product number, paint name, layer numbers,

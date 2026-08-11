@@ -4,7 +4,7 @@
 elevation data into layered shapes suitable for CNC-cut wall maps.
 
 The user selects an area on an interactive map, analyses its elevation range,
-chooses custom land and subsea layer boundaries, previews the resulting stacked
+chooses a calculated land-layer plan (with future separate subsea controls), previews the resulting stacked
 model, and exports cut-ready geometry. Direct CNC G-code is a later goal after
 the geometry workflow is proven.
 
@@ -62,11 +62,11 @@ automatically. A free LINZ data-access API key is saved privately on the Mac and
 downloaded sources are cached outside project files. The original manual
 GeoTIFF and water-file controls remain available as a fallback.
 
-Stage 4 adds an editable land-elevation plan. Sea level and the analysed
-maximum remain fixed; Log or Linear spacing can be combined
-with an adjustable 2–40 layer count. Intermediate boundaries can also be added,
-edited, removed, or reordered. Invalid duplicates and out-of-order boundaries
-are shown before later geometry generation.
+Stage 4 calculates a land-elevation plan between sea level and the analysed
+maximum. A Log Layering switch and a 5–30 layer entry determine the altitude
+bands; sheet thickness, optional snow coverage, and 1–5 white snow levels are
+set alongside them. The resulting levels, colours, and altitude bands are shown
+as a read-only list before geometry generation.
 
 Stage 5 turns those boundaries into cumulative filled land polygons and draws a
 colour-coded 2D stack over the map. Individual layers can be hidden or shown,

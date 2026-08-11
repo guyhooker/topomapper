@@ -71,23 +71,23 @@ For the Mount Taranaki selection, topomapper combines adjoining tiles, reports
 plausible minimum and maximum elevations, marks their locations, and
 distinguishes missing raster data from real elevation values.
 
-## Stage 4 — Layer Boundary Editor
+## Stage 4 — Layer Plan
 
 **Status: Complete — accepted 18 July 2026**
 
 ### Adds
 
 - Elevation range or histogram display.
-- Editable ordered list of layer boundaries.
-- Add, remove, and reorder boundary controls.
+- Read-only ordered list of calculated level altitudes and colours.
 - Named sea-level boundary at 0 m, although subsea processing is not yet active.
-- Log-style and Linear spacing with an independently adjustable layer count.
+- Log/Linear switch with an independently adjustable 5–30 layer count.
+- Sheet thickness plus optional 1–5 layer snow coverage.
 
 ### Acceptance Test
 
-The user can select Log or Linear spacing, adjust the number of layers, edit
-individual boundaries, and the application rejects duplicates or out-of-order
-values clearly.
+The user can select Log or Linear spacing, enter the number of layers, sheet
+thickness and snow settings, then inspect every calculated level before
+generating geometry.
 
 ## Stage 5 — Filled Layer Generation and 2D Preview
 

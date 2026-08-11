@@ -233,27 +233,26 @@ button { color: inherit; }
 .workflow-drawer-handle span { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 9px; font-weight: 820; letter-spacing: .12em; text-transform: uppercase; }
 .workflow-drawer-handle b { font-size: 17px; font-weight: 500; }
 .workflow-drawer.open .workflow-drawer-handle { top: 12px; min-height: 42px; }
-.workflow-stage { border: 1px solid var(--line); border-radius: 11px; background: rgba(255,255,255,.34); overflow: hidden; }
+.workflow-stage { padding-bottom: 9px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; overflow: visible; }
 .workflow-stage-summary { display: grid; grid-template-columns: minmax(0, 1fr) auto 10px 18px; align-items: center; gap: 8px; min-height: 52px; padding: 8px 10px; cursor: pointer; list-style: none; }
 .workflow-stage-summary::-webkit-details-marker { display: none; }
 .workflow-stage-summary span small, .workflow-stage-summary span strong { display: block; }
 .workflow-stage-summary span small { color: var(--forest-soft); font-size: 8px; font-weight: 820; letter-spacing: .13em; }
 .workflow-stage-summary span strong { margin-top: 2px; font-size: 14pt; font-weight: 800; }
 .workflow-stage-summary em { color: var(--muted); font-size: 8px; font-style: normal; font-weight: 760; text-transform: uppercase; }
-.workflow-stage-summary > b { display: grid; place-items: center; width: 18px; height: 18px; border-radius: 5px; background: rgba(33,79,61,.07); color: var(--forest); font-size: 13px; font-weight: 650; }
+.workflow-stage-summary > b { display: grid; place-items: center; width: 18px; height: 18px; color: var(--forest); font-size: 13px; font-weight: 650; }
 .stage-status-led { width: 9px; height: 9px; border-radius: 50%; }
 .stage-status-led.incomplete { background: #d84d36; box-shadow: 0 0 0 4px rgba(216,77,54,.13); }
 .stage-status-led.complete { background: #4b9569; box-shadow: 0 0 0 4px rgba(75,149,105,.14); }
-.workflow-stage[open] > .workflow-stage-summary { border-bottom: 1px solid var(--line); }
+.workflow-stage[open] > .workflow-stage-summary { border-bottom: 0; }
 .workflow-stage-body { padding: 0 11px 12px; }
-.area-selection-stage { position: relative; margin-top: 17px; }
-.area-selection-stage::before { position: absolute; top: -9px; left: 0; right: 0; height: 1px; background: var(--line); content: ""; }
+.area-selection-stage { margin-top: 8px; }
 .frame-dimension-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 12px; }
 .frame-dimension-fields label, .frame-preset-field { color: var(--muted); font-size: 9px; font-weight: 760; text-transform: uppercase; }
 .frame-dimension-fields label > span { display: flex; align-items: center; gap: 4px; margin-top: 5px; text-transform: none; }
-.frame-dimension-fields input { min-width: 0; width: 100%; height: 34px; padding: 0 8px; border: 1px solid #cbd3cb; border-radius: 7px; background: #fff; color: var(--ink); font-size: 11px; font-weight: 720; }
+.frame-dimension-fields input { min-width: 0; width: 100%; height: 34px; padding: 0 8px; border: 0; border-radius: 7px; background: #fff; color: var(--ink); font-size: 11px; font-weight: 720; }
 .frame-preset-field { display: block; margin-top: 10px; }
-.frame-preset-field select { display: block; width: 100%; height: 34px; margin-top: 5px; padding: 0 8px; border: 1px solid #cbd3cb; border-radius: 7px; background: #fff; color: var(--ink); font-size: 10px; font-weight: 680; text-transform: none; }
+.frame-preset-field select { display: block; width: 100%; height: 34px; margin-top: 5px; padding: 0 8px; border: 0; border-radius: 7px; background: #fff; color: var(--ink); font-size: 10px; font-weight: 680; text-transform: none; }
 .plain-selection-stats { margin: 15px 0 2px; padding: 0; font-size: 10pt; }
 .plain-selection-stats div { display: grid; grid-template-columns: 1fr auto; gap: 14px; padding: 3px 0; }
 .plain-selection-stats dt { color: var(--muted); }
@@ -274,26 +273,28 @@ button { color: inherit; }
 .format-summary strong, .format-summary span { display: block; }
 .format-summary strong { color: var(--forest); font-size: 11px; }
 .format-summary span { margin-top: 2px; color: var(--muted); font-size: 8px; line-height: 1.35; }
-.fit-format-button { width: 100%; min-height: 30px; margin-top: 8px; border: 1px solid rgba(33,79,61,.18); border-radius: 7px; background: rgba(33,79,61,.07); color: var(--forest); font-size: 9px; font-weight: 740; cursor: pointer; }
+.fit-format-button { width: 100%; min-height: 36px; margin-top: 10px; padding: 7px 13px; border: 0; border-radius: 7px; background: rgba(90,143,81,1); color: #fff; font-size: 10px; font-weight: 740; text-align: left; cursor: pointer; }
 .fit-format-button:disabled { opacity: .38; cursor: default; }
 .draw-button {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 9px;
   width: 100%;
   height: 43px;
   margin-top: 15px;
   border: 0;
   border-radius: 10px;
-  background: var(--forest);
+  background: rgba(90,143,81,1);
   color: #fff;
   font-size: 13px;
   font-weight: 760;
   cursor: pointer;
-  box-shadow: 0 8px 18px rgba(33,79,61,.18);
+  padding: 0 14px;
+  text-align: left;
+  box-shadow: none;
 }
-.draw-button:hover { background: #173e2f; }
+.draw-button:hover { background: rgba(77,126,69,1); }
 .draw-button.active { background: var(--clay); }
 .draw-button span { width: 15px; height: 12px; border: 2px dashed currentColor; border-radius: 2px; }
 
@@ -327,7 +328,7 @@ button { color: inherit; }
 .selection-actions button:hover:not(:disabled) { border-color: var(--forest-soft); background: #fff; }
 .selection-actions button:disabled { opacity: .38; cursor: default; }
 
-.elevation-section { margin-top: 18px; padding-top: 17px; border-top: 1px solid var(--line); }
+.elevation-section { margin-top: 18px; padding-top: 8px; border-top: 0; }
 .elevation-heading-row { display: flex; align-items: start; justify-content: space-between; gap: 10px; }
 .elevation-heading-row strong { display: block; margin-top: 5px; font-family: Georgia, "Times New Roman", serif; font-size: 19px; font-weight: 500; }
 .processor-state { display: inline-flex; align-items: center; gap: 5px; padding: 5px 7px; border-radius: 999px; background: rgba(98,108,103,.09); color: var(--muted); font-size: 8px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; }

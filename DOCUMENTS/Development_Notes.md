@@ -662,3 +662,6 @@
   A5–A1 landscape/portrait presets, and Fit current area. Square and imperial
   frames are entered directly. Area Selection now contains one drawing action
   followed by unboxed 10-point ground-size, area and boundary statistics.
+- Flattened Frame and Area Selection into the drawer surface: stage cards and
+  input outlines were removed, each section ends with one divider, and both
+  primary actions use a solid green fill with left-aligned labels.

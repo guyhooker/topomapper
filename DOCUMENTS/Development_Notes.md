@@ -652,6 +652,12 @@
   a result is published. Four repeated left-and-up settling passes replace the
   former one-way left shakedown so parts can close vertical gaps before moving
   left again.
+- Added internal-gap backfilling to Optimise I. Later attempts combine sampled
+  left/right boundaries with independently sampled top/bottom boundaries,
+  allowing a part to test cavities defined by two different neighbours. Candidate
+  scoring now strongly prefers positions that do not enlarge the sheet's current
+  used envelope, so small pieces fill existing space before extending a row or
+  opening another sheet. This is deliberately slower and remains interruptible.
 
 ### LINZ download authentication correction
 

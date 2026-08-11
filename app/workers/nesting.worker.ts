@@ -157,6 +157,51 @@ function sampledContactAnchors(instance: Instance, part: Part, rotation: number,
   return anchors;
 }
 
+function evenlySample(values: number[], limit: number, offset: number) {
+  const unique = [...new Set(values.map((value) => Math.round(value * 2) / 2))].sort((left, right) => left - right);
+  if (unique.length <= limit) return unique;
+  const sampled = new Set<number>([unique[0], unique[unique.length - 1]]);
+  for (let index = 1; sampled.size < limit && index < limit * 2; index += 1) {
+    const position = Math.min(unique.length - 1, Math.floor((index + (offset % 3) / 3) * (unique.length - 1) / (limit - 1)));
+    sampled.add(unique[position]);
+  }
+  return [...sampled].sort((left, right) => left - right);
+}
+
+function cavityAnchors(existing: Placement[], partMap: Map<string, Part>, rules: Rules, attemptIndex: number) {
+  const xValues = [rules.edgeMargin];
+  const yValues = [rules.edgeMargin];
+  for (const placement of existing) {
+    const placedPart = partMap.get(placement.partId);
+    if (!placedPart) continue;
+    const outline = bounds(placement, placedPart);
+    xValues.push(outline.left, outline.right + rules.partSpacing);
+    yValues.push(outline.top, outline.bottom + rules.partSpacing);
+  }
+  const xs = evenlySample(xValues, 20, attemptIndex);
+  const ys = evenlySample(yValues, 20, attemptIndex + 1);
+  return ys.flatMap((top) => xs.map((left) => ({ left, top })));
+}
+
+function placementGrowthScore(candidate: Placement, part: Part, existing: Placement[], partMap: Map<string, Part>, rules: Rules) {
+  const candidateBounds = bounds(candidate, part);
+  const existingBounds = existing.map((placement) => {
+    const existingPart = partMap.get(placement.partId);
+    return existingPart ? bounds(placement, existingPart) : null;
+  }).filter((value): value is ReturnType<typeof bounds> => Boolean(value));
+  const currentRight = existingBounds.length ? Math.max(...existingBounds.map((outline) => outline.right)) : rules.edgeMargin;
+  const currentBottom = existingBounds.length ? Math.max(...existingBounds.map((outline) => outline.bottom)) : rules.edgeMargin;
+  const nextRight = Math.max(currentRight, candidateBounds.right);
+  const nextBottom = Math.max(currentBottom, candidateBounds.bottom);
+  const currentArea = Math.max(0, currentRight - rules.edgeMargin) * Math.max(0, currentBottom - rules.edgeMargin);
+  const nextArea = Math.max(0, nextRight - rules.edgeMargin) * Math.max(0, nextBottom - rules.edgeMargin);
+  const sheetArea = Math.max(1, rules.width * rules.height);
+  return candidate.sheetIndex * 1e12
+    + (nextArea - currentArea) / sheetArea * 1e9
+    + nextRight / Math.max(1, rules.width) * 1e6
+    + nextBottom / Math.max(1, rules.height) * 1e3;
+}
+
 function compactTowardOrigin(placements: Placement[], partMap: Map<string, Part>, rules: Rules) {
   const compacted = placements.map((placement) => ({ ...placement }));
   const movedIds = new Set<string>();
@@ -232,6 +277,7 @@ function attempt(jobValue: Job) {
         anchors.push({ left: outline.right + jobValue.rules.partSpacing, top: outline.top }, { left: outline.left, top: outline.bottom + jobValue.rules.partSpacing }, { left: outline.right + jobValue.rules.partSpacing, top: jobValue.rules.edgeMargin }, { left: jobValue.rules.edgeMargin, top: outline.bottom + jobValue.rules.partSpacing });
       }
       for (let sample = 0; sample < 10; sample += 1) anchors.push({ left: jobValue.rules.edgeMargin + Math.pow(Math.random(), 1.8) * Math.max(0, jobValue.rules.width - jobValue.rules.edgeMargin * 2 - part.width), top: jobValue.rules.edgeMargin + Math.random() * Math.max(0, jobValue.rules.height - jobValue.rules.edgeMargin * 2 - part.height) });
+      if (jobValue.attempt > 0) anchors.push(...cavityAnchors(existing, partMap, jobValue.rules, jobValue.attempt));
       for (const rotation of rotations) {
         const contactAnchors = jobValue.attempt === 0 ? [] : sampledContactAnchors(instance, part, rotation, existing, partMap, jobValue.rules.partSpacing + .25, jobValue.attempt);
         const candidates = [
@@ -240,8 +286,7 @@ function attempt(jobValue: Job) {
         ];
         for (const candidate of candidates) {
         if (!fits(candidate, placed, partMap, jobValue.rules)) continue;
-        const outline = bounds(candidate, part);
-        const score = sheetIndex * 1e10 + outline.right * 1e5 + outline.bottom;
+        const score = placementGrowthScore(candidate, part, existing, partMap, jobValue.rules);
         if (score < bestScore) { best = candidate; bestScore = score; }
         }
       }

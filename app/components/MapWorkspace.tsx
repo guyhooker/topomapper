@@ -2485,6 +2485,7 @@ export function MapWorkspace() {
   const [workflowDrawerOpen, setWorkflowDrawerOpen] = useState(true);
   const [frameStageOpen, setFrameStageOpen] = useState(true);
   const [areaStageOpen, setAreaStageOpen] = useState(true);
+  const [elevationStageOpen, setElevationStageOpen] = useState(true);
   const workflowDrawerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const placementCounterRef = useRef(1);
   const layoutViolationsRef = useRef<LayoutViolation[]>([]);
@@ -4323,17 +4324,21 @@ export function MapWorkspace() {
           </div>
         </details>
 
-        <section className="elevation-section" aria-labelledby="elevation-heading">
-          <div className="elevation-heading-row">
-            <div>
-              <span className="section-label">STEP 3 · ELEVATION DATA</span>
-              <strong id="elevation-heading">Prepare the selected terrain</strong>
-            </div>
+        <details className="workflow-stage elevation-section" open={elevationStageOpen} onToggle={(event) => setElevationStageOpen(event.currentTarget.open)}>
+          <summary className="workflow-stage-summary">
+            <span><strong id="elevation-heading">3) Elevation Data</strong></span>
+            <em>{analysis ? "Complete" : "Incomplete"}</em>
+            <i className={`stage-status-led ${analysis ? "complete" : "incomplete"}`} aria-hidden="true" />
+            <b aria-hidden="true">{elevationStageOpen ? "−" : "+"}</b>
+          </summary>
+          <div className="workflow-stage-body">
+            <div className="elevation-processor-row">
+              <span>Terrain preparation</span>
             <span className={`processor-state ${processorStatus}`}>
               <i aria-hidden="true" />
               {processorStatus === "ready" ? "Ready" : processorStatus === "checking" ? "Starting" : "Offline"}
             </span>
-          </div>
+            </div>
 
           <div className="linz-automatic">
             <span className="section-label">AUTOMATIC MAP PREPARATION</span>
@@ -4446,7 +4451,8 @@ export function MapWorkspace() {
               </details>
             </div>
           )}
-        </section>
+          </div>
+        </details>
 
         {analysis && layerBoundaries.length > 0 && (
           <section className="layer-editor" aria-labelledby="layer-editor-heading">

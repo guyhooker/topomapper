@@ -665,3 +665,6 @@
 - Flattened Frame and Area Selection into the drawer surface: stage cards and
   input outlines were removed, each section ends with one divider, and both
   primary actions use a solid green fill with left-aligned labels.
+- Applied the same persistent, collapsible progress header and flat treatment
+  to Step 3 Elevation Data. Its LED remains red until terrain analysis exists,
+  then turns green; processor availability remains visible inside the section.

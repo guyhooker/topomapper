@@ -70,8 +70,10 @@ as a read-only list before geometry generation.
 
 Stage 5 turns those boundaries into cumulative filled land polygons and draws a
 colour-coded 2D stack over the shaded terrain map. Its drawer section is one
-generation action; smoothing statistics and sheet dimensions follow in
-Sections 6 and 7.
+generation action followed by total and per-layer part counts. Reopened
+projects restore the required terrain files from the local LINZ cache when that
+action is pressed. Smoothing statistics and sheet dimensions follow in Sections
+6 and 7.
 
 Optional cropped LINZ lake, lagoon, and river polygons can be loaded as WGS84
 GeoJSON or KML before Stage 5 generation. Topomapper cuts those polygons through

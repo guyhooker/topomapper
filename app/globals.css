@@ -505,6 +505,17 @@ button { color: inherit; }
 .generate-layers-button:hover:not(:disabled) { background: #193f30; }
 .generate-layers-button:disabled { opacity: .42; cursor: default; box-shadow: none; }
 .single-action-stage .generate-layers-button { width: max-content; max-width: 100%; margin-top: 4px; text-align: left; }
+.drawer-generation-status { margin: 7px 0 0; color: var(--muted); font-size: 8px; line-height: 1.4; }
+.drawer-generation-status.warning { color: #a83e22; font-weight: 680; }
+.drawer-part-counts { margin-top: 9px; }
+.drawer-part-counts p, .drawer-part-counts li { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.drawer-part-counts p { margin: 0; padding: 0 0 6px; border-bottom: 1px solid var(--line); color: var(--forest); font-size: 10px; }
+.drawer-part-counts p strong { font-weight: 800; }
+.drawer-part-counts p b { font-size: 11px; }
+.drawer-part-counts ol { max-height: 245px; margin: 0; padding: 0; overflow: auto; list-style: none; }
+.drawer-part-counts li { min-height: 27px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 9px; }
+.drawer-part-counts li b { color: var(--ink); font-weight: 650; font-variant-numeric: tabular-nums; }
+.drawer-part-counts.smoothing-total { margin-top: 8px; }
 .drawer-smoothing-range { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 5px 10px; color: var(--ink); font-size: 10px; font-weight: 650; }
 .drawer-smoothing-range strong { color: var(--forest); font-size: 10px; font-variant-numeric: tabular-nums; }
 .drawer-smoothing-range input { grid-column: 1 / 3; width: 100%; accent-color: var(--forest); }

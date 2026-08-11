@@ -692,3 +692,13 @@
 - Restored saved terrain previews as visible shaded topographic colouring and
   increased their visibility beneath generated layer colours. A repaint is
   requested immediately after the saved image layer is attached.
+- Fixed reopened projects silently ignoring Generate Filled Layers. Browser
+  `File` objects do not survive a session, so the generation action now restores
+  the exact terrain and water crop from Topomapper's Mac cache (or reacquires it
+  if that cache was removed) and continues automatically from the same click.
+- The filled-layer section now reports total parts and parts per layer after
+  generation. The smoothing section reports the corresponding after-smoothing
+  total, per-layer before/after counts, and the smallest resulting part width.
+- Terrain overlay attachment now checks for Topomapper's base map layers rather
+  than MapLibre's overly strict all-sources-loaded state. This prevents a saved
+  terrain preview being skipped while ordinary background tiles are loading.

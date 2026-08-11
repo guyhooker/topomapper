@@ -2691,7 +2691,7 @@ export function MapWorkspace() {
 
   function showFilledLayerOverlay(result: FilledLayerPreview, visible: number[], mode: SnowCapMode = snowCapMode, snowLevels = snowLevelCount) {
     const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
+    if (!map || !map.getLayer("topomapper-selection-outline")) return;
     clearFilledLayerOverlay();
     if (map.getLayer(ELEVATION_LAYER)) map.setPaintProperty(ELEVATION_LAYER, "raster-opacity", 0.58);
     map.addSource(FILLED_LAYER_SOURCE, {
@@ -2740,7 +2740,7 @@ export function MapWorkspace() {
 
   function showElevationOverlay(result: ElevationAnalysis) {
     const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
+    if (!map || !map.getLayer("topomapper-selection-fill")) return;
     clearElevationOverlay();
     const bounds = result.preview_bounds;
     map.addSource(ELEVATION_SOURCE, {
@@ -3280,6 +3280,23 @@ export function MapWorkspace() {
     });
   }
 
+  async function fetchAutomaticLinzFiles() {
+    if (!selection) throw new Error("Draw the map area before loading terrain files.");
+    if (!linzApiKeyConfigured && !linzApiKey.trim()) throw new Error("Enter the LINZ data-access API key in Section 3 first.");
+    const response = await fetch(`${PROCESSOR_ENDPOINT}/linz/download`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ bounds: selection, api_key: linzApiKey.trim() }),
+    });
+    const payload = await response.json() as LinzDownload | { error?: string };
+    if (!response.ok || !("elevation" in payload)) {
+      throw new Error("error" in payload && payload.error ? payload.error : "The LINZ data could not be loaded.");
+    }
+    const elevation = await Promise.all(payload.elevation.map(fetchLinzFile));
+    const water = await Promise.all(payload.water.map(fetchLinzFile));
+    return { payload, elevation, water };
+  }
+
   async function downloadLinzData() {
     if (!selection || downloadingLinz || processorStatus !== "ready") return;
     if (!linzApiKeyConfigured && !linzApiKey.trim()) {
@@ -3289,22 +3306,12 @@ export function MapWorkspace() {
     setDownloadingLinz(true);
     setLinzDownloadStatus("LINZ is preparing the cropped 8 m terrain. This can take several minutes…");
     try {
-      const response = await fetch(`${PROCESSOR_ENDPOINT}/linz/download`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bounds: selection, api_key: linzApiKey.trim() }),
-      });
-      const payload = await response.json() as LinzDownload | { error?: string };
-      if (!response.ok || !("elevation" in payload)) {
-        throw new Error("error" in payload && payload.error ? payload.error : "The LINZ data could not be downloaded.");
-      }
+      const { payload, elevation: downloadedElevation, water: downloadedWater } = await fetchAutomaticLinzFiles();
       setLinzApiKey("");
       setLinzApiKeyConfigured(true);
       setLinzDownloadStatus(payload.cached
         ? "The matching LINZ data was already cached on this Mac. Loading it now…"
         : "Download complete. Loading the terrain and water data…");
-      const downloadedElevation = await Promise.all(payload.elevation.map(fetchLinzFile));
-      const downloadedWater = await Promise.all(payload.water.map(fetchLinzFile));
       chooseElevationFiles(downloadedElevation);
       chooseWaterFiles(downloadedWater);
       setLinzDownloadStatus(`${payload.dataset} ${payload.cached ? "loaded from this Mac's cache" : "downloaded"}${downloadedWater.length ? ` with ${downloadedWater.length} water dataset${downloadedWater.length === 1 ? "" : "s"}` : ""}. Licensed ${payload.license}.`);
@@ -3317,16 +3324,31 @@ export function MapWorkspace() {
   }
 
   async function generateFilledLayerPreview() {
-    if (!analysis || !selection || !elevationFiles.length || layerValidation || generatingLayers) return;
+    if (!analysis || !selection || layerValidation || generatingLayers) return;
     setGeneratingLayers(true);
     setLayerGenerationStatus(`Generating ${layerBoundaries.length - 1} cumulative polygon layers…`);
-    const form = new FormData();
-    elevationFiles.forEach((file) => form.append("geotiff", file));
-    waterFiles.forEach((file) => form.append("water", file));
-    form.append("bounds", JSON.stringify(selection));
-    form.append("boundaries", JSON.stringify(layerBoundaries.map(parseBoundary)));
 
     try {
+      let terrain = elevationFiles;
+      let water = waterFiles;
+      if (!terrain.length) {
+        setLayerGenerationStatus("Restoring the terrain files from this Mac's LINZ cache…");
+        const restored = await fetchAutomaticLinzFiles();
+        terrain = restored.elevation;
+        water = restored.water;
+        setLinzApiKey("");
+        setLinzApiKeyConfigured(true);
+        setElevationFiles(terrain);
+        setWaterFiles(water);
+        setWaterSourceFilenames(water.map((file) => file.name));
+        setLinzDownloadStatus(`${restored.payload.dataset} ${restored.payload.cached ? "loaded from this Mac's cache" : "downloaded again"} for layer generation.`);
+        setLayerGenerationStatus(`Terrain restored. Generating ${layerBoundaries.length - 1} cumulative polygon layers…`);
+      }
+      const form = new FormData();
+      terrain.forEach((file) => form.append("geotiff", file));
+      water.forEach((file) => form.append("water", file));
+      form.append("bounds", JSON.stringify(selection));
+      form.append("boundaries", JSON.stringify(layerBoundaries.map(parseBoundary)));
       const response = await fetch(`${PROCESSOR_ENDPOINT}/layers`, { method: "POST", body: form });
       const payload = await response.json() as FilledLayerPreview | { error?: string };
       if (!response.ok || !("feature_collection" in payload)) {
@@ -3417,6 +3439,8 @@ export function MapWorkspace() {
   const overallSmoothingLevel = filledLayerPreview?.layers.reduce((maximum, layer) => Math.max(maximum, smoothingLevels[layer.index] ?? 0), 0) ?? 0;
   const smoothedPartSizes = smoothingLayerMetrics.filter((row) => row.after.parts > 0).map((row) => row.after.smallestPartSize);
   const smallestSmoothedPartSize = smoothedPartSizes.length ? Math.min(...smoothedPartSizes) : 0;
+  const filledTotalParts = filledLayerPreview?.layers.reduce((total, layer) => total + layer.piece_count, 0) ?? 0;
+  const smoothedTotalParts = smoothingLayerMetrics.reduce((total, row) => total + row.after.parts, 0);
   const layoutParts = useMemo(() => fabricationPreview && assemblyPlan ? buildLayoutParts(fabricationPreview, assemblyPlan, previewDimensions.width, previewDimensions.height) : [], [fabricationPreview, assemblyPlan, previewDimensions.width, previewDimensions.height]);
   const layoutViolations = useMemo(() => {
     if (sheetPartDragging) return layoutViolationsRef.current;
@@ -4549,6 +4573,13 @@ export function MapWorkspace() {
             >
               {generatingLayers ? "Generating filled polygons…" : filledLayerPreview ? "Regenerate 2D preview" : `Generate ${layerBoundaries.length - 1} filled layers`}
             </button>
+            <p className={`drawer-generation-status ${layerGenerationStatus.includes("could not") || layerGenerationStatus.includes("first") ? "warning" : ""}`} role="status">{layerGenerationStatus}</p>
+            {filledLayerPreview && !generatingLayers && (
+              <div className="drawer-part-counts">
+                <p><strong>Total</strong><b>{filledTotalParts} Parts</b></p>
+                <ol>{[...filledLayerPreview.layers].reverse().map((layer) => <li key={layer.index}><span>Layer {layer.index + 1}</span><b>{layer.piece_count} part{layer.piece_count === 1 ? "" : "s"}</b></li>)}</ol>
+              </div>
+            )}
             </div>
           </details>
         )}
@@ -4569,6 +4600,7 @@ export function MapWorkspace() {
             {filledLayerPreview ? (
               <>
                 <dl className="plain-smoothing-stats"><div><dt>Minimum part size:</dt><dd>{smallestSmoothedPartSize.toFixed(1)} mm</dd></div></dl>
+                <div className="drawer-part-counts smoothing-total"><p><strong>Total</strong><b>{smoothedTotalParts} Parts</b></p></div>
                 <div className="smoothing-count-heading"><span>Part Count</span><b>Before</b><b>After</b></div>
                 <ol className="drawer-smoothing-list">
                   {[...smoothingLayerMetrics].reverse().map((row) => <li key={row.index}><span>Level {row.index + 1}</span><b>{row.before.parts}</b><b>{row.after.parts}</b></li>)}

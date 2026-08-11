@@ -641,6 +641,11 @@
   Optimise II and Optimise III controls reserve the intended progression toward
   embedded SVGnest and deeper multi-start searches without presenting unfinished
   actions as functional.
+- Fixed a Sheet Layout lock-up found with a 135-part Taranaki project. Editing a
+  stock or spacing rule now stops an active optimiser, updates the field
+  immediately, waits briefly for entry to settle, and then runs the expensive
+  exact-coastline DRC once with an explicit Rechecking sheet layout status.
+  Quick Placement and Optimise I remain disabled until that rule check finishes.
 
 ### LINZ download authentication correction
 

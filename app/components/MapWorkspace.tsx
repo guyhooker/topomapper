@@ -2493,6 +2493,8 @@ export function MapWorkspace() {
   const [smoothingCalculating, setSmoothingCalculating] = useState(false);
   const [smoothingZoom, setSmoothingZoom] = useState(1);
   const [sheetRules, setSheetRules] = useState<SheetRules>({ width: 1200, height: 600, thickness: 3, edgeMargin: 15, partSpacing: 3 });
+  const [sheetRuleDraft, setSheetRuleDraft] = useState({ width: 1200, height: 600, edgeMargin: 15, partSpacing: 3 });
+  const [sheetRulesCalculating, setSheetRulesCalculating] = useState(false);
   const [sheetCount, setSheetCount] = useState(1);
   const [activeSheetIndex, setActiveSheetIndex] = useState(0);
   const [sheetPlacements, setSheetPlacements] = useState<SheetPlacement[]>([]);
@@ -2503,6 +2505,7 @@ export function MapWorkspace() {
   const [selectedViolationIndex, setSelectedViolationIndex] = useState<number | null>(null);
   const [sheetPartDragging, setSheetPartDragging] = useState(false);
   const [rotationStepDeg, setRotationStepDeg] = useState(15);
+  const [rotationStepDraft, setRotationStepDraft] = useState(15);
   const [svgNestRotations, setSvgNestRotations] = useState(12);
   const [optimizerRunning, setOptimizerRunning] = useState(false);
   const [optimizerStatus, setOptimizerStatus] = useState("Ready to search for a tighter polygon-aware layout.");
@@ -2526,6 +2529,7 @@ export function MapWorkspace() {
   const [sheetStageOpen, setSheetStageOpen] = useState(false);
   const workflowDrawerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const smoothingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sheetRulesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const placementCounterRef = useRef(1);
   const layoutViolationsRef = useRef<LayoutViolation[]>([]);
   const layoutDirtyReadyRef = useRef(false);
@@ -2554,6 +2558,28 @@ export function MapWorkspace() {
       if (smoothingTimerRef.current) clearTimeout(smoothingTimerRef.current);
     };
   }, [smoothingLevels]);
+  useEffect(() => {
+    const unchanged = sheetRuleDraft.width === sheetRules.width
+      && sheetRuleDraft.height === sheetRules.height
+      && sheetRuleDraft.edgeMargin === sheetRules.edgeMargin
+      && sheetRuleDraft.partSpacing === sheetRules.partSpacing
+      && rotationStepDraft === rotationStepDeg;
+    if (unchanged) {
+      setSheetRulesCalculating(false);
+      return;
+    }
+    if (sheetRulesTimerRef.current) clearTimeout(sheetRulesTimerRef.current);
+    setSheetRulesCalculating(true);
+    sheetRulesTimerRef.current = setTimeout(() => {
+      setSheetRules((rules) => ({ ...rules, ...sheetRuleDraft }));
+      setRotationStepDeg(rotationStepDraft);
+      setSheetRulesCalculating(false);
+      sheetRulesTimerRef.current = null;
+    }, 500);
+    return () => {
+      if (sheetRulesTimerRef.current) clearTimeout(sheetRulesTimerRef.current);
+    };
+  }, [sheetRuleDraft.width, sheetRuleDraft.height, sheetRuleDraft.edgeMargin, sheetRuleDraft.partSpacing, rotationStepDraft]);
   useEffect(() => {
     if (!optimizerWorkerRef.current) return;
     optimizerWorkerRef.current.terminate();
@@ -3196,7 +3222,21 @@ export function MapWorkspace() {
   }
 
   function setSheetDimension(axis: "width" | "height", value: number) {
-    if (Number.isFinite(value)) setSheetRules((rules) => ({ ...rules, [axis]: Math.max(100, value) }));
+    if (!Number.isFinite(value)) return;
+    if (optimizerWorkerRef.current) stopNestingOptimiser();
+    setSheetRuleDraft((rules) => ({ ...rules, [axis]: Math.max(100, value) }));
+  }
+
+  function setSheetRuleDraftValue(axis: "edgeMargin" | "partSpacing", value: number) {
+    if (!Number.isFinite(value)) return;
+    if (optimizerWorkerRef.current) stopNestingOptimiser();
+    setSheetRuleDraft((rules) => ({ ...rules, [axis]: Math.max(0, value) }));
+  }
+
+  function setRotationStepDraftValue(value: number) {
+    if (!Number.isFinite(value)) return;
+    if (optimizerWorkerRef.current) stopNestingOptimiser();
+    setRotationStepDraft(Math.max(1, Math.min(90, Math.round(value))));
   }
 
   function chooseElevationFiles(files: File[]) {
@@ -3462,7 +3502,7 @@ export function MapWorkspace() {
     const checked = checkLayoutRules(sheetPlacements, layoutParts, sheetRules);
     layoutViolationsRef.current = checked;
     return checked;
-  }, [sheetPlacements, layoutParts, sheetRules, sheetPartDragging]);
+  }, [sheetPlacements, layoutParts, sheetRules.width, sheetRules.height, sheetRules.edgeMargin, sheetRules.partSpacing, sheetPartDragging]);
   const sheetLayoutComplete = layoutParts.length > 0
     && layoutParts.every((part) => sheetPlacements.some((placement) => placement.partId === part.id))
     && layoutViolations.length === 0;
@@ -3670,11 +3710,15 @@ export function MapWorkspace() {
     setDowelDiameterMm(project.assembly.dowelDiameterMm);
     setHoleDiameterMm(project.assembly.holeDiameterMm);
     setHoleEdgeClearanceMm(project.assembly.holeEdgeClearanceMm);
-    setSheetRules({ ...project.layout.sheetRules, thickness: restoredMaterialThickness });
+    const restoredSheetRules = { ...project.layout.sheetRules, thickness: restoredMaterialThickness };
+    setSheetRules(restoredSheetRules);
+    setSheetRuleDraft({ width: restoredSheetRules.width, height: restoredSheetRules.height, edgeMargin: restoredSheetRules.edgeMargin, partSpacing: restoredSheetRules.partSpacing });
     setSheetCount(project.layout.sheetCount);
     setActiveSheetIndex(Math.min(project.layout.activeSheetIndex, Math.max(0, project.layout.sheetCount - 1)));
     setSheetPlacements(project.layout.placements);
-    setRotationStepDeg(project.layout.rotationStepDeg && project.layout.rotationStepDeg >= 1 ? project.layout.rotationStepDeg : 15);
+    const restoredRotationStep = project.layout.rotationStepDeg && project.layout.rotationStepDeg >= 1 ? project.layout.rotationStepDeg : 15;
+    setRotationStepDeg(restoredRotationStep);
+    setRotationStepDraft(restoredRotationStep);
     const projectSnowCapMode: SnowCapMode = project.colour?.snowCapMode === "off" ? "off" : "on";
     const projectSnowLevelCount = Math.max(MIN_SNOW_LAYERS, Math.min(MAX_SNOW_LAYERS, project.colour?.snowLayers ?? DEFAULT_SNOW_LAYERS));
     setSnowCapMode(projectSnowCapMode);
@@ -3786,7 +3830,10 @@ export function MapWorkspace() {
     };
     if (!data || data.format !== "topomapper-sheet-layout" || data.version !== 1 || !Array.isArray(data.sheetPlacements)) throw new Error("Not a Topomapper sheet layout file.");
     suppressLayoutDirtyRef.current = true;
-    if (data.sheetRules) setSheetRules(data.sheetRules);
+    if (data.sheetRules) {
+      setSheetRules(data.sheetRules);
+      setSheetRuleDraft({ width: data.sheetRules.width, height: data.sheetRules.height, edgeMargin: data.sheetRules.edgeMargin, partSpacing: data.sheetRules.partSpacing });
+    }
     const count = Math.max(1, Math.round(data.sheetCount ?? 1));
     setSheetCount(count);
     setActiveSheetIndex(Math.max(0, Math.min(count - 1, Math.round(data.activeSheetIndex ?? 0))));
@@ -4636,15 +4683,16 @@ export function MapWorkspace() {
             <b aria-hidden="true">{sheetStageOpen ? "−" : "+"}</b>
           </summary>
           <div className="workflow-stage-body sheet-size-settings">
-            <label><span>Sheet Width</span><strong><input type="number" min="100" step="10" value={sheetRules.width} onChange={(event) => setSheetDimension("width", Number(event.target.value))} /><em>mm</em></strong></label>
-            <label><span>Sheet Height</span><strong><input type="number" min="100" step="10" value={sheetRules.height} onChange={(event) => setSheetDimension("height", Number(event.target.value))} /><em>mm</em></strong></label>
+            <label><span>Sheet Width</span><strong><input type="number" min="100" step="10" value={sheetRuleDraft.width} onChange={(event) => setSheetDimension("width", Number(event.target.value))} /><em>mm</em></strong></label>
+            <label><span>Sheet Height</span><strong><input type="number" min="100" step="10" value={sheetRuleDraft.height} onChange={(event) => setSheetDimension("height", Number(event.target.value))} /><em>mm</em></strong></label>
             <label><span>Sheet Thickness</span><strong><input type="number" value={materialThicknessMm} readOnly aria-label="Sheet thickness from Section 4" /><em>mm</em></strong></label>
-            <label><span>Material Border</span><strong><input type="number" min="0" step="1" value={sheetRules.edgeMargin} onChange={(event) => setSheetRules((rules) => ({ ...rules, edgeMargin: Math.max(0, Number(event.target.value) || 0) }))} /><em>mm</em></strong></label>
-            <label><span>Part Spacing</span><strong><input type="number" min="0" step="0.1" value={sheetRules.partSpacing} onChange={(event) => setSheetRules((rules) => ({ ...rules, partSpacing: Math.max(0, Number(event.target.value) || 0) }))} /><em>mm</em></strong></label>
-            <label><span>Min Rotation</span><strong><input type="number" min="1" max="90" step="1" value={rotationStepDeg} onChange={(event) => setRotationStepDeg(Math.max(1, Math.min(90, Math.round(Number(event.target.value) || 1))))} /><em>deg</em></strong></label>
+            <label><span>Material Border</span><strong><input type="number" min="0" step="1" value={sheetRuleDraft.edgeMargin} onChange={(event) => setSheetRuleDraftValue("edgeMargin", Number(event.target.value))} /><em>mm</em></strong></label>
+            <label><span>Part Spacing</span><strong><input type="number" min="0" step="0.1" value={sheetRuleDraft.partSpacing} onChange={(event) => setSheetRuleDraftValue("partSpacing", Number(event.target.value))} /><em>mm</em></strong></label>
+            <label><span>Min Rotation</span><strong><input type="number" min="1" max="90" step="1" value={rotationStepDraft} onChange={(event) => setRotationStepDraftValue(Number(event.target.value))} /><em>deg</em></strong></label>
+            {sheetRulesCalculating && <p className="sheet-rules-calculating" role="status"><i aria-hidden="true" /> Rechecking sheet layout…</p>}
             <div className="drawer-placement-actions">
-              <button disabled={!layoutParts.length} onClick={() => { autoLayoutUnplaced(); setWorkspaceView("sheet-layout"); }}>Quick Placement</button>
-              <div><button disabled={optimizerRunning || !layoutParts.length} onClick={() => { setWorkspaceView("sheet-layout"); void startNestingOptimiser(); }}>Optimise I</button><button disabled title="Reserved for embedded SVGnest optimisation">Optimise II</button><button disabled title="Reserved for deeper multi-start optimisation">Optimise III</button></div>
+              <button disabled={!layoutParts.length || sheetRulesCalculating} onClick={() => { autoLayoutUnplaced(); setWorkspaceView("sheet-layout"); }}>Quick Placement</button>
+              <div><button disabled={optimizerRunning || !layoutParts.length || sheetRulesCalculating} onClick={() => { setWorkspaceView("sheet-layout"); void startNestingOptimiser(); }}>Optimise I</button><button disabled title="Reserved for embedded SVGnest optimisation">Optimise II</button><button disabled title="Reserved for deeper multi-start optimisation">Optimise III</button></div>
               {optimizerRunning && <button className="stop-optimising" onClick={stopNestingOptimiser}>Stop optimisation</button>}
               <p role="status">{optimizerProgress || optimizerStatus}</p>
             </div>
@@ -4819,19 +4867,20 @@ export function MapWorkspace() {
             <span className={sheetPartDragging ? "checking" : layoutViolations.length ? "warning" : "ready"}>{sheetPartDragging ? "Moving · DRC on release" : layoutViolations.length ? `${layoutViolations.length} DRC warning${layoutViolations.length === 1 ? "" : "s"}` : "DRC clear"}</span>
           </div>
           <div className="sheet-rules-toolbar">
-            <label>Sheet W <span><input type="number" min="100" step="10" value={sheetRules.width} onChange={(event) => setSheetDimension("width", Number(event.target.value))} /> mm</span></label>
-            <label>Sheet H <span><input type="number" min="100" step="10" value={sheetRules.height} onChange={(event) => setSheetDimension("height", Number(event.target.value))} /> mm</span></label>
+            <label>Sheet W <span><input type="number" min="100" step="10" value={sheetRuleDraft.width} onChange={(event) => setSheetDimension("width", Number(event.target.value))} /> mm</span></label>
+            <label>Sheet H <span><input type="number" min="100" step="10" value={sheetRuleDraft.height} onChange={(event) => setSheetDimension("height", Number(event.target.value))} /> mm</span></label>
             <label>Thickness <span><input type="number" value={materialThicknessMm} readOnly /> mm</span></label>
-            <label>Material border <span><input type="number" min="0" step="1" value={sheetRules.edgeMargin} onChange={(event) => setSheetRules((rules) => ({ ...rules, edgeMargin: Math.max(0, Number(event.target.value) || 0) }))} /> mm</span></label>
-            <label>Part spacing <span><input type="number" min="0" step="0.1" value={sheetRules.partSpacing} onChange={(event) => setSheetRules((rules) => ({ ...rules, partSpacing: Math.max(0, Number(event.target.value) || 0) }))} /> mm</span></label>
-            <label>Rotation <span><select value={rotationStepDeg} onChange={(event) => setRotationStepDeg(Number(event.target.value))}><option value={1}>1°</option><option value={2}>2°</option><option value={5}>5°</option><option value={10}>10°</option><option value={15}>15°</option></select></span></label>
-            <button onClick={autoLayoutUnplaced}>Quick Placement</button>
+            <label>Material border <span><input type="number" min="0" step="1" value={sheetRuleDraft.edgeMargin} onChange={(event) => setSheetRuleDraftValue("edgeMargin", Number(event.target.value))} /> mm</span></label>
+            <label>Part spacing <span><input type="number" min="0" step="0.1" value={sheetRuleDraft.partSpacing} onChange={(event) => setSheetRuleDraftValue("partSpacing", Number(event.target.value))} /> mm</span></label>
+            <label>Rotation <span><select value={rotationStepDraft} onChange={(event) => setRotationStepDraftValue(Number(event.target.value))}><option value={1}>1°</option><option value={2}>2°</option><option value={5}>5°</option><option value={10}>10°</option><option value={15}>15°</option></select></span></label>
+            <button disabled={sheetRulesCalculating} onClick={autoLayoutUnplaced}>Quick Placement</button>
             <button onClick={addReplacementSheet}>+ Replacement sheet</button>
-            <button disabled={optimizerRunning || !layoutParts.length} onClick={() => void startNestingOptimiser()}>Optimise I</button>
+            <button disabled={optimizerRunning || !layoutParts.length || sheetRulesCalculating} onClick={() => void startNestingOptimiser()}>Optimise I</button>
             <button disabled title="Reserved for embedded SVGnest optimisation">Optimise II</button>
             <button disabled title="Reserved for deeper multi-start optimisation">Optimise III</button>
             <button disabled={!optimizerRunning} onClick={stopNestingOptimiser}>Stop</button>
           </div>
+          {sheetRulesCalculating && <p className="sheet-rules-calculating toolbar-rule-status" role="status"><i aria-hidden="true" /> Rechecking sheet layout…</p>}
           <p className={`optimizer-status ${optimizerRunning ? "running" : ""}`} role="status">{optimizerStatus}</p>
           {optimizerProgress && <p className="optimizer-progress" aria-live="polite">{optimizerProgress}</p>}
           <div className="svgnest-handoff">

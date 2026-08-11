@@ -155,6 +155,8 @@ rotations, restores exact geometry, and reruns the full-resolution DRC.
 The interface names the current background search Optimise I and keeps disabled
 Optimise II/III positions visible for a later embedded SVGnest and deeper search,
 without implying that the external round trip has already been automated.
+Changing a sheet rule stops an active optimiser and defers full coastline DRC
+until entry has paused, so the controls respond immediately even on large models.
 Sheet Layout defines Cut-edge gap as the final edge-to-edge distance between
 neighbouring exact parts. Each on-screen halo extends half that value outside
 its cut outline. The SVGnest proxy bin is moved outward to compensate for

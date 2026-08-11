@@ -549,6 +549,9 @@ button { color: inherit; }
 .drawer-placement-actions button:disabled { opacity: .38; cursor: default; }
 .drawer-placement-actions .stop-optimising { justify-self: start; color: #a83e22; }
 .drawer-placement-actions p { margin: 0; color: var(--muted); font-size: 8px; line-height: 1.4; }
+.sheet-rules-calculating { display: flex; align-items: center; gap: 6px; margin: 7px 0 0; color: #1d6f82; font-size: 9px; font-weight: 700; }
+.sheet-rules-calculating i { width: 7px; height: 7px; border: 2px solid rgba(29,111,130,.25); border-top-color: #1d6f82; border-radius: 50%; animation: smoothing-spin .75s linear infinite; }
+.toolbar-rule-status { margin: 5px 2px 0; }
 .filled-layer-section > .layer-generation-status { min-height: 30px; margin: 8px 2px 0; font-size: 9px; }
 .layer-generation-status.warning { color: #a83e22; font-weight: 680; }
 .filled-layer-results { margin-top: 5px; }

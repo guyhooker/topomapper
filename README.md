@@ -69,8 +69,9 @@ set alongside them. The resulting levels, colours, and altitude bands are shown
 as a read-only list before geometry generation.
 
 Stage 5 turns those boundaries into cumulative filled land polygons and draws a
-colour-coded 2D stack over the map. Individual layers can be hidden or shown,
-and the preview reports disconnected pieces and preserved holes.
+colour-coded 2D stack over the shaded terrain map. Its drawer section is one
+generation action; smoothing statistics and sheet dimensions follow in
+Sections 6 and 7.
 
 Optional cropped LINZ lake, lagoon, and river polygons can be loaded as WGS84
 GeoJSON or KML before Stage 5 generation. Topomapper cuts those polygons through

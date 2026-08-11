@@ -680,3 +680,15 @@
   low/high points, coverage, sources, cell size, coordinates and vertical datum.
 - Replaced Step 4's separate Log and Linear buttons with one accessible blue
   Logarithmic Vertical Spacing switch; switching it off selects linear spacing.
+- Standardised Sections 4–7 on the same collapsible title, text status and
+  red/green LED format as the earlier setup stages. A valid calculated layer
+  plan turns Section 4 green; generated geometry turns Section 5 green; sheet
+  layout completes only when every part is placed and full DRC is clear.
+- Reduced Section 5 to its single Generate/Regenerate action. Section 6 now
+  provides one 0–12 mm smoothing slider applied across all levels, the smallest
+  resulting part dimension, and per-level before/after part counts. Section 7
+  exposes the stock sheet width and length while retaining the full layout view
+  for placement work.
+- Restored saved terrain previews as visible shaded topographic colouring and
+  increased their visibility beneath generated layer colours. A repaint is
+  requested immediately after the saved image layer is attached.

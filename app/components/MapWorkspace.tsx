@@ -710,11 +710,21 @@ function applySmoothing(
 function layerGeometryMetrics(preview: FilledLayerPreview, layerIndex: number, modelWidth: number, modelHeight: number) {
   const features = preview.feature_collection.features.filter((feature) => feature.properties.layer_index === layerIndex);
   const partAreas = features.map((feature) => featureAreaMm2(preview, feature, modelWidth, modelHeight));
+  const partSizes = features.map((feature) => {
+    const outer = feature.geometry.coordinates[0] ?? [];
+    const longitudes = outer.map((point) => point[0]);
+    const latitudes = outer.map((point) => point[1]);
+    if (!longitudes.length || !latitudes.length) return 0;
+    const width = (Math.max(...longitudes) - Math.min(...longitudes)) / (preview.selection.east - preview.selection.west) * modelWidth;
+    const height = (Math.max(...latitudes) - Math.min(...latitudes)) / (preview.selection.north - preview.selection.south) * modelHeight;
+    return Math.min(width, height);
+  }).filter((value) => value > 0);
   const holeAreas = features.flatMap((feature) => feature.geometry.coordinates.slice(1).map((ring) => ringAreaMm2(preview, ring, modelWidth, modelHeight)));
   return {
     parts: features.length,
     holes: holeAreas.length,
     smallestPart: partAreas.length ? Math.min(...partAreas) : 0,
+    smallestPartSize: partSizes.length ? Math.min(...partSizes) : 0,
     smallestHole: holeAreas.length ? Math.min(...holeAreas) : 0,
   };
 }
@@ -2508,6 +2518,10 @@ export function MapWorkspace() {
   const [frameStageOpen, setFrameStageOpen] = useState(true);
   const [areaStageOpen, setAreaStageOpen] = useState(true);
   const [elevationStageOpen, setElevationStageOpen] = useState(true);
+  const [layerStageOpen, setLayerStageOpen] = useState(true);
+  const [filledStageOpen, setFilledStageOpen] = useState(false);
+  const [smoothingStageOpen, setSmoothingStageOpen] = useState(false);
+  const [sheetStageOpen, setSheetStageOpen] = useState(false);
   const workflowDrawerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const placementCounterRef = useRef(1);
   const layoutViolationsRef = useRef<LayoutViolation[]>([]);
@@ -2679,7 +2693,7 @@ export function MapWorkspace() {
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded()) return;
     clearFilledLayerOverlay();
-    if (map.getLayer(ELEVATION_LAYER)) map.setPaintProperty(ELEVATION_LAYER, "raster-opacity", 0.18);
+    if (map.getLayer(ELEVATION_LAYER)) map.setPaintProperty(ELEVATION_LAYER, "raster-opacity", 0.58);
     map.addSource(FILLED_LAYER_SOURCE, {
       type: "geojson",
       data: visibleFeatureCollection(result, visible, mode, snowLevels),
@@ -2688,7 +2702,7 @@ export function MapWorkspace() {
       id: FILLED_LAYER_FILL,
       type: "fill",
       source: FILLED_LAYER_SOURCE,
-      paint: { "fill-color": ["get", "colour"], "fill-opacity": 0.9 },
+      paint: { "fill-color": ["get", "colour"], "fill-opacity": 0.7 },
     }, "topomapper-selection-outline");
     map.addLayer({
       id: FILLED_LAYER_OUTLINE,
@@ -2747,6 +2761,7 @@ export function MapWorkspace() {
     }, "topomapper-selection-fill");
     addElevationMarker(result.minimum, "minimum");
     addElevationMarker(result.maximum, "maximum");
+    map.triggerRepaint();
   }
 
   function applySelection(bounds: SelectionBounds | null, persist = false) {
@@ -3165,6 +3180,10 @@ export function MapWorkspace() {
     if (Number.isFinite(value)) setSnowLevelCount(Math.max(MIN_SNOW_LAYERS, Math.min(MAX_SNOW_LAYERS, Math.round(value))));
   }
 
+  function setSheetDimension(axis: "width" | "height", value: number) {
+    if (Number.isFinite(value)) setSheetRules((rules) => ({ ...rules, [axis]: Math.max(100, value) }));
+  }
+
   function chooseElevationFiles(files: File[]) {
     setElevationFiles(files);
     if (!files.length) {
@@ -3335,24 +3354,6 @@ export function MapWorkspace() {
     }
   }
 
-  function toggleFilledLayer(index: number) {
-    if (!filledLayerPreview) return;
-    const next = visibleLayerIndices.includes(index)
-      ? visibleLayerIndices.filter((item) => item !== index)
-      : [...visibleLayerIndices, index].sort((left, right) => left - right);
-    setVisibleLayerIndices(next);
-    const source = mapRef.current?.getSource(FILLED_LAYER_SOURCE) as GeoJSONSource | undefined;
-    source?.setData(visibleFeatureCollection(filledLayerPreview, next));
-  }
-
-  function setAllFilledLayers(visible: boolean) {
-    if (!filledLayerPreview) return;
-    const next = visible ? filledLayerPreview.layers.map((layer) => layer.index) : [];
-    setVisibleLayerIndices(next);
-    const source = mapRef.current?.getSource(FILLED_LAYER_SOURCE) as GeoJSONSource | undefined;
-    source?.setData(visibleFeatureCollection(filledLayerPreview, next));
-  }
-
   function focusElevationPoint(point: ElevationPoint) {
     mapRef.current?.flyTo({ center: [point.longitude, point.latitude], zoom: Math.max(zoom, 12), duration: 900, essential: true });
   }
@@ -3360,6 +3361,8 @@ export function MapWorkspace() {
   const measurements = selection ? selectionMeasurements(selection) : null;
   const layerMaximum = analysis?.maximum.elevation ?? 0;
   const layerValidation = analysis && layerBoundaries.length ? validateLayerBoundaries(layerBoundaries, layerMaximum) : "";
+  const layerPlanComplete = Boolean(analysis && layerBoundaries.length === layerCount + 1 && !layerValidation);
+  const filledStageComplete = Boolean(filledLayerPreview && filledLayerPreview.layers.length === layerCount);
   const previewDimensions = chosenOutput ?? {
     width: 600,
     height: measurements && measurements.width > 0 ? 600 * measurements.height / measurements.width : 400,
@@ -3404,6 +3407,16 @@ export function MapWorkspace() {
   ) : "", [fabricationPreview, assemblyPlan, selectedAssemblyLayer, assemblyLayerIndex, previewDimensions.width, previewDimensions.height, holeDiameterMm, materialThicknessMm, analysis]);
   const originalSmoothingMetrics = filledLayerPreview ? layerGeometryMetrics(filledLayerPreview, smoothingLayerIndex, previewDimensions.width, previewDimensions.height) : null;
   const smoothedSmoothingMetrics = fabricationPreview ? layerGeometryMetrics(fabricationPreview, smoothingLayerIndex, previewDimensions.width, previewDimensions.height) : null;
+  const smoothingLayerMetrics = useMemo(() => filledLayerPreview && fabricationPreview
+    ? filledLayerPreview.layers.map((layer) => ({
+      index: layer.index,
+      before: layerGeometryMetrics(filledLayerPreview, layer.index, previewDimensions.width, previewDimensions.height),
+      after: layerGeometryMetrics(fabricationPreview, layer.index, previewDimensions.width, previewDimensions.height),
+    }))
+    : [], [filledLayerPreview, fabricationPreview, previewDimensions.width, previewDimensions.height]);
+  const overallSmoothingLevel = filledLayerPreview?.layers.reduce((maximum, layer) => Math.max(maximum, smoothingLevels[layer.index] ?? 0), 0) ?? 0;
+  const smoothedPartSizes = smoothingLayerMetrics.filter((row) => row.after.parts > 0).map((row) => row.after.smallestPartSize);
+  const smallestSmoothedPartSize = smoothedPartSizes.length ? Math.min(...smoothedPartSizes) : 0;
   const layoutParts = useMemo(() => fabricationPreview && assemblyPlan ? buildLayoutParts(fabricationPreview, assemblyPlan, previewDimensions.width, previewDimensions.height) : [], [fabricationPreview, assemblyPlan, previewDimensions.width, previewDimensions.height]);
   const layoutViolations = useMemo(() => {
     if (sheetPartDragging) return layoutViolationsRef.current;
@@ -3411,6 +3424,9 @@ export function MapWorkspace() {
     layoutViolationsRef.current = checked;
     return checked;
   }, [sheetPlacements, layoutParts, sheetRules, sheetPartDragging]);
+  const sheetLayoutComplete = layoutParts.length > 0
+    && layoutParts.every((part) => sheetPlacements.some((placement) => placement.partId === part.id))
+    && layoutViolations.length === 0;
   const highlightedPlacementIds = selectedViolationIndex !== null ? (layoutViolations[selectedViolationIndex]?.placementIds ?? []) : [];
   const selectedPlacement = sheetPlacements.find((placement) => placement.id === selectedPlacementId) ?? null;
   const placedArea = sheetPlacements.reduce((total, placement) => total + (layoutParts.find((part) => part.id === placement.partId)?.areaMm2 ?? 0), 0);
@@ -3430,6 +3446,12 @@ export function MapWorkspace() {
 
   function setLayerSmoothing(value: number) {
     setSmoothingLevels((current) => ({ ...current, [smoothingLayerIndex]: Math.max(0, Math.min(12, value)) }));
+  }
+
+  function setOverallSmoothing(value: number) {
+    if (!filledLayerPreview || !Number.isFinite(value)) return;
+    const level = Math.max(0, Math.min(12, value));
+    setSmoothingLevels(Object.fromEntries(filledLayerPreview.layers.map((layer) => [layer.index, level])));
   }
 
   function applySmoothingToAll() {
@@ -4417,17 +4439,23 @@ export function MapWorkspace() {
           </div>
         </details>
 
+        {(!analysis || !layerBoundaries.length) && (
+          <details className="workflow-stage layer-editor" open={layerStageOpen} onToggle={(event) => setLayerStageOpen(event.currentTarget.open)}>
+            <summary className="workflow-stage-summary">
+              <span><strong>4) Layer Plan</strong></span><em>Incomplete</em><i className="stage-status-led incomplete" aria-hidden="true" /><b aria-hidden="true">{layerStageOpen ? "−" : "+"}</b>
+            </summary>
+            <div className="workflow-stage-body"><p className="stage-waiting-note">Load elevation data first.</p></div>
+          </details>
+        )}
         {analysis && layerBoundaries.length > 0 && (
-          <section className="layer-editor" aria-labelledby="layer-editor-heading">
-            <div className="layer-editor-heading">
-              <div>
-                <span className="section-label">STEP 4 · LAYER PLAN</span>
-                <strong id="layer-editor-heading">Layer settings</strong>
-              </div>
-              <span className={`layer-ready ${layerValidation ? "invalid" : ""}`}>
-                {layerValidation ? "Needs attention" : `${layerBoundaries.length - 1} layers`}
-              </span>
-            </div>
+          <details className="workflow-stage layer-editor" open={layerStageOpen} onToggle={(event) => setLayerStageOpen(event.currentTarget.open)}>
+            <summary className="workflow-stage-summary">
+              <span><strong id="layer-editor-heading">4) Layer Plan</strong></span>
+              <em>{layerPlanComplete ? "Complete" : "Incomplete"}</em>
+              <i className={`stage-status-led ${layerPlanComplete ? "complete" : "incomplete"}`} aria-hidden="true" />
+              <b aria-hidden="true">{layerStageOpen ? "−" : "+"}</b>
+            </summary>
+            <div className="workflow-stage-body">
             <p className="layer-intro">Choose the physical stack. Topomapper calculates the altitude of every level from sea level to the analysed maximum.</p>
 
             <div className="elevation-range" aria-label={`Elevation boundaries from 0 to ${formatBoundaryValue(layerMaximum)} metres`}>
@@ -4492,63 +4520,76 @@ export function MapWorkspace() {
             {!layerValidation && (
               <div className="layer-summary"><strong>{layerBoundaries.length - 1}</strong><span>physical elevation bands ready for Stage 5 geometry</span></div>
             )}
-          </section>
+            </div>
+          </details>
         )}
 
+        {(!analysis || !layerBoundaries.length) && (
+          <details className="workflow-stage filled-layer-section" open={filledStageOpen} onToggle={(event) => setFilledStageOpen(event.currentTarget.open)}>
+            <summary className="workflow-stage-summary">
+              <span><strong>5) Filled 2D Layer Preview</strong></span><em>Incomplete</em><i className="stage-status-led incomplete" aria-hidden="true" /><b aria-hidden="true">{filledStageOpen ? "−" : "+"}</b>
+            </summary>
+            <div className="workflow-stage-body single-action-stage"><button className="generate-layers-button" disabled>Generate filled layers</button></div>
+          </details>
+        )}
         {analysis && layerBoundaries.length > 0 && (
-          <section className="filled-layer-section" aria-labelledby="filled-layer-heading">
-            <div className="filled-layer-heading">
-              <div>
-                <span className="section-label">STEP 5 · FILLED GEOMETRY</span>
-                <strong id="filled-layer-heading">Filled 2D layer preview</strong>
-              </div>
-              {filledLayerPreview && <span>{visibleLayerIndices.length}/{filledLayerPreview.layers.length} visible</span>}
-            </div>
-            <p>Build cumulative shapes that can eventually be stacked and cut, including separate pieces and enclosed holes.</p>
+          <details className="workflow-stage filled-layer-section" open={filledStageOpen} onToggle={(event) => setFilledStageOpen(event.currentTarget.open)}>
+            <summary className="workflow-stage-summary">
+              <span><strong id="filled-layer-heading">5) Filled 2D Layer Preview</strong></span>
+              <em>{filledStageComplete ? "Complete" : "Incomplete"}</em>
+              <i className={`stage-status-led ${filledStageComplete ? "complete" : "incomplete"}`} aria-hidden="true" />
+              <b aria-hidden="true">{filledStageOpen ? "−" : "+"}</b>
+            </summary>
+            <div className="workflow-stage-body single-action-stage">
             <button
               className="generate-layers-button"
+              title={layerGenerationStatus}
               onClick={generateFilledLayerPreview}
               disabled={Boolean(layerValidation) || generatingLayers || processorStatus !== "ready"}
             >
               {generatingLayers ? "Generating filled polygons…" : filledLayerPreview ? "Regenerate 2D preview" : `Generate ${layerBoundaries.length - 1} filled layers`}
             </button>
-            <p className={`layer-generation-status ${layerGenerationStatus.includes("could not") || layerGenerationStatus.includes("changed") ? "warning" : ""}`} role="status">{layerGenerationStatus}</p>
-
-            {filledLayerPreview && (
-              <div className="filled-layer-results">
-                <div className="preview-summary">
-                  <span><strong>{filledLayerPreview.layers.length}</strong> cumulative layers</span>
-                  <span><strong>{filledLayerPreview.grid.width} × {filledLayerPreview.grid.height}</strong> preview grid</span>
-                </div>
-                <div className="visibility-actions">
-                  <button onClick={() => setAllFilledLayers(true)}>Show all</button>
-                  <button onClick={() => setAllFilledLayers(false)}>Hide all</button>
-                </div>
-                <ol className="filled-layer-list">
-                  {[...filledLayerPreview.layers].reverse().map((layer) => {
-                    const visible = visibleLayerIndices.includes(layer.index);
-                    return (
-                      <li key={layer.index} className={visible ? "visible" : ""}>
-                        <button onClick={() => toggleFilledLayer(layer.index)} aria-pressed={visible}>
-                          <i style={{ backgroundColor: paintForLayer(layer.index, filledLayerPreview.layers.length, snowCapMode, snowLevelCount).hex }} aria-hidden="true" />
-                          <span>
-                            <strong>Layer {layer.index + 1}</strong>
-                            <small>{formatBoundaryValue(layer.lower_elevation)}–{formatBoundaryValue(layer.upper_elevation)} m · {layer.piece_count} piece{layer.piece_count === 1 ? "" : "s"}{layer.hole_count ? ` · ${layer.hole_count} hole${layer.hole_count === 1 ? "" : "s"}` : ""}</small>
-                          </span>
-                          <b aria-hidden="true">{visible ? "✓" : ""}</b>
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ol>
-                <div className="next-view-actions" aria-label="Continue modelling">
-                  <button onClick={() => setWorkspaceView("three-dimensional")}>Show 3D model</button>
-                  <button onClick={() => setWorkspaceView("smoothing")}>Then review smoothing</button>
-                </div>
-              </div>
-            )}
-          </section>
+            </div>
+          </details>
         )}
+
+        <details className="workflow-stage smoothing-stage" open={smoothingStageOpen} onToggle={(event) => setSmoothingStageOpen(event.currentTarget.open)}>
+          <summary className="workflow-stage-summary">
+            <span><strong>6) Smoothing</strong></span>
+            <em>{filledStageComplete ? "Complete" : "Incomplete"}</em>
+            <i className={`stage-status-led ${filledStageComplete ? "complete" : "incomplete"}`} aria-hidden="true" />
+            <b aria-hidden="true">{smoothingStageOpen ? "−" : "+"}</b>
+          </summary>
+          <div className="workflow-stage-body">
+            <label className="drawer-smoothing-range">
+              <span>Smoothing Level</span>
+              <strong>{overallSmoothingLevel.toFixed(1)} mm</strong>
+              <input type="range" min="0" max="12" step="0.5" value={overallSmoothingLevel} disabled={!filledLayerPreview} onChange={(event) => setOverallSmoothing(Number(event.target.value))} />
+            </label>
+            {filledLayerPreview ? (
+              <>
+                <dl className="plain-smoothing-stats"><div><dt>Minimum part size:</dt><dd>{smallestSmoothedPartSize.toFixed(1)} mm</dd></div></dl>
+                <div className="smoothing-count-heading"><span>Part Count</span><b>Before</b><b>After</b></div>
+                <ol className="drawer-smoothing-list">
+                  {[...smoothingLayerMetrics].reverse().map((row) => <li key={row.index}><span>Level {row.index + 1}</span><b>{row.before.parts}</b><b>{row.after.parts}</b></li>)}
+                </ol>
+              </>
+            ) : <p className="stage-waiting-note">Generate the filled 2D preview first.</p>}
+          </div>
+        </details>
+
+        <details className="workflow-stage sheet-stage" open={sheetStageOpen} onToggle={(event) => setSheetStageOpen(event.currentTarget.open)}>
+          <summary className="workflow-stage-summary">
+            <span><strong>7) Sheet Layout</strong></span>
+            <em>{sheetLayoutComplete ? "Complete" : "Incomplete"}</em>
+            <i className={`stage-status-led ${sheetLayoutComplete ? "complete" : "incomplete"}`} aria-hidden="true" />
+            <b aria-hidden="true">{sheetStageOpen ? "−" : "+"}</b>
+          </summary>
+          <div className="workflow-stage-body sheet-size-settings">
+            <label><span>Sheet Width</span><strong><input type="number" min="100" step="10" value={sheetRules.width} onChange={(event) => setSheetDimension("width", Number(event.target.value))} /><em>mm</em></strong></label>
+            <label><span>Sheet Length</span><strong><input type="number" min="100" step="10" value={sheetRules.height} onChange={(event) => setSheetDimension("height", Number(event.target.value))} /><em>mm</em></strong></label>
+          </div>
+        </details>
         </aside>
       </div>
 
@@ -4669,7 +4710,7 @@ export function MapWorkspace() {
       {filledLayerPreview && fabricationPreview && originalSmoothingMetrics && smoothedSmoothingMetrics && workspaceView === "smoothing" && (
         <section className="smoothing-preview" aria-labelledby="smoothing-preview-heading">
           <div className="smoothing-preview-heading">
-            <div><span className="section-label">STEP 7 · CUTTER-SCALE CLEANUP</span><strong id="smoothing-preview-heading">Smooth manufacturing outlines</strong></div>
+            <div><span className="section-label">SECTION 6 · CUTTER-SCALE CLEANUP</span><strong id="smoothing-preview-heading">Smooth manufacturing outlines</strong></div>
             <span>{(smoothingLevels[smoothingLayerIndex] ?? 0).toFixed(1)} mm cleanup</span>
           </div>
           <div className="smoothing-toolbar">
@@ -4713,12 +4754,12 @@ export function MapWorkspace() {
       {fabricationPreview && assemblyPlan && workspaceView === "sheet-layout" && (
         <section className="sheet-layout-preview" aria-labelledby="sheet-layout-heading">
           <div className="sheet-layout-heading">
-            <div><span className="section-label">STEP 9 · SHEET FITTING</span><strong id="sheet-layout-heading">Place production or replacement parts</strong></div>
+            <div><span className="section-label">SECTION 7 · SHEET FITTING</span><strong id="sheet-layout-heading">Place production or replacement parts</strong></div>
             <span className={sheetPartDragging ? "checking" : layoutViolations.length ? "warning" : "ready"}>{sheetPartDragging ? "Moving · DRC on release" : layoutViolations.length ? `${layoutViolations.length} DRC warning${layoutViolations.length === 1 ? "" : "s"}` : "DRC clear"}</span>
           </div>
           <div className="sheet-rules-toolbar">
-            <label>Sheet W <span><input type="number" min="100" step="10" value={sheetRules.width} onChange={(event) => setSheetRules((rules) => ({ ...rules, width: Math.max(100, Number(event.target.value)) }))} /> mm</span></label>
-            <label>Sheet H <span><input type="number" min="100" step="10" value={sheetRules.height} onChange={(event) => setSheetRules((rules) => ({ ...rules, height: Math.max(100, Number(event.target.value)) }))} /> mm</span></label>
+            <label>Sheet W <span><input type="number" min="100" step="10" value={sheetRules.width} onChange={(event) => setSheetDimension("width", Number(event.target.value))} /> mm</span></label>
+            <label>Sheet H <span><input type="number" min="100" step="10" value={sheetRules.height} onChange={(event) => setSheetDimension("height", Number(event.target.value))} /> mm</span></label>
             <label>Material <span><input type="number" min="1" max="12" step="0.1" value={sheetRules.thickness} onChange={(event) => setMaterialThicknessFromEntry(Number(event.target.value))} /> mm</span></label>
             <label>Edge zone <span><input type="number" min="0" step="1" value={sheetRules.edgeMargin} onChange={(event) => setSheetRules((rules) => ({ ...rules, edgeMargin: Math.max(0, Number(event.target.value)) }))} /> mm</span></label>
             <label>Cut-edge gap <span><input type="number" min="0" step="0.1" value={sheetRules.partSpacing} onChange={(event) => setSheetRules((rules) => ({ ...rules, partSpacing: Math.max(0, Number(event.target.value)) }))} /> mm</span></label>

@@ -654,7 +654,11 @@
   Manual terrain/water imports and source metadata remain available under
   clearly labelled Advanced and Technical disclosures for recovery and
   diagnostics, without making file formats part of the normal workflow.
-- Began explicit stage-progress reporting with Step 1. Its stage number, name,
-  red/green LED and text status remain visible when the section is collapsed.
-  A new project starts red because Free selection is not a chosen frame; the
-  LED turns green as soon as a standard, square or custom frame is selected.
+- Split the former combined first stage into independently collapsible Frame
+  and Area Selection stages. Their bold headers, red/green LEDs and text status
+  remain visible when closed. Frame completes when positive width and height
+  values are present; Area Selection completes when a rectangle exists.
+- Reduced frame configuration to explicit width and height in millimetres,
+  A5–A1 landscape/portrait presets, and Fit current area. Square and imperial
+  frames are entered directly. Area Selection now contains one drawing action
+  followed by unboxed 10-point ground-size, area and boundary statistics.

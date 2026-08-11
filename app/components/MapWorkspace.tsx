@@ -292,6 +292,18 @@ const MIN_LAYER_COUNT = 2;
 const MAX_LAYER_COUNT = 40;
 const LOG_CURVE_STRENGTH = 2.2;
 const EARTH_RADIUS_METRES = 6_371_008.8;
+const FRAME_PRESETS = [
+  { id: "a5-landscape", label: "A5 Landscape", width: 210, height: 148 },
+  { id: "a5-portrait", label: "A5 Portrait", width: 148, height: 210 },
+  { id: "a4-landscape", label: "A4 Landscape", width: 297, height: 210 },
+  { id: "a4-portrait", label: "A4 Portrait", width: 210, height: 297 },
+  { id: "a3-landscape", label: "A3 Landscape", width: 420, height: 297 },
+  { id: "a3-portrait", label: "A3 Portrait", width: 297, height: 420 },
+  { id: "a2-landscape", label: "A2 Landscape", width: 594, height: 420 },
+  { id: "a2-portrait", label: "A2 Portrait", width: 420, height: 594 },
+  { id: "a1-landscape", label: "A1 Landscape", width: 841, height: 594 },
+  { id: "a1-portrait", label: "A1 Portrait", width: 594, height: 841 },
+] as const;
 const MOLOTOW_TERRAIN_PALETTE: PaintColour[] = [
   { id: "molotow-165", manufacturer: "Molotow Premium", code: "#165", name: "moss green", hex: "#526a3d" },
   { id: "molotow-173", manufacturer: "Molotow Premium", code: "#173", name: "evil olive", hex: "#737643" },
@@ -2472,6 +2484,7 @@ export function MapWorkspace() {
   const [projectStatus, setProjectStatus] = useState("Opening project library…");
   const [workflowDrawerOpen, setWorkflowDrawerOpen] = useState(true);
   const [frameStageOpen, setFrameStageOpen] = useState(true);
+  const [areaStageOpen, setAreaStageOpen] = useState(true);
   const workflowDrawerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const placementCounterRef = useRef(1);
   const layoutViolationsRef = useRef<LayoutViolation[]>([]);
@@ -2547,6 +2560,9 @@ export function MapWorkspace() {
     return () => { if (projectAutosaveTimerRef.current) clearTimeout(projectAutosaveTimerRef.current); };
   }, [projectId, projectName, selection, query, analysis, filledLayerPreview, visibleLayerIndices, waterSourceFilenames, outputFormat, outputOrientation, customWidthMm, customHeightMm, materialThicknessMm, layerDistribution, layerCount, layerBoundaries, stackView, stackYaw, stackPitch, showTrueElevation, smoothingLevels, gridPitchMm, dowelDiameterMm, holeDiameterMm, holeEdgeClearanceMm, sheetRules, sheetCount, activeSheetIndex, sheetPlacements, rotationStepDeg, snowCapMode, paintNotes, workspaceView, assemblyLayerIndex, smoothingLayerIndex]);
   const chosenOutput = outputDimensions(outputFormat, outputOrientation, customWidthMm, customHeightMm);
+  const selectedFramePreset = chosenOutput
+    ? FRAME_PRESETS.find((preset) => preset.width === chosenOutput.width && preset.height === chosenOutput.height)?.id ?? ""
+    : "";
   aspectRatioRef.current = chosenOutput ? chosenOutput.width / chosenOutput.height : null;
 
   function cornerPosition(bounds: SelectionBounds, corner: SelectionCorner): [number, number] {
@@ -2854,8 +2870,8 @@ export function MapWorkspace() {
       if (!saved) return;
       if (["free", "12x8", "a2", "square", "custom"].includes(saved.format ?? "")) setOutputFormat(saved.format as OutputFormat);
       if (["landscape", "portrait"].includes(saved.orientation ?? "")) setOutputOrientation(saved.orientation as OutputOrientation);
-      if (Number(saved.customWidthMm) > 0) setCustomWidthMm(Number(saved.customWidthMm));
-      if (Number(saved.customHeightMm) > 0) setCustomHeightMm(Number(saved.customHeightMm));
+      if (Number.isFinite(Number(saved.customWidthMm)) && Number(saved.customWidthMm) >= 0) setCustomWidthMm(Number(saved.customWidthMm));
+      if (Number.isFinite(Number(saved.customHeightMm)) && Number(saved.customHeightMm) >= 0) setCustomHeightMm(Number(saved.customHeightMm));
       if (Number(saved.materialThicknessMm) > 0) setMaterialThicknessMm(Number(saved.materialThicknessMm));
     } catch {
       window.localStorage.removeItem(OUTPUT_PLAN_KEY);
@@ -3031,6 +3047,27 @@ export function MapWorkspace() {
     applySelection(fitted, true);
     mapRef.current?.fitBounds([[fitted.west, fitted.south], [fitted.east, fitted.north]], { padding: 130, maxZoom: 13, duration: 700 });
     setSelectionStatus(`${chosenOutput.label} ${outputOrientation} ratio applied without stretching the landscape.`);
+  }
+
+  function setFrameDimension(dimension: "width" | "height", value: number) {
+    if (!Number.isFinite(value) || value <= 0) return;
+    const currentWidth = chosenOutput?.width ?? (outputFormat === "custom" ? customWidthMm : 0);
+    const currentHeight = chosenOutput?.height ?? (outputFormat === "custom" ? customHeightMm : 0);
+    setOutputFormat("custom");
+    setOutputOrientation("landscape");
+    setCustomWidthMm(dimension === "width" ? value : currentWidth);
+    setCustomHeightMm(dimension === "height" ? value : currentHeight);
+    setSelectionStatus("Frame dimensions set. Draw a new area or fit the current area to this proportion.");
+  }
+
+  function applyFramePreset(presetId: string) {
+    const preset = FRAME_PRESETS.find((candidate) => candidate.id === presetId);
+    if (!preset) return;
+    setOutputFormat("custom");
+    setOutputOrientation("landscape");
+    setCustomWidthMm(preset.width);
+    setCustomHeightMm(preset.height);
+    setSelectionStatus(`${preset.label} selected. Draw a new area or fit the current area to this proportion.`);
   }
 
   function saveExample() {
@@ -3466,8 +3503,8 @@ export function MapWorkspace() {
       if (savedOutput) project.output = {
         format: savedOutput.format ?? project.output.format,
         orientation: savedOutput.orientation ?? project.output.orientation,
-        customWidthMm: Number(savedOutput.customWidthMm) || project.output.customWidthMm,
-        customHeightMm: Number(savedOutput.customHeightMm) || project.output.customHeightMm,
+        customWidthMm: Number.isFinite(Number(savedOutput.customWidthMm)) ? Number(savedOutput.customWidthMm) : project.output.customWidthMm,
+        customHeightMm: Number.isFinite(Number(savedOutput.customHeightMm)) ? Number(savedOutput.customHeightMm) : project.output.customHeightMm,
         materialThicknessMm: Number(savedOutput.materialThicknessMm) || project.output.materialThicknessMm,
       };
     } catch { /* Ignore invalid legacy output settings. */ }
@@ -4240,91 +4277,56 @@ export function MapWorkspace() {
         <aside className="selection-panel" aria-label="Project setup and model controls">
         <details className="workflow-stage" open={frameStageOpen} onToggle={(event) => setFrameStageOpen(event.currentTarget.open)}>
           <summary className="workflow-stage-summary">
-            <i className={`stage-status-led ${outputFormat !== "free" ? "complete" : "incomplete"}`} aria-hidden="true" />
-            <span><small>STEP 1</small><strong>Frame &amp; area</strong></span>
-            <em>{outputFormat !== "free" ? "Complete" : "Select frame"}</em>
+            <span><strong>1) Frame</strong></span>
+            <em>{chosenOutput ? "Complete" : "Incomplete"}</em>
+            <i className={`stage-status-led ${chosenOutput ? "complete" : "incomplete"}`} aria-hidden="true" />
             <b aria-hidden="true">{frameStageOpen ? "−" : "+"}</b>
           </summary>
           <div className="workflow-stage-body">
-            <div className="selection-heading">
-              <strong>{selection ? "Selection ready" : "Draw a rectangle"}</strong>
-              <p role="status">{selectionStatus}</p>
+            <div className="frame-dimension-fields">
+              <label>Width <span><input type="number" min="0.1" step="0.1" value={outputFormat === "custom" ? customWidthMm || "" : chosenOutput?.width ?? ""} onChange={(event) => setFrameDimension("width", Number(event.target.value))} /> mm</span></label>
+              <label>Height <span><input type="number" min="0.1" step="0.1" value={outputFormat === "custom" ? customHeightMm || "" : chosenOutput?.height ?? ""} onChange={(event) => setFrameDimension("height", Number(event.target.value))} /> mm</span></label>
             </div>
-
-        <div className="output-format-controls">
-          <label htmlFor="output-format">Finished format</label>
-          <select
-            id="output-format"
-            value={outputFormat}
-            onChange={(event) => {
-              setOutputFormat(event.target.value as OutputFormat);
-              setSelectionStatus(event.target.value === "free" ? "Free selection enabled." : "Format selected. Draw a new area or fit the current area to it.");
-            }}
-          >
-            <option value="free">Free selection</option>
-            <option value="12x8">12 × 8 inch frame</option>
-            <option value="a2">A2</option>
-            <option value="square">Square</option>
-            <option value="custom">Custom millimetres</option>
-          </select>
-          {outputFormat !== "free" && outputFormat !== "square" && (
-            <div className="orientation-buttons" aria-label="Finished format orientation">
-              <button className={outputOrientation === "landscape" ? "active" : ""} onClick={() => setOutputOrientation("landscape")}>Landscape</button>
-              <button className={outputOrientation === "portrait" ? "active" : ""} onClick={() => setOutputOrientation("portrait")}>Portrait</button>
-            </div>
-          )}
-          {outputFormat === "custom" && (
-            <div className="custom-dimensions">
-              <label>Width <span><input type="number" min="1" step="1" value={customWidthMm} onChange={(event) => setCustomWidthMm(Math.max(1, Number(event.target.value)))} /> mm</span></label>
-              <label>Height <span><input type="number" min="1" step="1" value={customHeightMm} onChange={(event) => setCustomHeightMm(Math.max(1, Number(event.target.value)))} /> mm</span></label>
-            </div>
-          )}
-          <div className="format-summary">
-            {chosenOutput ? (
-              <><strong>{chosenOutput.width.toFixed(chosenOutput.width % 1 ? 1 : 0)} × {chosenOutput.height.toFixed(chosenOutput.height % 1 ? 1 : 0)} mm</strong><span>Ratio {(chosenOutput.width / chosenOutput.height).toFixed(3)} · drawing lock active</span></>
-            ) : <><strong>Any proportion</strong><span>Choose a format to lock the scene shape</span></>}
+            <label className="frame-preset-field">Presets
+              <select value={selectedFramePreset} onChange={(event) => applyFramePreset(event.target.value)}>
+                <option value="">Choose a preset…</option>
+                {FRAME_PRESETS.map((preset) => <option key={preset.id} value={preset.id}>{preset.label}</option>)}
+              </select>
+            </label>
+            <button className="fit-format-button" onClick={fitAreaToOutputFormat} disabled={!selection || !chosenOutput}>Fit current area</button>
           </div>
-          <button className="fit-format-button" onClick={fitAreaToOutputFormat} disabled={!selection || !chosenOutput}>Fit current area to format</button>
-        </div>
+        </details>
 
-        <button className={`draw-button ${drawing ? "active" : ""}`} onClick={startDrawing}>
-          <span aria-hidden="true" />
-          {drawing ? "Cancel drawing" : selection ? "Draw a new area" : "Draw area"}
-        </button>
-
-        {selection && measurements ? (
-          <div className="selection-details">
-            <dl className="measurement-grid">
-              <div><dt>Ground width</dt><dd>{formatDistance(measurements.width)}</dd></div>
-              <div><dt>Ground height</dt><dd>{formatDistance(measurements.height)}</dd></div>
-              <div className="area-measure"><dt>Ground area</dt><dd>{formatArea(measurements.area)}</dd></div>
-            </dl>
-            <div className="bounds-grid" aria-label="Selection bounds">
-              <div><span>North</span><strong>{selection.north.toFixed(5)}°</strong></div>
-              <div><span>West</span><strong>{selection.west.toFixed(5)}°</strong></div>
-              <div><span>East</span><strong>{selection.east.toFixed(5)}°</strong></div>
-              <div><span>South</span><strong>{selection.south.toFixed(5)}°</strong></div>
-            </div>
-            <p className="handle-hint"><i aria-hidden="true" /> Drag the four corner handles to adjust.</p>
-          </div>
-        ) : (
-          <div className="empty-selection">
-            <span aria-hidden="true"><i /><i /><i /><i /></span>
-            <p>Choose <strong>Draw area</strong>, then drag diagonally across the map.</p>
-          </div>
-        )}
-
-        <div className="selection-actions">
-          <button onClick={clearSelection} disabled={!selection}>Clear</button>
-          <button onClick={resetTaranakiExample}>Reset Taranaki</button>
-        </div>
+        <details className="workflow-stage area-selection-stage" open={areaStageOpen} onToggle={(event) => setAreaStageOpen(event.currentTarget.open)}>
+          <summary className="workflow-stage-summary">
+            <span><strong>2) Area Selection</strong></span>
+            <em>{selection ? "Complete" : "Incomplete"}</em>
+            <i className={`stage-status-led ${selection ? "complete" : "incomplete"}`} aria-hidden="true" />
+            <b aria-hidden="true">{areaStageOpen ? "−" : "+"}</b>
+          </summary>
+          <div className="workflow-stage-body">
+            <button className={`draw-button ${drawing ? "active" : ""}`} onClick={startDrawing}>
+              <span aria-hidden="true" />
+              {drawing ? "Cancel drawing" : "Draw new area"}
+            </button>
+            {selection && measurements && (
+              <dl className="plain-selection-stats">
+                <div><dt>Ground Width:</dt><dd>{formatDistance(measurements.width)}</dd></div>
+                <div><dt>Ground Height:</dt><dd>{formatDistance(measurements.height)}</dd></div>
+                <div><dt>Total Area:</dt><dd>{formatArea(measurements.area)}</dd></div>
+                <div><dt>North:</dt><dd>{selection.north.toFixed(5)}°</dd></div>
+                <div><dt>West:</dt><dd>{selection.west.toFixed(5)}°</dd></div>
+                <div><dt>East:</dt><dd>{selection.east.toFixed(5)}°</dd></div>
+                <div><dt>South:</dt><dd>{selection.south.toFixed(5)}°</dd></div>
+              </dl>
+            )}
           </div>
         </details>
 
         <section className="elevation-section" aria-labelledby="elevation-heading">
           <div className="elevation-heading-row">
             <div>
-              <span className="section-label">STEP 2 · ELEVATION DATA</span>
+              <span className="section-label">STEP 3 · ELEVATION DATA</span>
               <strong id="elevation-heading">Prepare the selected terrain</strong>
             </div>
             <span className={`processor-state ${processorStatus}`}>
@@ -4450,7 +4452,7 @@ export function MapWorkspace() {
           <section className="layer-editor" aria-labelledby="layer-editor-heading">
             <div className="layer-editor-heading">
               <div>
-                <span className="section-label">STEP 3 · LAYER PLAN</span>
+                <span className="section-label">STEP 4 · LAYER PLAN</span>
                 <strong id="layer-editor-heading">Elevation boundaries</strong>
               </div>
               <span className={`layer-ready ${layerValidation ? "invalid" : ""}`}>
@@ -4550,7 +4552,7 @@ export function MapWorkspace() {
           <section className="filled-layer-section" aria-labelledby="filled-layer-heading">
             <div className="filled-layer-heading">
               <div>
-                <span className="section-label">STEP 4 · FILLED GEOMETRY</span>
+                <span className="section-label">STEP 5 · FILLED GEOMETRY</span>
                 <strong id="filled-layer-heading">Filled 2D layer preview</strong>
               </div>
               {filledLayerPreview && <span>{visibleLayerIndices.length}/{filledLayerPreview.layers.length} visible</span>}
@@ -4607,7 +4609,7 @@ export function MapWorkspace() {
         <section className="stack-preview" aria-labelledby="stack-preview-heading">
           <div className="stack-preview-heading">
             <div>
-              <span className="section-label">STEP 5 · 3D REVIEW</span>
+              <span className="section-label">STEP 6 · 3D REVIEW</span>
               <strong id="stack-preview-heading">Equal-thickness 3D preview</strong>
             </div>
               <span>{previewDimensions.label} · {Math.round(stackYaw)}° / {Math.round(stackPitch)}°</span>
@@ -4652,7 +4654,7 @@ export function MapWorkspace() {
         <section className="assembly-preview" aria-labelledby="assembly-preview-heading">
           <div className="assembly-preview-heading">
             <div>
-              <span className="section-label">STEP 7 · PARTS &amp; REGISTRATION</span>
+              <span className="section-label">STEP 8 · PARTS &amp; REGISTRATION</span>
               <strong id="assembly-preview-heading">Assembly machining plan</strong>
             </div>
             <span className={assemblyPlan.ventComplete ? "ready" : "warning"}>{assemblyPlan.ventComplete ? "Peak vents ready" : "Peak vents need attention"}</span>
@@ -4718,7 +4720,7 @@ export function MapWorkspace() {
       {filledLayerPreview && fabricationPreview && originalSmoothingMetrics && smoothedSmoothingMetrics && workspaceView === "smoothing" && (
         <section className="smoothing-preview" aria-labelledby="smoothing-preview-heading">
           <div className="smoothing-preview-heading">
-            <div><span className="section-label">STEP 6 · CUTTER-SCALE CLEANUP</span><strong id="smoothing-preview-heading">Smooth manufacturing outlines</strong></div>
+            <div><span className="section-label">STEP 7 · CUTTER-SCALE CLEANUP</span><strong id="smoothing-preview-heading">Smooth manufacturing outlines</strong></div>
             <span>{(smoothingLevels[smoothingLayerIndex] ?? 0).toFixed(1)} mm cleanup</span>
           </div>
           <div className="smoothing-toolbar">
@@ -4762,7 +4764,7 @@ export function MapWorkspace() {
       {fabricationPreview && assemblyPlan && workspaceView === "sheet-layout" && (
         <section className="sheet-layout-preview" aria-labelledby="sheet-layout-heading">
           <div className="sheet-layout-heading">
-            <div><span className="section-label">STEP 8 · SHEET FITTING</span><strong id="sheet-layout-heading">Place production or replacement parts</strong></div>
+            <div><span className="section-label">STEP 9 · SHEET FITTING</span><strong id="sheet-layout-heading">Place production or replacement parts</strong></div>
             <span className={sheetPartDragging ? "checking" : layoutViolations.length ? "warning" : "ready"}>{sheetPartDragging ? "Moving · DRC on release" : layoutViolations.length ? `${layoutViolations.length} DRC warning${layoutViolations.length === 1 ? "" : "s"}` : "DRC clear"}</span>
           </div>
           <div className="sheet-rules-toolbar">
@@ -4900,7 +4902,7 @@ export function MapWorkspace() {
         <section className="manufacturing-preview" aria-labelledby="manufacturing-preview-heading">
           <div className="manufacturing-preview-heading">
             <div>
-              <span className="section-label">STEP 9 · MANUFACTURING GEOMETRY</span>
+              <span className="section-label">STEP 10 · MANUFACTURING GEOMETRY</span>
               <strong id="manufacturing-preview-heading">Finished-size SVG files</strong>
             </div>
             <span className="ready">Scale verified in millimetres</span>

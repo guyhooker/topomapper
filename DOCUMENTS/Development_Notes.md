@@ -135,6 +135,13 @@
   vertical datum recorded in the GeoTIFF. An unstated vertical datum remains
   visibly labelled rather than guessed.
 - Generates a coloured, shaded PNG terrain preview and overlays it on MapLibre.
+- A saved project retains the analysed elevation statistics and its terrain
+  preview between sessions. Stage 3 is only marked complete when that saved
+  payload contains usable coverage for the project's current rectangle; an
+  incomplete or mismatched legacy record is shown as incomplete instead.
+- Automatic LINZ downloads are cached under macOS `~/Library/Caches/Topomapper/linz`.
+  Repeating the exact same rectangle reuses that cache instead of requesting a
+  new cropped export; changing any rectangle boundary creates a different cache key.
 - Adds labelled lowest and highest point markers; the result cards navigate to
   those locations.
 - Added a reproducible synthetic Taranaki-shaped GeoTIFF fixture with a known

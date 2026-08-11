@@ -488,6 +488,20 @@ function sameBounds(left: SelectionBounds, right: SelectionBounds) {
     && Math.abs(left.north - right.north) < 0.0000001;
 }
 
+function hasUsableElevationAnalysis(value: ElevationAnalysis | null, selection: SelectionBounds | null = null): value is ElevationAnalysis {
+  return Boolean(
+    value
+    && isSelectionBounds(value.selection)
+    && (!selection || sameBounds(value.selection, selection))
+    && isSelectionBounds(value.preview_bounds)
+    && value.preview_png?.trim()
+    && Number.isFinite(value.minimum?.elevation)
+    && Number.isFinite(value.maximum?.elevation)
+    && value.coverage?.valid_data_percent > 0
+    && value.datasets?.some((dataset) => dataset.overlaps_selection),
+  );
+}
+
 function formatElevation(value: number) {
   return `${Math.round(value).toLocaleString("en-NZ")} m`;
 }
@@ -2560,6 +2574,7 @@ export function MapWorkspace() {
     projectAutosaveTimerRef.current = setTimeout(() => { void saveCurrentProject(true); }, 1500);
     return () => { if (projectAutosaveTimerRef.current) clearTimeout(projectAutosaveTimerRef.current); };
   }, [projectId, projectName, selection, query, analysis, filledLayerPreview, visibleLayerIndices, waterSourceFilenames, outputFormat, outputOrientation, customWidthMm, customHeightMm, materialThicknessMm, layerDistribution, layerCount, layerBoundaries, stackView, stackYaw, stackPitch, showTrueElevation, smoothingLevels, gridPitchMm, dowelDiameterMm, holeDiameterMm, holeEdgeClearanceMm, sheetRules, sheetCount, activeSheetIndex, sheetPlacements, rotationStepDeg, snowCapMode, paintNotes, workspaceView, assemblyLayerIndex, smoothingLayerIndex]);
+  const elevationDataComplete = hasUsableElevationAnalysis(analysis, selection);
   const chosenOutput = outputDimensions(outputFormat, outputOrientation, customWidthMm, customHeightMm);
   const selectedFramePreset = chosenOutput
     ? FRAME_PRESETS.find((preset) => preset.width === chosenOutput.width && preset.height === chosenOutput.height)?.id ?? ""
@@ -2801,6 +2816,8 @@ export function MapWorkspace() {
           map.fitBounds([[projectSelection.west, projectSelection.south], [projectSelection.east, projectSelection.north]], { padding: 130, maxZoom: 12 });
           setSelectionStatus("The active project's working area has been restored.");
         }
+        const savedAnalysis = analysisRef.current;
+        if (hasUsableElevationAnalysis(savedAnalysis, projectSelection)) showElevationOverlay(savedAnalysis);
       });
       map.on("error", () => setMapStatus("Map source unavailable"));
       map.on("zoom", () => setZoom(map.getZoom()));
@@ -3316,7 +3333,7 @@ export function MapWorkspace() {
       const downloadedWater = await Promise.all(payload.water.map(fetchLinzFile));
       chooseElevationFiles(downloadedElevation);
       chooseWaterFiles(downloadedWater);
-      setLinzDownloadStatus(`${payload.dataset} loaded${downloadedWater.length ? ` with ${downloadedWater.length} water dataset${downloadedWater.length === 1 ? "" : "s"}` : ""}. Licensed ${payload.license}.`);
+      setLinzDownloadStatus(`${payload.dataset} ${payload.cached ? "loaded from this Mac's cache" : "downloaded"}${downloadedWater.length ? ` with ${downloadedWater.length} water dataset${downloadedWater.length === 1 ? "" : "s"}` : ""}. Licensed ${payload.license}.`);
       await runElevationAnalysis(downloadedElevation);
     } catch (error) {
       setLinzDownloadStatus(error instanceof Error ? error.message : "The LINZ data could not be downloaded.");
@@ -3600,11 +3617,16 @@ export function MapWorkspace() {
     setWaterStatus((project.elevation.waterSourceFilenames?.length ?? project.elevation.filledLayerPreview?.water?.source_filenames.length ?? 0)
       ? "Saved water-cut geometry restored. Reload the named water files only if you regenerate the layers."
       : "Optional: add cropped lake or river polygons before generating layers.");
-    analysisRef.current = project.elevation.analysis;
-    setAnalysis(project.elevation.analysis);
-    setAnalysisStatus(project.elevation.analysis
-      ? "Saved elevation analysis restored. Reload the named GeoTIFF files only if you need to regenerate layers."
-      : project.elevation.sourceFilenames.length ? `Reload ${project.elevation.sourceFilenames.join(", ")} to regenerate terrain layers.` : "Choose one or more LINZ elevation GeoTIFFs for this area.");
+    const restoredAnalysis = hasUsableElevationAnalysis(project.elevation.analysis, project.selection) ? project.elevation.analysis : null;
+    analysisRef.current = restoredAnalysis;
+    setAnalysis(restoredAnalysis);
+    setAnalysisStatus(restoredAnalysis
+      ? "Saved elevation data and map preview restored. Reload the named GeoTIFF files only if you need to regenerate layers."
+      : project.elevation.analysis ? "The saved elevation record is incomplete. Download or analyse the terrain again."
+        : project.elevation.sourceFilenames.length ? `Reload ${project.elevation.sourceFilenames.join(", ")} to regenerate terrain layers.` : "Choose one or more LINZ elevation GeoTIFFs for this area.");
+    setLinzDownloadStatus(restoredAnalysis
+      ? "Elevation data restored from this project; no download is needed to view it."
+      : "Download the national 8 m terrain and matching water boundaries for this rectangle.");
     setFilledLayerPreview(project.elevation.filledLayerPreview);
     setVisibleLayerIndices(project.elevation.visibleLayerIndices ?? project.elevation.filledLayerPreview?.layers.map((layer) => layer.index) ?? []);
     setOutputFormat(project.output.format);
@@ -3645,7 +3667,7 @@ export function MapWorkspace() {
     placementCounterRef.current = project.layout.placements.reduce((maximum, placement) => Math.max(maximum, Number(placement.id.split("-").pop()) || 0), 0) + 1;
     window.localStorage.setItem(ACTIVE_PROJECT_KEY, project.id);
     if (project.selection) mapRef.current?.fitBounds([[project.selection.west, project.selection.south], [project.selection.east, project.selection.north]], { padding: 130, maxZoom: 12, duration: 600 });
-    if (project.elevation.analysis?.preview_png) showElevationOverlay(project.elevation.analysis);
+    if (restoredAnalysis) showElevationOverlay(restoredAnalysis);
     if (project.elevation.filledLayerPreview) showFilledLayerOverlay(project.elevation.filledLayerPreview, project.elevation.visibleLayerIndices.length ? project.elevation.visibleLayerIndices : project.elevation.filledLayerPreview.layers.map((layer) => layer.index), projectSnowCapMode);
     setProjectStatus(`Opened ${project.name}`);
     projectReadyRef.current = true;
@@ -4327,8 +4349,8 @@ export function MapWorkspace() {
         <details className="workflow-stage elevation-section" open={elevationStageOpen} onToggle={(event) => setElevationStageOpen(event.currentTarget.open)}>
           <summary className="workflow-stage-summary">
             <span><strong id="elevation-heading">3) Elevation Data</strong></span>
-            <em>{analysis ? "Complete" : "Incomplete"}</em>
-            <i className={`stage-status-led ${analysis ? "complete" : "incomplete"}`} aria-hidden="true" />
+            <em>{elevationDataComplete ? "Complete" : "Incomplete"}</em>
+            <i className={`stage-status-led ${elevationDataComplete ? "complete" : "incomplete"}`} aria-hidden="true" />
             <b aria-hidden="true">{elevationStageOpen ? "−" : "+"}</b>
           </summary>
           <div className="workflow-stage-body">
@@ -4419,7 +4441,7 @@ export function MapWorkspace() {
 
           <p className="linz-download-status" role="status">{linzDownloadStatus}</p>
 
-          {analysis && (
+          {analysis && elevationDataComplete && (
             <dl className="plain-elevation-stats">
               <div><dt>Low Point:</dt><dd>{formatElevation(analysis.minimum.elevation)}</dd></div>
               <div><dt>High Point:</dt><dd>{formatElevation(analysis.maximum.elevation)}</dd></div>

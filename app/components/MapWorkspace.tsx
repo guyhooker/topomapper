@@ -4341,9 +4341,6 @@ export function MapWorkspace() {
             </div>
 
           <div className="linz-automatic">
-            <span className="section-label">AUTOMATIC MAP PREPARATION</span>
-            <strong>Terrain and water</strong>
-            <p>Prepare the selected rectangle. This can take several minutes; progress remains visible below.</p>
             <label className="linz-key-field">
               <span>{linzApiKeyConfigured ? "LINZ API key · saved locally" : "LINZ data-access API key"}</span>
               <input
@@ -4351,25 +4348,24 @@ export function MapWorkspace() {
                 autoComplete="off"
                 value={linzApiKey}
                 onChange={(event) => setLinzApiKey(event.target.value)}
-                placeholder={linzApiKeyConfigured ? "Paste here only to replace the saved key" : "Paste the key once"}
+                placeholder={linzApiKeyConfigured ? "******************" : "Paste the key once"}
               />
             </label>
+            <a className="linz-data-link" href="https://data.linz.govt.nz/my/api/" target="_blank" rel="noreferrer">
+              {linzApiKeyConfigured ? "Manage LINZ API keys" : "Create a free LINZ API key"} <span aria-hidden="true">↗</span>
+            </a>
             <button
               type="button"
               className="linz-download-button"
               disabled={!selection || downloadingLinz || processorStatus !== "ready" || (!linzApiKeyConfigured && !linzApiKey.trim())}
               onClick={() => { void downloadLinzData(); }}
             >
-              {downloadingLinz ? "Downloading from LINZ…" : "Download and analyse selected area"}
+              {downloadingLinz ? "Downloading…" : "Auto Download"}
             </button>
-            <p className="linz-download-status" role="status">{linzDownloadStatus}</p>
-            <a className="linz-data-link" href="https://data.linz.govt.nz/my/api/" target="_blank" rel="noreferrer">
-              {linzApiKeyConfigured ? "Manage LINZ API keys" : "Create a free LINZ API key"} <span aria-hidden="true">↗</span>
-            </a>
           </div>
 
           <details className="advanced-data-import">
-            <summary>Advanced: use terrain or water files from this Mac</summary>
+            <summary>Manual Download</summary>
             <div className="manual-import-label"><span>LOCAL TERRAIN FILES</span></div>
             <form className="elevation-form" onSubmit={analyseElevation}>
             <label className="file-picker">
@@ -4421,35 +4417,18 @@ export function MapWorkspace() {
             </div>
           </details>
 
+          <p className="linz-download-status" role="status">{linzDownloadStatus}</p>
+
           {analysis && (
-            <div className="analysis-results">
-              <div className="extrema-grid">
-                <button onClick={() => focusElevationPoint(analysis.minimum)}>
-                  <span><i className="low" aria-hidden="true" /> Lowest</span>
-                  <strong>{formatElevation(analysis.minimum.elevation)}</strong>
-                  <small>{analysis.minimum.latitude.toFixed(5)}°, {analysis.minimum.longitude.toFixed(5)}° · {analysis.minimum.source_filename}</small>
-                </button>
-                <button onClick={() => focusElevationPoint(analysis.maximum)}>
-                  <span><i className="high" aria-hidden="true" /> Highest</span>
-                  <strong>{formatElevation(analysis.maximum.elevation)}</strong>
-                  <small>{analysis.maximum.latitude.toFixed(5)}°, {analysis.maximum.longitude.toFixed(5)}° · {analysis.maximum.source_filename}</small>
-                </button>
-              </div>
-              <div className="terrain-legend" aria-label="Elevation preview colour scale">
-                <span>Low</span><i /><span>High</span>
-              </div>
-              <details className="terrain-details">
-                <summary>Technical terrain details</summary>
-                <dl className="dataset-summary">
-                  <div><dt>Coverage</dt><dd>{analysis.coverage.valid_data_percent.toFixed(1)}%</dd></div>
-                  <div><dt>Sources used</dt><dd>{analysis.datasets.filter((dataset) => dataset.overlaps_selection).length} of {analysis.datasets.length}</dd></div>
-                  <div><dt>Cell size</dt><dd>{Array.from(new Set(analysis.datasets.map((dataset) => `${dataset.resolution_x.toFixed(1)} × ${dataset.resolution_y.toFixed(1)} m`))).join(", ")}</dd></div>
-                  <div><dt>Coordinates</dt><dd>{Array.from(new Set(analysis.datasets.map((dataset) => dataset.crs))).join(", ")}</dd></div>
-                  <div><dt>Vertical datum</dt><dd>{Array.from(new Set(analysis.datasets.map((dataset) => dataset.vertical_datum))).join(", ")}</dd></div>
-                </dl>
-                <p className="dataset-name" title={analysis.datasets.map((dataset) => dataset.filename).join(", ")}>{analysis.datasets.map((dataset) => dataset.filename).join(" + ")}</p>
-              </details>
-            </div>
+            <dl className="plain-elevation-stats">
+              <div><dt>Low Point:</dt><dd>{formatElevation(analysis.minimum.elevation)}</dd></div>
+              <div><dt>High Point:</dt><dd>{formatElevation(analysis.maximum.elevation)}</dd></div>
+              <div><dt>Coverage:</dt><dd>{analysis.coverage.valid_data_percent.toFixed(1)}%</dd></div>
+              <div><dt>Sources used:</dt><dd>{analysis.datasets.filter((dataset) => dataset.overlaps_selection).length} of {analysis.datasets.length}</dd></div>
+              <div><dt>Cell Size:</dt><dd>{Array.from(new Set(analysis.datasets.map((dataset) => `${dataset.resolution_x.toFixed(1)} × ${dataset.resolution_y.toFixed(1)} m`))).join(", ")}</dd></div>
+              <div><dt>Coordinates:</dt><dd>{Array.from(new Set(analysis.datasets.map((dataset) => dataset.crs))).join(", ")}</dd></div>
+              <div><dt>Vertical Datum:</dt><dd>{Array.from(new Set(analysis.datasets.map((dataset) => dataset.vertical_datum))).join(", ")}</dd></div>
+            </dl>
           )}
           </div>
         </details>
@@ -4486,12 +4465,11 @@ export function MapWorkspace() {
 
             <div className="layer-generation-controls">
               <div className="distribution-control">
-                <span>Spacing style</span>
-                <div className="preset-row" aria-label="Layer spacing style">
-                  <button className={layerDistribution === "log" ? "active" : ""} onClick={() => applyLayerDistribution("log")}>Log</button>
-                  <button className={layerDistribution === "linear" ? "active" : ""} onClick={() => applyLayerDistribution("linear")}>Linear</button>
-                </div>
-                <small>{layerDistribution === "log" ? "Logarithmic spacing keeps bands thinner lower down and broader higher up." : "Every elevation band has the same vertical height."}</small>
+                <label className="layer-distribution-toggle">
+                  <span>Logarithmic Vertical Spacing</span>
+                  <input type="checkbox" checked={layerDistribution === "log"} onChange={(event) => applyLayerDistribution(event.target.checked ? "log" : "linear")} />
+                  <i aria-hidden="true"><b /></i>
+                </label>
               </div>
               <div className="layer-count-control">
                 <span>Number of layers</span>

@@ -668,3 +668,8 @@
 - Applied the same persistent, collapsible progress header and flat treatment
   to Step 3 Elevation Data. Its LED remains red until terrain analysis exists,
   then turns green; processor availability remains visible inside the section.
+- Reduced Step 3's normal controls to the masked LINZ API key plus compact Auto
+  Download and Manual Download actions. Analysis output now uses plain rows for
+  low/high points, coverage, sources, cell size, coordinates and vertical datum.
+- Replaced Step 4's separate Log and Linear buttons with one accessible blue
+  Logarithmic Vertical Spacing switch; switching it off selects linear spacing.

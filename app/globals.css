@@ -345,15 +345,18 @@ button { color: inherit; }
 .linz-key-field { display: block; margin-top: 9px; }
 .linz-key-field > span { display: block; margin-bottom: 4px; color: var(--muted); font-size: 8px; font-weight: 750; text-transform: uppercase; }
 .linz-key-field input { width: 100%; min-height: 34px; padding: 7px 9px; border: 0; border-radius: 7px; background: #fff; color: var(--ink); font-size: 10px; }
-.linz-download-button { width: 100%; min-height: 38px; margin-top: 9px; padding: 7px 13px; border: 0; border-radius: 8px; background: rgba(90,143,81,1); color: #fff; font-size: 10px; font-weight: 800; text-align: left; cursor: pointer; }
+.linz-key-field input::placeholder { color: var(--ink); opacity: 1; }
+.linz-download-button { display: block; width: max-content; min-height: 36px; margin-top: 9px; padding: 7px 13px; border: 0; border-radius: 8px; background: rgba(90,143,81,1); color: #fff; font-size: 10px; font-weight: 800; text-align: left; cursor: pointer; }
 .linz-download-button:hover:not(:disabled) { background: rgba(77,126,69,1); }
 .linz-download-button:disabled { opacity: .38; cursor: default; }
 .linz-download-status { min-height: 24px; }
-.linz-automatic .linz-data-link { margin-top: 3px; }
-.advanced-data-import, .terrain-details { margin-top: 10px; border: 0; border-top: 1px solid var(--line); border-radius: 0; background: transparent; }
-.advanced-data-import > summary, .terrain-details > summary { padding: 9px 10px; color: var(--forest-soft); font-size: 9px; font-weight: 760; cursor: pointer; }
-.advanced-data-import[open] { padding: 0 10px 10px; }
-.advanced-data-import[open] > summary { margin: 0 -10px; border-bottom: 1px solid var(--line); }
+.linz-automatic .linz-data-link { display: block; width: max-content; margin-top: 5px; }
+.advanced-data-import, .terrain-details { margin-top: 8px; border: 0; border-radius: 0; background: transparent; }
+.advanced-data-import > summary { display: block; width: max-content; min-height: 36px; padding: 10px 13px; border-radius: 8px; background: rgba(90,143,81,1); color: #fff; font-size: 10px; font-weight: 800; text-align: left; cursor: pointer; list-style: none; }
+.advanced-data-import > summary::-webkit-details-marker { display: none; }
+.advanced-data-import[open] { padding: 0 0 10px; }
+.advanced-data-import[open] > summary { margin: 0; border-bottom: 0; }
+.terrain-details > summary { padding: 9px 10px; color: var(--forest-soft); font-size: 9px; font-weight: 760; cursor: pointer; }
 .terrain-details[open] { padding: 0 8px 8px; }
 .terrain-details[open] > summary { margin: 0 -8px 8px; border-bottom: 1px solid var(--line); }
 .manual-import-label { display: flex; align-items: center; gap: 7px; margin-top: 12px; color: var(--muted); font-size: 7px; font-weight: 780; letter-spacing: .04em; }
@@ -366,7 +369,7 @@ button { color: inherit; }
 .file-picker strong, .file-picker small { display: block; }
 .file-picker strong { font-size: 11px; }
 .file-picker small { max-width: 250px; margin-top: 2px; overflow: hidden; color: var(--muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
-.analyse-button, .processor-retry { width: 100%; min-height: 36px; margin-top: 8px; border: 0; border-radius: 8px; background: var(--clay); color: #fff; font-size: 11px; font-weight: 780; cursor: pointer; }
+.analyse-button, .processor-retry { width: max-content; min-height: 36px; margin-top: 8px; padding: 7px 13px; border: 0; border-radius: 8px; background: var(--clay); color: #fff; font-size: 11px; font-weight: 780; text-align: left; cursor: pointer; }
 .analyse-button:hover:not(:disabled), .processor-retry:hover { background: #b84829; }
 .analyse-button:disabled { opacity: .38; cursor: default; }
 .processor-retry { background: var(--forest); }
@@ -382,6 +385,10 @@ button { color: inherit; }
 .water-source-links a:hover { color: var(--clay); text-decoration: underline; }
 
 .analysis-results { margin-top: 10px; }
+.plain-elevation-stats { margin: 15px 0 2px; padding: 0; font-size: 10pt; }
+.plain-elevation-stats div { display: grid; grid-template-columns: 1fr minmax(0, auto); gap: 14px; padding: 3px 0; }
+.plain-elevation-stats dt { color: var(--muted); }
+.plain-elevation-stats dd { max-width: 175px; margin: 0; overflow-wrap: anywhere; color: var(--ink); font-variant-numeric: tabular-nums; text-align: right; }
 .extrema-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
 .extrema-grid button { padding: 9px; border: 1px solid var(--line); border-radius: 9px; background: rgba(255,255,255,.7); text-align: left; cursor: pointer; }
 .extrema-grid button:hover { border-color: var(--forest-soft); background: #fff; }
@@ -422,6 +429,14 @@ button { color: inherit; }
 .model-appearance-controls strong { display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: 9px; }
 .model-appearance-controls input { min-width: 0; width: 100%; height: 30px; padding: 0 6px; border: 1px solid #cbd3cb; border-radius: 6px; background: #fff; color: var(--ink); font-size: 10px; font-weight: 720; }
 .distribution-control, .layer-count-control { padding: 8px; border: 1px solid var(--line); border-radius: 9px; background: rgba(255,255,255,.38); }
+.distribution-control { display: flex; align-items: center; padding: 8px 0; border: 0; border-radius: 0; background: transparent; }
+.layer-distribution-toggle { position: relative; display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 9px; color: var(--ink); font-size: 9px; font-weight: 760; cursor: pointer; }
+.layer-distribution-toggle input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.layer-distribution-toggle i { position: relative; flex: 0 0 38px; width: 38px; height: 20px; border-radius: 999px; background: #9ba6b0; transition: background .16s ease; }
+.layer-distribution-toggle i b { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.2); transition: transform .16s ease; }
+.layer-distribution-toggle input:checked + i { background: #2f80ed; }
+.layer-distribution-toggle input:checked + i b { transform: translateX(18px); }
+.layer-distribution-toggle input:focus-visible + i { box-shadow: 0 0 0 3px rgba(47,128,237,.25); }
 .distribution-control > span, .layer-count-control > span { display: block; margin-bottom: 6px; color: var(--muted); font-size: 8px; font-weight: 780; letter-spacing: .04em; text-transform: uppercase; }
 .distribution-control small, .layer-count-control small { display: block; min-height: 22px; margin-top: 6px; color: var(--muted); font-size: 8px; line-height: 1.35; }
 .preset-row { display: grid; grid-template-columns: repeat(2, 1fr); gap: 5px; }

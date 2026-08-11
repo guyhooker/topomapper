@@ -633,6 +633,14 @@
   half. The proxy bin now compensates outward for that behaviour and for the
   measured simplification error, so importing exact parts restores the requested
   physical stock-edge zone rather than adding an unintended extra border gap.
+- Renamed Auto layout to Quick Placement and placed it first in the Sheet Layout
+  setup sequence. The drawer now exposes sheet width, sheet height, inherited
+  thickness, material border, part spacing and minimum rotation together. New
+  projects default to 1200 × 600 mm, 15 mm, 3 mm and 15° respectively.
+- Renamed the existing interruptible background search Optimise I. Disabled
+  Optimise II and Optimise III controls reserve the intended progression toward
+  embedded SVGnest and deeper multi-start searches without presenting unfinished
+  actions as functional.
 
 ### LINZ download authentication correction
 
@@ -657,6 +665,10 @@
 - Moved snow appearance and material-per-layer inputs into the layer-planning
   section, before the generated geometry and 3D actions. Generated layers now
   offer explicit Show 3D model and Then review smoothing actions.
+- Renamed setup Section 5 to Layer Build. Smoothing controls now update their
+  visible value immediately, wait briefly for pointer input to settle, and show
+  an explicit recalculation state while the expensive polygon cleanup runs. The
+  detailed Smoothing workspace still supports a separate value for each layer.
 - Simplified normal terrain preparation to one progress-reporting action.
   Manual terrain/water imports and source metadata remain available under
   clearly labelled Advanced and Technical disclosures for recovery and

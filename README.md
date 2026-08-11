@@ -106,12 +106,17 @@ Stage 9 keeps the future fabrication workflow visible in the header and adds an
 interactive per-layer Smoothing workspace. A physical cleanup size rounds raster
 steps, removes smaller islands and holes, and reports before/after part and hole
 statistics. Frame-contact edges remain locked straight, and cleaned geometry
-feeds the 3D, Assembly, Manufacture, and SVG outputs.
+feeds the 3D, Assembly, Manufacture, and SVG outputs. The setup slider now moves
+immediately, displays a recalculation indicator, and applies the expensive
+geometry work after a short pause; the full Smoothing view retains independent
+cleanup settings for every layer. The preceding setup stage is named Layer Build.
 
-Stage 10 adds PCB-style manual sheet layout. It provides configurable stock,
+Stage 10 adds PCB-style manual sheet layout. New projects start with 1200 × 600
+mm stock, thickness inherited from Layer Build, a 15 mm material border, 3 mm
+part spacing and 15° rotation steps. It provides configurable stock,
 edge-zone and part-spacing rules; drag and fine rotation; multiple sheets;
 live non-blocking DRC warnings; a reusable parts library; replacement copies;
-and an editable first-fit Auto layout. DRC uses actual transformed coastline
+and an editable first-fit Quick Placement. DRC uses actual transformed coastline
 paths for part-to-part clearance.
 Visible clearance halos turn red on collision, tiny parts retain a practical
 screen hit target, and 1×–8× zoom, empty-sheet panning, library selection, and
@@ -147,6 +152,9 @@ rotations rather than converting a 1° or 2° editing step into hundreds of
 SVGnest rotations. The downloaded SVGnest result can now be imported back into
 Sheet Layout: Topomapper recovers the named instances, sheets, positions and
 rotations, restores exact geometry, and reruns the full-resolution DRC.
+The interface names the current background search Optimise I and keeps disabled
+Optimise II/III positions visible for a later embedded SVGnest and deeper search,
+without implying that the external round trip has already been automated.
 Sheet Layout defines Cut-edge gap as the final edge-to-edge distance between
 neighbouring exact parts. Each on-screen halo extends half that value outside
 its cut outline. The SVGnest proxy bin is moved outward to compensate for

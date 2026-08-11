@@ -136,6 +136,8 @@ boundary.
   duplicated onto a separate replacement sheet without rebuilding the full
   model layout.
 - Keep Auto layout editable and preserve manual layout as a permanent workflow.
+- Present the initial conservative action as Quick Placement, followed by clearly
+  distinct optimisation levels. Disabled future levels must not appear usable.
 - Draw the active part-spacing rule as a visible halo around every placed part;
   pair colour and DRC text so collisions are not communicated by colour alone.
 - Define part spacing as the final edge-to-edge distance between exact cut

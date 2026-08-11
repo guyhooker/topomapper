@@ -218,7 +218,8 @@ registration holes align consistently across every exported layer.
 
 ### Adds
 
-- Configurable stock sheet, initially 1200 × 600 × 3 mm MDF.
+- Configurable stock sheet, initially 1200 × 600 mm with thickness inherited
+  from Layer Build, a 15 mm material border, 3 mm part spacing and 15° rotation.
 - Actual-scale drag, rotate, snap, collision, spacing, margin, and clamp-zone
   controls.
 - Per-part face/orientation instructions; rotation is unrestricted while
@@ -227,7 +228,7 @@ registration holes align consistently across every exported layer.
 - PCB-style live DRC with non-blocking sheet-edge and part-spacing warnings.
 - Searchable reusable parts library with duplicate copies and dedicated
   replacement sheets.
-- Editable conservative Auto layout for currently unplaced original parts.
+- Editable conservative Quick Placement for currently unplaced original parts.
 - Visible clearance halos, enlarged tiny-part hit targets, 1×–8× zoom, panning,
   parts-library selection, and Focus selected.
 - Coastline-shaped clearance DRC, selectable 1°–15° manual rotation, and two-way highlighting
@@ -287,6 +288,9 @@ editor, and its machining operations can be selected independently by layer.
 - SVGnest remains an explicit external nesting tool. Its downloaded result can
   be imported back into Topomapper, preserving IDs, sheets, translations and
   rotations while restoring exact geometry and rerunning DRC.
+- Present the existing background search as Optimise I and reserve Optimise II
+  for an embedded SVGnest worker, eliminating the manual download/site/import
+  steps once that integration has its own performance and round-trip tests.
 - Once the round trip is reliable, offer two manufacturing outputs per sheet:
   an optional Side 1 annotation SVG and a mirrored Side 2 exact cutting SVG.
   The first convention is an end-to-end flip with the accurately sized stock

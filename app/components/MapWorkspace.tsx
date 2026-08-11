@@ -2489,8 +2489,10 @@ export function MapWorkspace() {
   const [colourChartStatus, setColourChartStatus] = useState("Download a workshop-ready PDF or print this chart from the browser.");
   const [smoothingLayerIndex, setSmoothingLayerIndex] = useState(0);
   const [smoothingLevels, setSmoothingLevels] = useState<Record<number, number>>({});
+  const [appliedSmoothingLevels, setAppliedSmoothingLevels] = useState<Record<number, number>>({});
+  const [smoothingCalculating, setSmoothingCalculating] = useState(false);
   const [smoothingZoom, setSmoothingZoom] = useState(1);
-  const [sheetRules, setSheetRules] = useState<SheetRules>({ width: 1200, height: 600, thickness: 3, edgeMargin: 15, partSpacing: 8 });
+  const [sheetRules, setSheetRules] = useState<SheetRules>({ width: 1200, height: 600, thickness: 3, edgeMargin: 15, partSpacing: 3 });
   const [sheetCount, setSheetCount] = useState(1);
   const [activeSheetIndex, setActiveSheetIndex] = useState(0);
   const [sheetPlacements, setSheetPlacements] = useState<SheetPlacement[]>([]);
@@ -2500,7 +2502,7 @@ export function MapWorkspace() {
   const [sheetViewCenter, setSheetViewCenter] = useState({ x: 600, y: 300 });
   const [selectedViolationIndex, setSelectedViolationIndex] = useState<number | null>(null);
   const [sheetPartDragging, setSheetPartDragging] = useState(false);
-  const [rotationStepDeg, setRotationStepDeg] = useState(5);
+  const [rotationStepDeg, setRotationStepDeg] = useState(15);
   const [svgNestRotations, setSvgNestRotations] = useState(12);
   const [optimizerRunning, setOptimizerRunning] = useState(false);
   const [optimizerStatus, setOptimizerStatus] = useState("Ready to search for a tighter polygon-aware layout.");
@@ -2523,6 +2525,7 @@ export function MapWorkspace() {
   const [smoothingStageOpen, setSmoothingStageOpen] = useState(false);
   const [sheetStageOpen, setSheetStageOpen] = useState(false);
   const workflowDrawerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const smoothingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const placementCounterRef = useRef(1);
   const layoutViolationsRef = useRef<LayoutViolation[]>([]);
   const layoutDirtyReadyRef = useRef(false);
@@ -2539,6 +2542,18 @@ export function MapWorkspace() {
   useEffect(() => () => {
     if (workflowDrawerTimerRef.current) clearTimeout(workflowDrawerTimerRef.current);
   }, []);
+  useEffect(() => {
+    if (smoothingTimerRef.current) clearTimeout(smoothingTimerRef.current);
+    setSmoothingCalculating(true);
+    smoothingTimerRef.current = setTimeout(() => {
+      setAppliedSmoothingLevels(smoothingLevels);
+      setSmoothingCalculating(false);
+      smoothingTimerRef.current = null;
+    }, 400);
+    return () => {
+      if (smoothingTimerRef.current) clearTimeout(smoothingTimerRef.current);
+    };
+  }, [smoothingLevels]);
   useEffect(() => {
     if (!optimizerWorkerRef.current) return;
     optimizerWorkerRef.current.terminate();
@@ -3395,10 +3410,10 @@ export function MapWorkspace() {
   const verticalExaggeration = trueScaledHeight > 0 ? physicalStackHeight / trueScaledHeight : 0;
   const fabricationPreview = useMemo(() => filledLayerPreview ? applySmoothing(
     filledLayerPreview,
-    smoothingLevels,
+    appliedSmoothingLevels,
     previewDimensions.width,
     previewDimensions.height,
-  ) : null, [filledLayerPreview, smoothingLevels, previewDimensions.width, previewDimensions.height]);
+  ) : null, [filledLayerPreview, appliedSmoothingLevels, previewDimensions.width, previewDimensions.height]);
   const assemblyPlan = useMemo(() => fabricationPreview ? buildAssemblyPlan(
     fabricationPreview,
     previewDimensions.width,
@@ -3500,7 +3515,7 @@ export function MapWorkspace() {
       layers: { distribution: "log", count: DEFAULT_LAYER_COUNT, boundaries: [] },
       model: { stackView: "three-dimensional", stackYaw: 0, stackPitch: 34, showTrueElevation: true, smoothingLevels: {} },
       assembly: { gridPitchMm: 100, dowelDiameterMm: 4, holeDiameterMm: 4.2, holeEdgeClearanceMm: 6 },
-      layout: { sheetRules: { width: 1200, height: 600, thickness: 3, edgeMargin: 15, partSpacing: 8 }, sheetCount: 1, activeSheetIndex: 0, placements: [], rotationStepDeg: 5 },
+      layout: { sheetRules: { width: 1200, height: 600, thickness: 3, edgeMargin: 15, partSpacing: 3 }, sheetCount: 1, activeSheetIndex: 0, placements: [], rotationStepDeg: 15 },
       colour: { paletteId: "molotow-terrain", snowCapMode: "on", snowLayers: DEFAULT_SNOW_LAYERS, paintNotes: {} },
       view: { workspaceView: "two-dimensional", assemblyLayerIndex: 0, smoothingLayerIndex: 0 },
     };
@@ -3650,6 +3665,7 @@ export function MapWorkspace() {
     setStackPitch(project.model.stackPitch);
     setShowTrueElevation(project.model.showTrueElevation);
     setSmoothingLevels(project.model.smoothingLevels);
+    setAppliedSmoothingLevels(project.model.smoothingLevels);
     setGridPitchMm(project.assembly.gridPitchMm);
     setDowelDiameterMm(project.assembly.dowelDiameterMm);
     setHoleDiameterMm(project.assembly.holeDiameterMm);
@@ -3658,7 +3674,7 @@ export function MapWorkspace() {
     setSheetCount(project.layout.sheetCount);
     setActiveSheetIndex(Math.min(project.layout.activeSheetIndex, Math.max(0, project.layout.sheetCount - 1)));
     setSheetPlacements(project.layout.placements);
-    setRotationStepDeg(project.layout.rotationStepDeg && project.layout.rotationStepDeg >= 1 ? project.layout.rotationStepDeg : 5);
+    setRotationStepDeg(project.layout.rotationStepDeg && project.layout.rotationStepDeg >= 1 ? project.layout.rotationStepDeg : 15);
     const projectSnowCapMode: SnowCapMode = project.colour?.snowCapMode === "off" ? "off" : "on";
     const projectSnowLevelCount = Math.max(MIN_SNOW_LAYERS, Math.min(MAX_SNOW_LAYERS, project.colour?.snowLayers ?? DEFAULT_SNOW_LAYERS));
     setSnowCapMode(projectSnowCapMode);
@@ -3776,6 +3792,7 @@ export function MapWorkspace() {
     setActiveSheetIndex(Math.max(0, Math.min(count - 1, Math.round(data.activeSheetIndex ?? 0))));
     setSheetPlacements(data.sheetPlacements);
     setSmoothingLevels(data.smoothingLevels ?? {});
+    setAppliedSmoothingLevels(data.smoothingLevels ?? {});
     if (data.output?.outputFormat) setOutputFormat(data.output.outputFormat);
     if (data.output?.outputOrientation) setOutputOrientation(data.output.outputOrientation);
     if (Number.isFinite(data.output?.customWidthMm)) setCustomWidthMm(Number(data.output?.customWidthMm));
@@ -4551,7 +4568,7 @@ export function MapWorkspace() {
         {(!analysis || !layerBoundaries.length) && (
           <details className="workflow-stage filled-layer-section" open={filledStageOpen} onToggle={(event) => setFilledStageOpen(event.currentTarget.open)}>
             <summary className="workflow-stage-summary">
-              <span><strong>5) Filled 2D Layer Preview</strong></span><em>Incomplete</em><i className="stage-status-led incomplete" aria-hidden="true" /><b aria-hidden="true">{filledStageOpen ? "−" : "+"}</b>
+              <span><strong>5) Layer Build</strong></span><em>Incomplete</em><i className="stage-status-led incomplete" aria-hidden="true" /><b aria-hidden="true">{filledStageOpen ? "−" : "+"}</b>
             </summary>
             <div className="workflow-stage-body single-action-stage"><button className="generate-layers-button" disabled>Generate filled layers</button></div>
           </details>
@@ -4559,7 +4576,7 @@ export function MapWorkspace() {
         {analysis && layerBoundaries.length > 0 && (
           <details className="workflow-stage filled-layer-section" open={filledStageOpen} onToggle={(event) => setFilledStageOpen(event.currentTarget.open)}>
             <summary className="workflow-stage-summary">
-              <span><strong id="filled-layer-heading">5) Filled 2D Layer Preview</strong></span>
+              <span><strong id="filled-layer-heading">5) Layer Build</strong></span>
               <em>{filledStageComplete ? "Complete" : "Incomplete"}</em>
               <i className={`stage-status-led ${filledStageComplete ? "complete" : "incomplete"}`} aria-hidden="true" />
               <b aria-hidden="true">{filledStageOpen ? "−" : "+"}</b>
@@ -4597,6 +4614,7 @@ export function MapWorkspace() {
               <strong>{overallSmoothingLevel.toFixed(1)} mm</strong>
               <input type="range" min="0" max="12" step="0.5" value={overallSmoothingLevel} disabled={!filledLayerPreview} onChange={(event) => setOverallSmoothing(Number(event.target.value))} />
             </label>
+            {smoothingCalculating && filledLayerPreview && <p className="smoothing-calculating" role="status"><i aria-hidden="true" /> Recalculating parts…</p>}
             {filledLayerPreview ? (
               <>
                 <dl className="plain-smoothing-stats"><div><dt>Minimum part size:</dt><dd>{smallestSmoothedPartSize.toFixed(1)} mm</dd></div></dl>
@@ -4619,7 +4637,17 @@ export function MapWorkspace() {
           </summary>
           <div className="workflow-stage-body sheet-size-settings">
             <label><span>Sheet Width</span><strong><input type="number" min="100" step="10" value={sheetRules.width} onChange={(event) => setSheetDimension("width", Number(event.target.value))} /><em>mm</em></strong></label>
-            <label><span>Sheet Length</span><strong><input type="number" min="100" step="10" value={sheetRules.height} onChange={(event) => setSheetDimension("height", Number(event.target.value))} /><em>mm</em></strong></label>
+            <label><span>Sheet Height</span><strong><input type="number" min="100" step="10" value={sheetRules.height} onChange={(event) => setSheetDimension("height", Number(event.target.value))} /><em>mm</em></strong></label>
+            <label><span>Sheet Thickness</span><strong><input type="number" value={materialThicknessMm} readOnly aria-label="Sheet thickness from Section 4" /><em>mm</em></strong></label>
+            <label><span>Material Border</span><strong><input type="number" min="0" step="1" value={sheetRules.edgeMargin} onChange={(event) => setSheetRules((rules) => ({ ...rules, edgeMargin: Math.max(0, Number(event.target.value) || 0) }))} /><em>mm</em></strong></label>
+            <label><span>Part Spacing</span><strong><input type="number" min="0" step="0.1" value={sheetRules.partSpacing} onChange={(event) => setSheetRules((rules) => ({ ...rules, partSpacing: Math.max(0, Number(event.target.value) || 0) }))} /><em>mm</em></strong></label>
+            <label><span>Min Rotation</span><strong><input type="number" min="1" max="90" step="1" value={rotationStepDeg} onChange={(event) => setRotationStepDeg(Math.max(1, Math.min(90, Math.round(Number(event.target.value) || 1))))} /><em>deg</em></strong></label>
+            <div className="drawer-placement-actions">
+              <button disabled={!layoutParts.length} onClick={() => { autoLayoutUnplaced(); setWorkspaceView("sheet-layout"); }}>Quick Placement</button>
+              <div><button disabled={optimizerRunning || !layoutParts.length} onClick={() => { setWorkspaceView("sheet-layout"); void startNestingOptimiser(); }}>Optimise I</button><button disabled title="Reserved for embedded SVGnest optimisation">Optimise II</button><button disabled title="Reserved for deeper multi-start optimisation">Optimise III</button></div>
+              {optimizerRunning && <button className="stop-optimising" onClick={stopNestingOptimiser}>Stop optimisation</button>}
+              <p role="status">{optimizerProgress || optimizerStatus}</p>
+            </div>
           </div>
         </details>
         </aside>
@@ -4743,7 +4771,7 @@ export function MapWorkspace() {
         <section className="smoothing-preview" aria-labelledby="smoothing-preview-heading">
           <div className="smoothing-preview-heading">
             <div><span className="section-label">SECTION 6 · CUTTER-SCALE CLEANUP</span><strong id="smoothing-preview-heading">Smooth manufacturing outlines</strong></div>
-            <span>{(smoothingLevels[smoothingLayerIndex] ?? 0).toFixed(1)} mm cleanup</span>
+            <span>{smoothingCalculating ? "Recalculating parts…" : `${(smoothingLevels[smoothingLayerIndex] ?? 0).toFixed(1)} mm cleanup`}</span>
           </div>
           <div className="smoothing-toolbar">
             <div className="assembly-layer-control">
@@ -4757,6 +4785,7 @@ export function MapWorkspace() {
             <label className="smoothing-zoom">Zoom <select value={smoothingZoom} onChange={(event) => setSmoothingZoom(Number(event.target.value))}><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option><option value="8">8×</option></select></label>
             <button onClick={applySmoothingToAll}>Apply to all</button>
             <button onClick={() => setSmoothingLevels({})}>Reset all</button>
+            {smoothingCalculating && <span className="smoothing-calculating toolbar-calculating" role="status"><i aria-hidden="true" /> Updating preview…</span>}
           </div>
           <div className="smoothing-workspace">
             <div className="smoothing-canvas-wrap">
@@ -4792,13 +4821,15 @@ export function MapWorkspace() {
           <div className="sheet-rules-toolbar">
             <label>Sheet W <span><input type="number" min="100" step="10" value={sheetRules.width} onChange={(event) => setSheetDimension("width", Number(event.target.value))} /> mm</span></label>
             <label>Sheet H <span><input type="number" min="100" step="10" value={sheetRules.height} onChange={(event) => setSheetDimension("height", Number(event.target.value))} /> mm</span></label>
-            <label>Material <span><input type="number" min="1" max="12" step="0.1" value={sheetRules.thickness} onChange={(event) => setMaterialThicknessFromEntry(Number(event.target.value))} /> mm</span></label>
-            <label>Edge zone <span><input type="number" min="0" step="1" value={sheetRules.edgeMargin} onChange={(event) => setSheetRules((rules) => ({ ...rules, edgeMargin: Math.max(0, Number(event.target.value)) }))} /> mm</span></label>
-            <label>Cut-edge gap <span><input type="number" min="0" step="0.1" value={sheetRules.partSpacing} onChange={(event) => setSheetRules((rules) => ({ ...rules, partSpacing: Math.max(0, Number(event.target.value)) }))} /> mm</span></label>
+            <label>Thickness <span><input type="number" value={materialThicknessMm} readOnly /> mm</span></label>
+            <label>Material border <span><input type="number" min="0" step="1" value={sheetRules.edgeMargin} onChange={(event) => setSheetRules((rules) => ({ ...rules, edgeMargin: Math.max(0, Number(event.target.value) || 0) }))} /> mm</span></label>
+            <label>Part spacing <span><input type="number" min="0" step="0.1" value={sheetRules.partSpacing} onChange={(event) => setSheetRules((rules) => ({ ...rules, partSpacing: Math.max(0, Number(event.target.value) || 0) }))} /> mm</span></label>
             <label>Rotation <span><select value={rotationStepDeg} onChange={(event) => setRotationStepDeg(Number(event.target.value))}><option value={1}>1°</option><option value={2}>2°</option><option value={5}>5°</option><option value={10}>10°</option><option value={15}>15°</option></select></span></label>
-            <button onClick={autoLayoutUnplaced}>Auto layout unplaced</button>
+            <button onClick={autoLayoutUnplaced}>Quick Placement</button>
             <button onClick={addReplacementSheet}>+ Replacement sheet</button>
-            <button disabled={optimizerRunning || !layoutParts.length} onClick={() => void startNestingOptimiser()}>Topomapper quick optimise</button>
+            <button disabled={optimizerRunning || !layoutParts.length} onClick={() => void startNestingOptimiser()}>Optimise I</button>
+            <button disabled title="Reserved for embedded SVGnest optimisation">Optimise II</button>
+            <button disabled title="Reserved for deeper multi-start optimisation">Optimise III</button>
             <button disabled={!optimizerRunning} onClick={stopNestingOptimiser}>Stop</button>
           </div>
           <p className={`optimizer-status ${optimizerRunning ? "running" : ""}`} role="status">{optimizerStatus}</p>

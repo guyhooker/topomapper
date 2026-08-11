@@ -520,6 +520,10 @@ button { color: inherit; }
 .drawer-smoothing-range strong { color: var(--forest); font-size: 10px; font-variant-numeric: tabular-nums; }
 .drawer-smoothing-range input { grid-column: 1 / 3; width: 100%; accent-color: var(--forest); }
 .drawer-smoothing-range input:disabled { opacity: .4; }
+.smoothing-calculating { display: flex; align-items: center; gap: 6px; margin: 7px 0 0; color: #1d6f82; font-size: 9px; font-weight: 700; }
+.smoothing-calculating i { width: 7px; height: 7px; border: 2px solid rgba(29,111,130,.25); border-top-color: #1d6f82; border-radius: 50%; animation: smoothing-spin .75s linear infinite; }
+.toolbar-calculating { margin: 0 0 0 auto; white-space: nowrap; }
+@keyframes smoothing-spin { to { transform: rotate(360deg); } }
 .plain-smoothing-stats { margin: 10px 0 0; font-size: 10px; }
 .plain-smoothing-stats div { display: flex; justify-content: space-between; gap: 12px; }
 .plain-smoothing-stats dt { color: var(--muted); }
@@ -536,7 +540,15 @@ button { color: inherit; }
 .sheet-size-settings > label:first-child { border-top: 0; }
 .sheet-size-settings strong { display: flex; align-items: center; gap: 5px; }
 .sheet-size-settings input { width: 70px; height: 27px; padding: 0 6px; border: 0; border-radius: 5px; background: #fff; color: var(--ink); font-size: 11px; font-weight: 720; text-align: right; font-variant-numeric: tabular-nums; }
+.sheet-size-settings input[readonly] { background: transparent; color: var(--muted); }
 .sheet-size-settings em { color: var(--muted); font-size: 9px; font-style: normal; font-weight: 600; }
+.drawer-placement-actions { display: grid; gap: 7px; padding-top: 11px; border-top: 1px solid var(--line); }
+.drawer-placement-actions > button:first-child { justify-self: start; min-height: 31px; padding: 0 12px; border: 0; border-radius: 6px; background: var(--forest); color: #fff; font-size: 9px; font-weight: 760; cursor: pointer; }
+.drawer-placement-actions > div { display: flex; flex-wrap: wrap; gap: 5px; }
+.drawer-placement-actions > div button, .drawer-placement-actions .stop-optimising { min-height: 28px; padding: 0 9px; border: 1px solid rgba(33,79,61,.2); border-radius: 6px; background: #fff; color: var(--forest); font-size: 8px; font-weight: 740; cursor: pointer; }
+.drawer-placement-actions button:disabled { opacity: .38; cursor: default; }
+.drawer-placement-actions .stop-optimising { justify-self: start; color: #a83e22; }
+.drawer-placement-actions p { margin: 0; color: var(--muted); font-size: 8px; line-height: 1.4; }
 .filled-layer-section > .layer-generation-status { min-height: 30px; margin: 8px 2px 0; font-size: 9px; }
 .layer-generation-status.warning { color: #a83e22; font-weight: 680; }
 .filled-layer-results { margin-top: 5px; }

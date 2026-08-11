@@ -3981,7 +3981,7 @@ export function MapWorkspace() {
     >) => {
       if (event.data.runId !== runId || optimizerWorkerRef.current !== worker) return;
       if (event.data.type === "compacting") {
-        setOptimizerProgress(`Attempt ${event.data.attempt}: shaking the completed layout toward the left edge…`);
+        setOptimizerProgress(`Attempt ${event.data.attempt}: settling the completed layout toward the upper-left…`);
         return;
       }
       if (event.data.type === "progress") {
@@ -3991,8 +3991,8 @@ export function MapWorkspace() {
       if (event.data.type !== "attempt") return;
       const { candidate, attempt, compactedParts, compactedDistanceMm } = event.data;
       const compactionSummary = compactedParts
-        ? ` Leftward shakedown moved ${compactedParts} part${compactedParts === 1 ? "" : "s"} by ${Math.round(compactedDistanceMm)} mm in total.`
-        : " Leftward shakedown found no safe movement.";
+        ? ` Two-axis settling moved ${compactedParts} part${compactedParts === 1 ? "" : "s"} by ${Math.round(compactedDistanceMm)} mm in total.`
+        : " Two-axis settling found no safe movement.";
       try {
         if (candidate) {
           const fitness = layoutFitness(candidate, partMap, sheetRules);
@@ -4288,6 +4288,11 @@ export function MapWorkspace() {
     setWorkflowDrawerOpen(true);
   }
 
+  function toggleWorkflowDrawer() {
+    cancelWorkflowDrawerRetreat();
+    setWorkflowDrawerOpen((open) => !open);
+  }
+
   function scheduleWorkflowDrawerRetreat() {
     cancelWorkflowDrawerRetreat();
     workflowDrawerTimerRef.current = setTimeout(() => {
@@ -4366,8 +4371,8 @@ export function MapWorkspace() {
           type="button"
           className="workflow-drawer-handle"
           aria-expanded={workflowDrawerOpen}
-          aria-label="Open project setup"
-          onClick={openWorkflowDrawer}
+          aria-label={workflowDrawerOpen ? "Close project setup" : "Open project setup"}
+          onClick={toggleWorkflowDrawer}
         ><span>Setup</span><b aria-hidden="true">{workflowDrawerOpen ? "‹" : "›"}</b></button>
         <aside className="selection-panel" aria-label="Project setup and model controls">
         <details className="workflow-stage" open={frameStageOpen} onToggle={(event) => setFrameStageOpen(event.currentTarget.open)}>

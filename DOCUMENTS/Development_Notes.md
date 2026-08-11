@@ -646,6 +646,12 @@
   immediately, waits briefly for entry to settle, and then runs the expensive
   exact-coastline DRC once with an explicit Rechecking sheet layout status.
   Quick Placement and Optimise I remain disabled until that rule check finishes.
+- Tightened Optimise I after layouts showed clearances tens of millimetres above
+  the requested rule. The worker now caps its simplified-outline steering
+  allowance, while the unchanged exact-geometry DRC remains the authority before
+  a result is published. Four repeated left-and-up settling passes replace the
+  former one-way left shakedown so parts can close vertical gaps before moving
+  left again.
 
 ### LINZ download authentication correction
 
@@ -664,6 +670,9 @@
 - Tuned the drawer after physical use: the entire 12 px left screen edge now
   activates it, opening takes 320 ms, it waits 10 seconds after pointer exit,
   and its deliberately gentle retreat takes 1.95 seconds.
+- The protruding Setup handle is now a direct open/close toggle. Clicking it
+  closes the drawer immediately when sheet tabs or other left-side content need
+  to be uncovered; edge hover and the timed retreat remain available.
 - Reordered the main views to follow the actual dependency chain: 2D Map, 3D
   Model, Smoothing, Assembly, Sheet Layout and Manufacture. Future machining,
   G-code and BOM controls remain visible but disabled until implemented.

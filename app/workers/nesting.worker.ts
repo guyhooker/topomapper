@@ -98,6 +98,13 @@ function clearance(leftPlacement: Placement, leftPart: Part, rightPlacement: Pla
   return minimum;
 }
 
+function proxyClearanceAllowance(leftPart: Part, rightPart: Part) {
+  // Applying the full simplification error to both outlines created visibly
+  // excessive gaps. Exact full-resolution DRC still validates every published
+  // candidate on the main thread.
+  return Math.min(1.5, ((leftPart.searchErrorMm ?? 0) + (rightPart.searchErrorMm ?? 0)) * .2);
+}
+
 function fits(candidate: Placement, placements: Placement[], partMap: Map<string, Part>, rules: Rules) {
   const part = partMap.get(candidate.partId);
   if (!part) return false;
@@ -108,7 +115,7 @@ function fits(candidate: Placement, placements: Placement[], partMap: Map<string
     const otherPart = partMap.get(placement.partId);
     if (!otherPart) return true;
     const otherBounds = bounds(placement, otherPart);
-    const safeSpacing = rules.partSpacing + (part.searchErrorMm ?? 0) + (otherPart.searchErrorMm ?? 0) + .25;
+    const safeSpacing = rules.partSpacing + proxyClearanceAllowance(part, otherPart) + .25;
     if (candidateBounds.right + safeSpacing <= otherBounds.left || otherBounds.right + safeSpacing <= candidateBounds.left || candidateBounds.bottom + safeSpacing <= otherBounds.top || otherBounds.bottom + safeSpacing <= candidateBounds.top) return true;
     return clearance(candidate, part, placement, otherPart) >= safeSpacing;
   });
@@ -143,41 +150,51 @@ function sampledContactAnchors(instance: Instance, part: Part, rotation: number,
         { x: -(next.y - stationary.y) / edgeLength, y: (next.x - stationary.x) / edgeLength },
         { x: (next.y - stationary.y) / edgeLength, y: -(next.x - stationary.x) / edgeLength },
       ];
-      const safeSpacing = spacing + (part.searchErrorMm ?? 0) + (stationaryPart.searchErrorMm ?? 0);
+      const safeSpacing = spacing + proxyClearanceAllowance(part, stationaryPart);
       for (const direction of directions) anchors.push({ x: stationary.x - moving.x + direction.x * safeSpacing, y: stationary.y - moving.y + direction.y * safeSpacing });
     }
   }
   return anchors;
 }
 
-function compactTowardLeft(placements: Placement[], partMap: Map<string, Part>, rules: Rules) {
+function compactTowardOrigin(placements: Placement[], partMap: Map<string, Part>, rules: Rules) {
   const compacted = placements.map((placement) => ({ ...placement }));
   const movedIds = new Set<string>();
   let distanceMm = 0;
-  const order = compacted.map((placement, index) => ({ placement, index }))
-    .sort((left, right) => left.placement.sheetIndex - right.placement.sheetIndex
-      || bounds(left.placement, partMap.get(left.placement.partId)!).left - bounds(right.placement, partMap.get(right.placement.partId)!).left
-      || (partMap.get(right.placement.partId)?.areaMm2 ?? 0) - (partMap.get(left.placement.partId)?.areaMm2 ?? 0));
-  for (const item of order) {
-    const index = item.index;
-    const part = partMap.get(compacted[index].partId);
-    if (!part) continue;
-    let current = compacted[index];
-    const startingX = current.x;
-    const others = compacted.filter((_, placementIndex) => placementIndex !== index);
-    for (const step of [10, 2, .5]) {
-      while (true) {
-        const candidate = { ...current, x: current.x - step };
-        if (!fits(candidate, others, partMap, rules)) break;
-        current = candidate;
+  function settle(axis: "x" | "y") {
+    let passDistance = 0;
+    const order = compacted.map((placement, index) => ({ placement, index }))
+      .sort((left, right) => left.placement.sheetIndex - right.placement.sheetIndex
+        || (axis === "x"
+          ? bounds(left.placement, partMap.get(left.placement.partId)!).left - bounds(right.placement, partMap.get(right.placement.partId)!).left
+          : bounds(left.placement, partMap.get(left.placement.partId)!).top - bounds(right.placement, partMap.get(right.placement.partId)!).top)
+        || (partMap.get(right.placement.partId)?.areaMm2 ?? 0) - (partMap.get(left.placement.partId)?.areaMm2 ?? 0));
+    for (const item of order) {
+      const index = item.index;
+      const part = partMap.get(compacted[index].partId);
+      if (!part) continue;
+      let current = compacted[index];
+      const startingPosition = current[axis];
+      const others = compacted.filter((_, placementIndex) => placementIndex !== index);
+      for (const step of [10, 2, .5]) {
+        while (true) {
+          const candidate = { ...current, [axis]: current[axis] - step };
+          if (!fits(candidate, others, partMap, rules)) break;
+          current = candidate;
+        }
+      }
+      compacted[index] = current;
+      const moved = startingPosition - current[axis];
+      if (moved > .01) {
+        movedIds.add(current.id);
+        distanceMm += moved;
+        passDistance += moved;
       }
     }
-    compacted[index] = current;
-    const moved = startingX - current.x;
-    if (moved > .01) {
-      movedIds.add(current.id);
-      distanceMm += moved;
-    }
+    return passDistance;
+  }
+  for (let pass = 0; pass < 4; pass += 1) {
+    if (settle("x") + settle("y") < .01) break;
   }
   return { placements: compacted, movedParts: movedIds.size, distanceMm };
 }
@@ -248,7 +265,7 @@ function attempt(jobValue: Job) {
     });
   }
   postMessage({ type: "compacting", runId: jobValue.runId, attempt: jobValue.attempt + 1 });
-  return compactTowardLeft(placed, partMap, jobValue.rules);
+  return compactTowardOrigin(placed, partMap, jobValue.rules);
 }
 
 function runNext() {

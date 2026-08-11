@@ -157,6 +157,8 @@ Optimise II/III positions visible for a later embedded SVGnest and deeper search
 without implying that the external round trip has already been automated.
 Changing a sheet rule stops an active optimiser and defers full coastline DRC
 until entry has paused, so the controls respond immediately even on large models.
+Optimise I uses tighter proxy clearance and repeated upper-left settling, with
+exact coastline DRC still required before an improved layout is displayed.
 Sheet Layout defines Cut-edge gap as the final edge-to-edge distance between
 neighbouring exact parts. Each on-screen halo extends half that value outside
 its cut outline. The SVGnest proxy bin is moved outward to compensate for

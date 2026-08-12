@@ -615,6 +615,11 @@
   included twice in the safe SVGnest spacing.
 - The handoff instructions now explicitly warn that SVGnest's default spacing
   of zero is not valid for a Topomapper proxy and state the exact value to enter.
+- Added a temporary 20% diagnostic export for isolating SVGnest scaling and
+  stability. It deterministically samples across parts ranked from largest to
+  smallest, reports retained part/vertex counts and uses the same bin, tolerance
+  and spacing rules as the full job. Diagnostic output is marked on the stock
+  bin and explicitly rejected by Topomapper import.
 
 - Added a recommended SVGnest handoff alongside the editable Topomapper quick
   optimiser. This is intentionally an honest external-tool workflow rather

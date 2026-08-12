@@ -161,6 +161,9 @@ with vertex count, its search proxy uses at least the cutter radius (1.5 mm by
 default); measured proxy error is added to search spacing, then exact geometry
 is restored and checked after import. The download reports the required SVGnest
 spacing, measured maximum error and point count.
+For performance diagnosis, a separate 20% proxy retains a deterministic range
+of large through small project parts. It is marked as diagnostic-only in its
+SVG metadata and is rejected by the normal result importer.
 The interface names the current background search Optimise I and keeps disabled
 Optimise II/III positions visible for a later embedded SVGnest and deeper search,
 without implying that the external round trip has already been automated.

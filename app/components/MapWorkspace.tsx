@@ -1427,7 +1427,7 @@ function simplifyClosedRingForNesting(ring: { x: number; y: number }[], requeste
   return { ring: simplified, errorMm };
 }
 
-function buildSvgNestJob(projectName: string, rules: SheetRules, parts: LayoutPart[], placements: SheetPlacement[]) {
+function buildSvgNestJob(projectName: string, rules: SheetRules, parts: LayoutPart[], placements: SheetPlacement[], diagnosticFraction = 1) {
   // SVGnest's NFP cost rises steeply with coastline vertex count. Search at no
   // finer than the cutter radius, then restore exact/manufacturing geometry on
   // import. Measured proxy error is added to spacing, so this remains safe.
@@ -1445,10 +1445,21 @@ function buildSvgNestJob(projectName: string, rules: SheetRules, parts: LayoutPa
   const nestingBinMargin = Math.max(0, rules.edgeMargin + maximumProxyError - safeSpacing / 2);
   const effectiveEdgeClearance = nestingBinMargin + safeSpacing / 2 - maximumProxyError;
   const placedPartIds = new Set(placements.map((placement) => placement.partId));
-  const instances = [
+  const allInstances = [
     ...placements.map((placement) => ({ id: placement.id, partId: placement.partId })),
     ...parts.filter((part) => !placedPartIds.has(part.id)).map((part, index) => ({ id: `svgnest-${part.id}-${index + 1}`, partId: part.id })),
   ];
+  const diagnostic = diagnosticFraction < 1;
+  const instances = diagnostic ? (() => {
+    const ranked = [...allInstances].sort((left, right) => {
+      const leftPart = partMap.get(left.partId);
+      const rightPart = partMap.get(right.partId);
+      return (rightPart ? rightPart.width * rightPart.height : 0) - (leftPart ? leftPart.width * leftPart.height : 0);
+    });
+    const count = Math.max(1, Math.ceil(ranked.length * diagnosticFraction));
+    if (count === 1) return [ranked[0]];
+    return Array.from({ length: count }, (_, index) => ranked[Math.round(index * (ranked.length - 1) / (count - 1))]);
+  })() : allInstances;
   const stagingGap = Math.max(10, rules.partSpacing + 6);
   const stagingWidth = Math.max(rules.width, ...proxyParts.map((part) => part.width + stagingGap * 2));
   let cursorX = stagingGap;
@@ -1489,17 +1500,19 @@ function buildSvgNestJob(projectName: string, rules: SheetRules, parts: LayoutPa
     proxy_geometry_only: true,
     exact_geometry_and_drilling: "retained in the Topomapper project",
     instances: instances.length,
+    diagnostic_subset: diagnostic,
+    total_project_instances: allInstances.length,
   });
   const svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${svgNumber(stagingWidth)}mm" height="${svgNumber(stagingHeight)}mm" viewBox="0 0 ${svgNumber(stagingWidth)} ${svgNumber(stagingHeight)}">
-  <title>${xmlText(projectName)} · SVGnest input</title>
-  <desc>NESTING PROXY ONLY — NOT A CUTTING FILE. Click inside the pale green stock rectangle to select it as the SVGnest bin. Do not select the white page. Set spacing to ${svgNumber(safeSpacing)} SVG units. Exact coastlines, water holes, and drilling remain in Topomapper.</desc>
+  <title>${xmlText(projectName)} · SVGnest ${diagnostic ? "20% diagnostic" : "input"}</title>
+  <desc>${diagnostic ? `DIAGNOSTIC SUBSET ONLY — ${instances.length} OF ${allInstances.length} PARTS — DO NOT IMPORT OR CUT. ` : "NESTING PROXY ONLY — NOT A CUTTING FILE. "}Click inside the pale green stock rectangle to select it as the SVGnest bin. Do not select the white page. Set spacing to ${svgNumber(safeSpacing)} SVG units. Exact coastlines, water holes, and drilling remain in Topomapper.</desc>
   <metadata>${xmlText(metadata)}</metadata>
-  <rect id="TOPOMAPPER_SHEET_BIN" x="${svgNumber(nestingBinMargin)}" y="${svgNumber(nestingBinMargin)}" width="${svgNumber(usableWidth)}" height="${svgNumber(usableHeight)}" data-topomapper-edge-margin="${svgNumber(rules.edgeMargin)}" data-topomapper-nesting-margin="${svgNumber(nestingBinMargin)}" data-topomapper-spacing="${svgNumber(safeSpacing)}" data-topomapper-proxy-tolerance="${svgNumber(nestingProxyTolerance)}" fill="#dcefdc" fill-opacity="0.72" stroke="#16815f" stroke-width="1.2" />
+  <rect id="TOPOMAPPER_SHEET_BIN" x="${svgNumber(nestingBinMargin)}" y="${svgNumber(nestingBinMargin)}" width="${svgNumber(usableWidth)}" height="${svgNumber(usableHeight)}" data-topomapper-edge-margin="${svgNumber(rules.edgeMargin)}" data-topomapper-nesting-margin="${svgNumber(nestingBinMargin)}" data-topomapper-spacing="${svgNumber(safeSpacing)}" data-topomapper-proxy-tolerance="${svgNumber(nestingProxyTolerance)}" data-topomapper-diagnostic="${diagnostic ? "true" : "false"}" fill="#dcefdc" fill-opacity="0.72" stroke="#16815f" stroke-width="1.2" />
 ${sourceParts.join("\n")}
 </svg>`;
-  const proxyVertices = proxyParts.reduce((total, part) => total + (part.rings[0]?.length ?? 0), 0);
-  return { svg, safeSpacing, maximumProxyError, nestingProxyTolerance, nestingBinMargin, effectiveEdgeClearance, proxyVertices, instanceCount: instances.length };
+  const proxyVertices = instances.reduce((total, instance) => total + (partMap.get(instance.partId)?.rings[0]?.length ?? 0), 0);
+  return { svg, safeSpacing, maximumProxyError, nestingProxyTolerance, nestingBinMargin, effectiveEdgeClearance, proxyVertices, instanceCount: instances.length, totalInstanceCount: allInstances.length, diagnostic };
 }
 
 type SvgMatrix = { a: number; b: number; c: number; d: number; e: number; f: number };
@@ -1579,6 +1592,7 @@ function importSvgNestLayout(svgText: string, parts: LayoutPart[], rules: SheetR
   }
   const firstBin = Array.from(sheets[0].children).find((element) => element.localName === "rect" && element.getAttribute("id") === "TOPOMAPPER_SHEET_BIN");
   if (!firstBin) throw new Error("The SVGnest stock-sheet definition is missing.");
+  if (firstBin.getAttribute("data-topomapper-diagnostic") === "true") throw new Error("This is a 20% SVGnest diagnostic subset. It tests SVGnest only and cannot replace the complete Topomapper layout.");
   const marginX = Number(firstBin.getAttribute("x"));
   const marginY = Number(firstBin.getAttribute("y"));
   const requestedEdgeMargin = Number(firstBin.getAttribute("data-topomapper-edge-margin") ?? firstBin.getAttribute("x"));
@@ -4156,6 +4170,16 @@ export function MapWorkspace() {
     setSheetExportStatus(`SVGnest search proxy downloaded: ${result.instanceCount} parts and ${result.proxyVertices.toLocaleString("en-NZ")} outline points. Search tolerance ${result.nestingProxyTolerance.toFixed(3)} mm; measured maximum error ${result.maximumProxyError.toFixed(3)} mm. In SVGnest click inside the pale green stock rectangle, set Space between parts to ${result.safeSpacing.toFixed(2)} (do not leave it at 0), Curve tolerance to 0.3 and Part rotations to ${svgNestRotations}. Exact ${sheetRules.geometryTolerance.toFixed(3)} mm manufacturing geometry remains in Topomapper and is restored on import.`);
   }
 
+  async function downloadSvgNestDiagnosticJob() {
+    if (!layoutParts.length) { setSheetExportStatus("Generate the manufacturing parts before creating an SVGnest diagnostic."); return; }
+    setSheetExportStatus("Preparing a 20% SVGnest diagnostic subset…");
+    await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+    const result = buildSvgNestJob(projectName || "Topomapper project", sheetRules, layoutParts, sheetPlacements, .2);
+    const stem = projectFilename(projectName || "topomapper-project").replace(/\.topomapper$/i, "");
+    downloadFile(result.svg, "image/svg+xml;charset=utf-8", `${stem}-svgnest-diagnostic-20pct.svg`);
+    setSheetExportStatus(`20% diagnostic downloaded: ${result.instanceCount} of ${result.totalInstanceCount} parts and ${result.proxyVertices.toLocaleString("en-NZ")} outline points. This cannot be imported or used for cutting. In SVGnest select the pale green bin; set Space between parts to ${result.safeSpacing.toFixed(2)}, Curve tolerance to 0.3, Part rotations to 4, and keep both Part in part and Explore concave areas off.`);
+  }
+
   async function importSvgNestResult(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -4945,7 +4969,7 @@ export function MapWorkspace() {
           <div className="svgnest-handoff">
             <div><span className="section-label">RECOMMENDED IRREGULAR NESTING</span><strong>Test the layout in SVGnest</strong><p>Topomapper prepares the stock boundary and a lightweight outer proxy for every part. SVGnest then searches part order and rotation with its no-fit-polygon genetic engine.</p></div>
             <ol><li>Download the lightweight nesting proxy.</li><li>Open SVGnest and upload it.</li><li>Click inside the pale green stock rectangle as the bin—not the white page.</li><li>Set Space between parts to the value Topomapper reports after download; do not leave SVGnest's default 0.</li><li>Keep Curve tolerance at 0.3 and set <label className="svgnest-rotations">rotations <select value={svgNestRotations} onChange={(event) => setSvgNestRotations(Number(event.target.value))}><option value={4}>4 · 90°</option><option value={8}>8 · 45°</option><option value={12}>12 · 30°</option><option value={24}>24 · 15°</option></select></label>, then Start Nest.</li><li>Download SVGnest's result and import it here.</li></ol>
-            <div><button disabled={!layoutParts.length} onClick={downloadSvgNestJob}>Download SVGnest proxy</button><a href="https://svgnest.com/" target="_blank" rel="noreferrer">Open SVGnest ↗</a><label className={`svgnest-import-button ${!layoutParts.length ? "disabled" : ""}`}>Import SVGnest result<input disabled={!layoutParts.length} type="file" accept=".svg,image/svg+xml" onChange={(event) => void importSvgNestResult(event)} /></label></div>
+            <div><button disabled={!layoutParts.length} onClick={downloadSvgNestJob}>Download full SVGnest proxy</button><button disabled={!layoutParts.length} onClick={downloadSvgNestDiagnosticJob}>Download 20% diagnostic</button><a href="https://svgnest.com/" target="_blank" rel="noreferrer">Open SVGnest ↗</a><label className={`svgnest-import-button ${!layoutParts.length ? "disabled" : ""}`}>Import SVGnest result<input disabled={!layoutParts.length} type="file" accept=".svg,image/svg+xml" onChange={(event) => void importSvgNestResult(event)} /></label></div>
             <small>The proxy contains tolerance-controlled outer coastlines only, allowing SVGnest to solve placement without processing water or drilling holes. It is not suitable for cutting. Keep part-in-part off. Import restores exact coastlines, water holes and drilling, then reruns the full-resolution DRC before any manufacturing export.</small>
           </div>
           <div className="sheet-tabs" aria-label="Material sheets">

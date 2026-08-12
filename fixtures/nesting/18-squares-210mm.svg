@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200mm" height="2170mm" viewBox="0 0 1200 2170">
+  <title>SVGnest test — 18 squares at 210 mm</title>
+  <desc>Expected result: two 1200 x 600 mm sheets at zero spacing; the parts total 793800 square mm versus 720000 per sheet. Click inside the pale-green stock rectangle to select the bin.</desc>
+  <rect id="TEST_STOCK_BIN" x="0" y="0" width="1200" height="600" fill="#dcefdc" fill-opacity="0.72" stroke="#16815f" stroke-width="1.2"/>
+  <g fill="#b8cfaa" stroke="#214f3d" stroke-width="0.5">
+    <path id="SQ210-01" d="M0 0H210V210H0Z" transform="translate(20 650)"/><path id="SQ210-02" d="M0 0H210V210H0Z" transform="translate(250 650)"/><path id="SQ210-03" d="M0 0H210V210H0Z" transform="translate(480 650)"/>
+    <path id="SQ210-04" d="M0 0H210V210H0Z" transform="translate(20 880)"/><path id="SQ210-05" d="M0 0H210V210H0Z" transform="translate(250 880)"/><path id="SQ210-06" d="M0 0H210V210H0Z" transform="translate(480 880)"/>
+    <path id="SQ210-07" d="M0 0H210V210H0Z" transform="translate(20 1110)"/><path id="SQ210-08" d="M0 0H210V210H0Z" transform="translate(250 1110)"/><path id="SQ210-09" d="M0 0H210V210H0Z" transform="translate(480 1110)"/>
+    <path id="SQ210-10" d="M0 0H210V210H0Z" transform="translate(20 1340)"/><path id="SQ210-11" d="M0 0H210V210H0Z" transform="translate(250 1340)"/><path id="SQ210-12" d="M0 0H210V210H0Z" transform="translate(480 1340)"/>
+    <path id="SQ210-13" d="M0 0H210V210H0Z" transform="translate(20 1570)"/><path id="SQ210-14" d="M0 0H210V210H0Z" transform="translate(250 1570)"/><path id="SQ210-15" d="M0 0H210V210H0Z" transform="translate(480 1570)"/>
+    <path id="SQ210-16" d="M0 0H210V210H0Z" transform="translate(20 1800)"/><path id="SQ210-17" d="M0 0H210V210H0Z" transform="translate(250 1800)"/><path id="SQ210-18" d="M0 0H210V210H0Z" transform="translate(480 1800)"/>
+  </g>
+</svg>

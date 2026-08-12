@@ -588,6 +588,12 @@
 
 ### Stage 11 — SVGnest interoperability
 
+- Added three portable SVGnest acceptance fixtures under `fixtures/nesting`:
+  a one-sheet square case, a provable two-sheet square case, and an L-shaped
+  one-sheet case whose compact arrangement requires polygon rotation and
+  interlocking. These separate SVGnest behaviour from coastline complexity and
+  Topomapper project/import state while diagnosing the external round trip.
+
 - Added a recommended SVGnest handoff alongside the editable Topomapper quick
   optimiser. This is intentionally an honest external-tool workflow rather
   than presenting the earlier heuristic as SVGnest.

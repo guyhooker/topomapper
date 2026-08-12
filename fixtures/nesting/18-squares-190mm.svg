@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200mm" height="1970mm" viewBox="0 0 1200 1970">
+  <title>SVGnest test — 18 squares at 190 mm</title>
+  <desc>Expected result: one 1200 x 600 mm sheet at zero spacing. Click inside the pale-green stock rectangle to select the bin.</desc>
+  <rect id="TEST_STOCK_BIN" x="0" y="0" width="1200" height="600" fill="#dcefdc" fill-opacity="0.72" stroke="#16815f" stroke-width="1.2"/>
+  <g fill="#b8cfaa" stroke="#214f3d" stroke-width="0.5">
+    <path id="SQ190-01" d="M0 0H190V190H0Z" transform="translate(20 650)"/><path id="SQ190-02" d="M0 0H190V190H0Z" transform="translate(230 650)"/><path id="SQ190-03" d="M0 0H190V190H0Z" transform="translate(440 650)"/>
+    <path id="SQ190-04" d="M0 0H190V190H0Z" transform="translate(20 860)"/><path id="SQ190-05" d="M0 0H190V190H0Z" transform="translate(230 860)"/><path id="SQ190-06" d="M0 0H190V190H0Z" transform="translate(440 860)"/>
+    <path id="SQ190-07" d="M0 0H190V190H0Z" transform="translate(20 1070)"/><path id="SQ190-08" d="M0 0H190V190H0Z" transform="translate(230 1070)"/><path id="SQ190-09" d="M0 0H190V190H0Z" transform="translate(440 1070)"/>
+    <path id="SQ190-10" d="M0 0H190V190H0Z" transform="translate(20 1280)"/><path id="SQ190-11" d="M0 0H190V190H0Z" transform="translate(230 1280)"/><path id="SQ190-12" d="M0 0H190V190H0Z" transform="translate(440 1280)"/>
+    <path id="SQ190-13" d="M0 0H190V190H0Z" transform="translate(20 1490)"/><path id="SQ190-14" d="M0 0H190V190H0Z" transform="translate(230 1490)"/><path id="SQ190-15" d="M0 0H190V190H0Z" transform="translate(440 1490)"/>
+    <path id="SQ190-16" d="M0 0H190V190H0Z" transform="translate(20 1700)"/><path id="SQ190-17" d="M0 0H190V190H0Z" transform="translate(230 1700)"/><path id="SQ190-18" d="M0 0H190V190H0Z" transform="translate(440 1700)"/>
+  </g>
+</svg>

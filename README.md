@@ -154,10 +154,13 @@ rotations rather than converting a 1° or 2° editing step into hundreds of
 SVGnest rotations. The downloaded SVGnest result can now be imported back into
 Sheet Layout: Topomapper recovers the named instances, sheets, positions and
 rotations, restores exact geometry, and reruns the full-resolution DRC.
-Proxy simplification is controlled by a physical manufacturing tolerance rather
-than an arbitrary fixed vertex count. Sheet Layout defaults to a 3 mm cutter
-and 0.25 mm geometry tolerance, persists both settings in the project, and
-reports the proxy's measured maximum error and point count when downloaded.
+Proxy simplification is controlled by physical tolerances rather than an
+arbitrary fixed vertex count. Sheet Layout defaults to a 3 mm cutter and 0.25
+mm manufacturing tolerance. Because SVGnest's no-fit-polygon cost rises steeply
+with vertex count, its search proxy uses at least the cutter radius (1.5 mm by
+default); measured proxy error is added to search spacing, then exact geometry
+is restored and checked after import. The download reports the required SVGnest
+spacing, measured maximum error and point count.
 The interface names the current background search Optimise I and keeps disabled
 Optimise II/III positions visible for a later embedded SVGnest and deeper search,
 without implying that the external round trip has already been automated.

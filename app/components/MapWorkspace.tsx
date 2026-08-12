@@ -1428,8 +1428,12 @@ function simplifyClosedRingForNesting(ring: { x: number; y: number }[], requeste
 }
 
 function buildSvgNestJob(projectName: string, rules: SheetRules, parts: LayoutPart[], placements: SheetPlacement[]) {
+  // SVGnest's NFP cost rises steeply with coastline vertex count. Search at no
+  // finer than the cutter radius, then restore exact/manufacturing geometry on
+  // import. Measured proxy error is added to spacing, so this remains safe.
+  const nestingProxyTolerance = Math.max(rules.geometryTolerance, rules.cutterDiameter / 2);
   const proxyParts = parts.map((part) => {
-    const simplified = simplifyClosedRingForNesting(part.rings[0], rules.geometryTolerance);
+    const simplified = simplifyClosedRingForNesting(part.rings[0], nestingProxyTolerance);
     return { ...part, rings: [simplified.ring], holes: [], searchErrorMm: simplified.errorMm };
   });
   const partMap = new Map(proxyParts.map((part) => [part.id, part]));
@@ -1477,6 +1481,7 @@ function buildSvgNestJob(projectName: string, rules: SheetRules, parts: LayoutPa
     requested_spacing_mm: rules.partSpacing,
     cutter_diameter_mm: rules.cutterDiameter,
     geometry_tolerance_mm: rules.geometryTolerance,
+    nesting_proxy_tolerance_mm: nestingProxyTolerance,
     svgnest_spacing_mm: svgNumber(safeSpacing),
     maximum_proxy_error_mm: svgNumber(maximumProxyError),
     nesting_bin_margin_mm: svgNumber(nestingBinMargin),
@@ -1490,11 +1495,11 @@ function buildSvgNestJob(projectName: string, rules: SheetRules, parts: LayoutPa
   <title>${xmlText(projectName)} · SVGnest input</title>
   <desc>NESTING PROXY ONLY — NOT A CUTTING FILE. Click inside the pale green stock rectangle to select it as the SVGnest bin. Do not select the white page. Set spacing to ${svgNumber(safeSpacing)} SVG units. Exact coastlines, water holes, and drilling remain in Topomapper.</desc>
   <metadata>${xmlText(metadata)}</metadata>
-  <rect id="TOPOMAPPER_SHEET_BIN" x="${svgNumber(nestingBinMargin)}" y="${svgNumber(nestingBinMargin)}" width="${svgNumber(usableWidth)}" height="${svgNumber(usableHeight)}" data-topomapper-edge-margin="${svgNumber(rules.edgeMargin)}" data-topomapper-nesting-margin="${svgNumber(nestingBinMargin)}" data-topomapper-spacing="${svgNumber(safeSpacing)}" fill="#dcefdc" fill-opacity="0.72" stroke="#16815f" stroke-width="1.2" />
+  <rect id="TOPOMAPPER_SHEET_BIN" x="${svgNumber(nestingBinMargin)}" y="${svgNumber(nestingBinMargin)}" width="${svgNumber(usableWidth)}" height="${svgNumber(usableHeight)}" data-topomapper-edge-margin="${svgNumber(rules.edgeMargin)}" data-topomapper-nesting-margin="${svgNumber(nestingBinMargin)}" data-topomapper-spacing="${svgNumber(safeSpacing)}" data-topomapper-proxy-tolerance="${svgNumber(nestingProxyTolerance)}" fill="#dcefdc" fill-opacity="0.72" stroke="#16815f" stroke-width="1.2" />
 ${sourceParts.join("\n")}
 </svg>`;
   const proxyVertices = proxyParts.reduce((total, part) => total + (part.rings[0]?.length ?? 0), 0);
-  return { svg, safeSpacing, maximumProxyError, nestingBinMargin, effectiveEdgeClearance, proxyVertices, instanceCount: instances.length };
+  return { svg, safeSpacing, maximumProxyError, nestingProxyTolerance, nestingBinMargin, effectiveEdgeClearance, proxyVertices, instanceCount: instances.length };
 }
 
 type SvgMatrix = { a: number; b: number; c: number; d: number; e: number; f: number };
@@ -1579,7 +1584,8 @@ function importSvgNestLayout(svgText: string, parts: LayoutPart[], rules: SheetR
   const requestedEdgeMargin = Number(firstBin.getAttribute("data-topomapper-edge-margin") ?? firstBin.getAttribute("x"));
   const binWidth = Number(firstBin.getAttribute("width"));
   const binHeight = Number(firstBin.getAttribute("height"));
-  if (![marginX, marginY, requestedEdgeMargin, binWidth, binHeight].every(Number.isFinite)) throw new Error("The SVGnest stock-sheet dimensions are invalid.");
+  const nestingProxyTolerance = Number(firstBin.getAttribute("data-topomapper-proxy-tolerance") ?? rules.geometryTolerance);
+  if (![marginX, marginY, requestedEdgeMargin, binWidth, binHeight, nestingProxyTolerance].every(Number.isFinite)) throw new Error("The SVGnest stock-sheet dimensions are invalid.");
   const exportedWidth = binWidth + marginX * 2;
   const exportedHeight = binHeight + marginY * 2;
   if (Math.abs(exportedWidth - rules.width) > .1 || Math.abs(exportedHeight - rules.height) > .1 || Math.abs(requestedEdgeMargin - rules.edgeMargin) > .1) {
@@ -1602,7 +1608,7 @@ function importSvgNestLayout(svgText: string, parts: LayoutPart[], rules: SheetR
       seenPartIds.add(partId);
 
       const rawPoints = svgMoveLinePoints(path.getAttribute("d") ?? "");
-      const proxy = simplifyClosedRingForNesting(part.rings[0], rules.geometryTolerance).ring;
+      const proxy = simplifyClosedRingForNesting(part.rings[0], nestingProxyTolerance).ring;
       const rawMinimumX = Math.min(...rawPoints.map((point) => point.x));
       const rawMinimumY = Math.min(...rawPoints.map((point) => point.y));
       const proxyMinimumX = Math.min(...proxy.map((point) => point.x));
@@ -4147,7 +4153,7 @@ export function MapWorkspace() {
     const result = buildSvgNestJob(projectName || "Topomapper project", sheetRules, layoutParts, sheetPlacements);
     const stem = projectFilename(projectName || "topomapper-project").replace(/\.topomapper$/i, "");
     downloadFile(result.svg, "image/svg+xml;charset=utf-8", `${stem}-svgnest-proxy.svg`);
-    setSheetExportStatus(`Tolerance-controlled SVGnest proxy downloaded: ${result.instanceCount} parts, ${result.proxyVertices.toLocaleString("en-NZ")} outline points, maximum measured error ${result.maximumProxyError.toFixed(3)} mm (limit ${sheetRules.geometryTolerance.toFixed(3)} mm). In SVGnest click inside the pale green stock rectangle—not the white page—then set spacing to ${result.safeSpacing.toFixed(2)} and rotations to ${svgNestRotations}. The adjusted ${result.nestingBinMargin.toFixed(2)} mm proxy-bin inset compensates for SVGnest's half-spacing border offset and provides at least ${result.effectiveEdgeClearance.toFixed(2)} mm exact edge clearance on import.`);
+    setSheetExportStatus(`SVGnest search proxy downloaded: ${result.instanceCount} parts and ${result.proxyVertices.toLocaleString("en-NZ")} outline points. Search tolerance ${result.nestingProxyTolerance.toFixed(3)} mm; measured maximum error ${result.maximumProxyError.toFixed(3)} mm. In SVGnest click inside the pale green stock rectangle, set Space between parts to ${result.safeSpacing.toFixed(2)} (do not leave it at 0), Curve tolerance to 0.3 and Part rotations to ${svgNestRotations}. Exact ${sheetRules.geometryTolerance.toFixed(3)} mm manufacturing geometry remains in Topomapper and is restored on import.`);
   }
 
   async function importSvgNestResult(event: ChangeEvent<HTMLInputElement>) {
@@ -4938,7 +4944,7 @@ export function MapWorkspace() {
           {optimizerProgress && <p className="optimizer-progress" aria-live="polite">{optimizerProgress}</p>}
           <div className="svgnest-handoff">
             <div><span className="section-label">RECOMMENDED IRREGULAR NESTING</span><strong>Test the layout in SVGnest</strong><p>Topomapper prepares the stock boundary and a lightweight outer proxy for every part. SVGnest then searches part order and rotation with its no-fit-polygon genetic engine.</p></div>
-            <ol><li>Download the lightweight nesting proxy.</li><li>Open SVGnest and upload it.</li><li>Click inside the pale green stock rectangle as the bin—not the white page—and use the safety-adjusted spacing reported after download.</li><li>Set <label className="svgnest-rotations">rotations <select value={svgNestRotations} onChange={(event) => setSvgNestRotations(Number(event.target.value))}><option value={4}>4 · 90°</option><option value={8}>8 · 45°</option><option value={12}>12 · 30°</option><option value={24}>24 · 15°</option></select></label>, then Start Nest.</li><li>Download SVGnest's result and import it here.</li></ol>
+            <ol><li>Download the lightweight nesting proxy.</li><li>Open SVGnest and upload it.</li><li>Click inside the pale green stock rectangle as the bin—not the white page.</li><li>Set Space between parts to the value Topomapper reports after download; do not leave SVGnest's default 0.</li><li>Keep Curve tolerance at 0.3 and set <label className="svgnest-rotations">rotations <select value={svgNestRotations} onChange={(event) => setSvgNestRotations(Number(event.target.value))}><option value={4}>4 · 90°</option><option value={8}>8 · 45°</option><option value={12}>12 · 30°</option><option value={24}>24 · 15°</option></select></label>, then Start Nest.</li><li>Download SVGnest's result and import it here.</li></ol>
             <div><button disabled={!layoutParts.length} onClick={downloadSvgNestJob}>Download SVGnest proxy</button><a href="https://svgnest.com/" target="_blank" rel="noreferrer">Open SVGnest ↗</a><label className={`svgnest-import-button ${!layoutParts.length ? "disabled" : ""}`}>Import SVGnest result<input disabled={!layoutParts.length} type="file" accept=".svg,image/svg+xml" onChange={(event) => void importSvgNestResult(event)} /></label></div>
             <small>The proxy contains tolerance-controlled outer coastlines only, allowing SVGnest to solve placement without processing water or drilling holes. It is not suitable for cutting. Keep part-in-part off. Import restores exact coastlines, water holes and drilling, then reruns the full-resolution DRC before any manufacturing export.</small>
           </div>

@@ -606,6 +606,15 @@
   mm default) sheet settings. Cutter-aware feature rejection and final arc
   fitting remain separate manufacturing-stage work; SVGnest still receives
   polygonal proxy paths because it polygonifies SVG curves internally.
+- A real 139-part Taranaki proxy demonstrated that using the full 0.25 mm
+  manufacturing tolerance increased the search from about 4,775 to 16,914
+  vertices and stalled SVGnest; applying spacing could crash its offset/NFP
+  preparation. Nesting now uses a separate automatic proxy tolerance no finer
+  than cutter radius (1.5 mm for the default tool), while retaining the 0.25 mm
+  manufacturing setting for exact restored output. Measured proxy error remains
+  included twice in the safe SVGnest spacing.
+- The handoff instructions now explicitly warn that SVGnest's default spacing
+  of zero is not valid for a Topomapper proxy and state the exact value to enter.
 
 - Added a recommended SVGnest handoff alongside the editable Topomapper quick
   optimiser. This is intentionally an honest external-tool workflow rather

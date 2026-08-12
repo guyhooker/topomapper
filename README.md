@@ -147,7 +147,9 @@ ready-to-upload SVGnest proxy. To avoid SVGnest stalling during no-fit-polygon
 preparation, the proxy contains the usable stock boundary and a bounded-point
 outer outline for each production or replacement part. Exact coastlines, water
 holes, and registration drilling remain untouched in the project. Topomapper
-adds a conservative spacing allowance for proxy error and recommends 12 initial
+renders the selectable stock bin as a pale green filled rectangle so clicking
+inside it cannot accidentally select the tall white staging page. It adds a
+conservative spacing allowance for proxy error and recommends 12 initial
 rotations rather than converting a 1° or 2° editing step into hundreds of
 SVGnest rotations. The downloaded SVGnest result can now be imported back into
 Sheet Layout: Topomapper recovers the named instances, sheets, positions and
@@ -161,6 +163,8 @@ Optimise I uses tighter proxy clearance and repeated upper-left settling, with
 exact coastline DRC still required before an improved layout is displayed.
 Later attempts also probe cross-boundary cavities and favour placements inside
 the existing used envelope before extending it, trading speed for denser sheets.
+Best-result ranking primarily minimises total occupied sheet length, preventing
+a longer final offcut from being accepted merely because it is shallower.
 Sheet Layout defines Cut-edge gap as the final edge-to-edge distance between
 neighbouring exact parts. Each on-screen halo extends half that value outside
 its cut outline. The SVGnest proxy bin is moved outward to compensate for

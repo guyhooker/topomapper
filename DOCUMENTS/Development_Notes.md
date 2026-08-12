@@ -658,6 +658,16 @@
   scoring now strongly prefers positions that do not enlarge the sheet's current
   used envelope, so small pieces fill existing space before extending a row or
   opening another sheet. This is deliberately slower and remains interruptible.
+- Corrected Optimise I's best-result ranking after a quick placement using two
+  sheets plus 500 mm was replaced by a nominally better result using two sheets
+  plus 620 mm. Total occupied sheet length now outranks envelope area, so a
+  shallower but longer arrangement cannot be accepted as an improvement.
+- Diagnosed an SVGnest import that reported no stock-sheet bins. The unfilled
+  stock outline allowed a click inside it to select the white 1200 × 2439 mm
+  staging page behind it, producing a convincing but invalid nest on one tall
+  canvas. New proxies use a lightly filled, heavier-outlined stock rectangle;
+  the instructions explicitly distinguish it from the white page, and importing
+  a wrong-bin result now explains exactly how to repeat the nest.
 
 ### LINZ download authentication correction
 

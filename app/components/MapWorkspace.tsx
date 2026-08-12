@@ -992,7 +992,11 @@ function layoutFitness(placements: SheetPlacement[], partMap: Map<string, Layout
     envelopeArea += Math.max(0, right - rules.edgeMargin) * Math.max(0, bottom - rules.edgeMargin);
   });
   const sheetArea = Math.max(1, rules.width * rules.height);
-  return sheets.length * 1e12 + envelopeArea / sheetArea * 1e6 + usedWidth / Math.max(1, rules.width) * 1e3;
+  // Material consumption is primarily the sum of occupied sheet lengths. Do
+  // not accept a longer final sheet merely because the arrangement is shallower.
+  return sheets.length * 1e12
+    + usedWidth / Math.max(1, rules.width) * 1e9
+    + envelopeArea / sheetArea * 1e6;
 }
 
 function simplifyLayoutPartForSearch(part: LayoutPart, maximumPoints = 64): LayoutPart {
@@ -1456,9 +1460,9 @@ function buildSvgNestJob(projectName: string, rules: SheetRules, parts: LayoutPa
   const svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${svgNumber(stagingWidth)}mm" height="${svgNumber(stagingHeight)}mm" viewBox="0 0 ${svgNumber(stagingWidth)} ${svgNumber(stagingHeight)}">
   <title>${xmlText(projectName)} · SVGnest input</title>
-  <desc>NESTING PROXY ONLY — NOT A CUTTING FILE. Click the green rectangular outline to select it as the SVGnest bin. Set spacing to ${svgNumber(safeSpacing)} SVG units. Exact coastlines, water holes, and drilling remain in Topomapper.</desc>
+  <desc>NESTING PROXY ONLY — NOT A CUTTING FILE. Click inside the pale green stock rectangle to select it as the SVGnest bin. Do not select the white page. Set spacing to ${svgNumber(safeSpacing)} SVG units. Exact coastlines, water holes, and drilling remain in Topomapper.</desc>
   <metadata>${xmlText(metadata)}</metadata>
-  <rect id="TOPOMAPPER_SHEET_BIN" x="${svgNumber(nestingBinMargin)}" y="${svgNumber(nestingBinMargin)}" width="${svgNumber(usableWidth)}" height="${svgNumber(usableHeight)}" data-topomapper-edge-margin="${svgNumber(rules.edgeMargin)}" data-topomapper-nesting-margin="${svgNumber(nestingBinMargin)}" data-topomapper-spacing="${svgNumber(safeSpacing)}" fill="none" stroke="#16815f" stroke-width="0.8" />
+  <rect id="TOPOMAPPER_SHEET_BIN" x="${svgNumber(nestingBinMargin)}" y="${svgNumber(nestingBinMargin)}" width="${svgNumber(usableWidth)}" height="${svgNumber(usableHeight)}" data-topomapper-edge-margin="${svgNumber(rules.edgeMargin)}" data-topomapper-nesting-margin="${svgNumber(nestingBinMargin)}" data-topomapper-spacing="${svgNumber(safeSpacing)}" fill="#dcefdc" fill-opacity="0.72" stroke="#16815f" stroke-width="1.2" />
 ${sourceParts.join("\n")}
 </svg>`;
   const proxyVertices = proxyParts.reduce((total, part) => total + (part.rings[0]?.length ?? 0), 0);
@@ -1534,7 +1538,12 @@ function importSvgNestLayout(svgText: string, parts: LayoutPart[], rules: SheetR
   if (document.querySelector("parsererror")) throw new Error("The selected file is not readable SVG.");
   const root = document.documentElement;
   const sheets = Array.from(root.children).filter((element) => element.localName === "g" && Array.from(element.children).some((child) => child.localName === "rect" && child.getAttribute("id") === "TOPOMAPPER_SHEET_BIN"));
-  if (!sheets.length) throw new Error("This is not a Topomapper SVGnest result: no stock-sheet bins were found.");
+  if (!sheets.length) {
+    const misplacedStockBin = root.querySelector('rect[id="TOPOMAPPER_SHEET_BIN"]');
+    const stagingPageBin = root.querySelector('rect[class~="bin"]');
+    if (misplacedStockBin && stagingPageBin) throw new Error("SVGnest nested onto Topomapper's white staging page instead of the stock sheet. Download a fresh proxy, then click inside the pale green stock rectangle before pressing Start Nest.");
+    throw new Error("This is not a Topomapper SVGnest result: no stock-sheet bins were found.");
+  }
   const firstBin = Array.from(sheets[0].children).find((element) => element.localName === "rect" && element.getAttribute("id") === "TOPOMAPPER_SHEET_BIN");
   if (!firstBin) throw new Error("The SVGnest stock-sheet definition is missing.");
   const marginX = Number(firstBin.getAttribute("x"));
@@ -4103,7 +4112,7 @@ export function MapWorkspace() {
     const result = buildSvgNestJob(projectName || "Topomapper project", sheetRules, layoutParts, sheetPlacements);
     const stem = projectFilename(projectName || "topomapper-project").replace(/\.topomapper$/i, "");
     downloadFile(result.svg, "image/svg+xml;charset=utf-8", `${stem}-svgnest-proxy.svg`);
-    setSheetExportStatus(`Lightweight SVGnest proxy downloaded: ${result.instanceCount} parts, ${result.proxyVertices.toLocaleString("en-NZ")} outline points. In SVGnest select the green rectangle, set spacing to ${result.safeSpacing.toFixed(1)} and rotations to ${svgNestRotations}. The adjusted ${result.nestingBinMargin.toFixed(1)} mm proxy-bin inset compensates for SVGnest's half-spacing border offset and provides at least ${result.effectiveEdgeClearance.toFixed(1)} mm exact edge clearance on import.`);
+    setSheetExportStatus(`Lightweight SVGnest proxy downloaded: ${result.instanceCount} parts, ${result.proxyVertices.toLocaleString("en-NZ")} outline points. In SVGnest click inside the pale green stock rectangle—not the white page—then set spacing to ${result.safeSpacing.toFixed(1)} and rotations to ${svgNestRotations}. The adjusted ${result.nestingBinMargin.toFixed(1)} mm proxy-bin inset compensates for SVGnest's half-spacing border offset and provides at least ${result.effectiveEdgeClearance.toFixed(1)} mm exact edge clearance on import.`);
   }
 
   async function importSvgNestResult(event: ChangeEvent<HTMLInputElement>) {
@@ -4890,7 +4899,7 @@ export function MapWorkspace() {
           {optimizerProgress && <p className="optimizer-progress" aria-live="polite">{optimizerProgress}</p>}
           <div className="svgnest-handoff">
             <div><span className="section-label">RECOMMENDED IRREGULAR NESTING</span><strong>Test the layout in SVGnest</strong><p>Topomapper prepares the stock boundary and a lightweight outer proxy for every part. SVGnest then searches part order and rotation with its no-fit-polygon genetic engine.</p></div>
-            <ol><li>Download the lightweight nesting proxy.</li><li>Open SVGnest and upload it.</li><li>Click the green rectangle as the bin; use the safety-adjusted spacing reported after download.</li><li>Set <label className="svgnest-rotations">rotations <select value={svgNestRotations} onChange={(event) => setSvgNestRotations(Number(event.target.value))}><option value={4}>4 · 90°</option><option value={8}>8 · 45°</option><option value={12}>12 · 30°</option><option value={24}>24 · 15°</option></select></label>, then Start Nest.</li><li>Download SVGnest's result and import it here.</li></ol>
+            <ol><li>Download the lightweight nesting proxy.</li><li>Open SVGnest and upload it.</li><li>Click inside the pale green stock rectangle as the bin—not the white page—and use the safety-adjusted spacing reported after download.</li><li>Set <label className="svgnest-rotations">rotations <select value={svgNestRotations} onChange={(event) => setSvgNestRotations(Number(event.target.value))}><option value={4}>4 · 90°</option><option value={8}>8 · 45°</option><option value={12}>12 · 30°</option><option value={24}>24 · 15°</option></select></label>, then Start Nest.</li><li>Download SVGnest's result and import it here.</li></ol>
             <div><button disabled={!layoutParts.length} onClick={downloadSvgNestJob}>Download SVGnest proxy</button><a href="https://svgnest.com/" target="_blank" rel="noreferrer">Open SVGnest ↗</a><label className={`svgnest-import-button ${!layoutParts.length ? "disabled" : ""}`}>Import SVGnest result<input disabled={!layoutParts.length} type="file" accept=".svg,image/svg+xml" onChange={(event) => void importSvgNestResult(event)} /></label></div>
             <small>The proxy deliberately contains simplified outer coastlines only, allowing SVGnest to solve placement without processing hundreds of holes or thousands of raster steps. It is not suitable for cutting. Keep part-in-part off. Import restores exact coastlines, water holes and drilling, then reruns the full-resolution DRC before any manufacturing export.</small>
           </div>

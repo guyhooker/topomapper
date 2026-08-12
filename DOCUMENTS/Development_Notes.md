@@ -593,6 +593,10 @@
   one-sheet case whose compact arrangement requires polygon rotation and
   interlocking. These separate SVGnest behaviour from coastline complexity and
   Topomapper project/import state while diagnosing the external round trip.
+- The fixtures confirmed two upstream UI behaviours: SVGnest absolutely
+  positions exactly two bin previews on top of one another even though its
+  downloaded SVG separates them, and a rotation count of zero is ignored by
+  configuration validation rather than disabling rotation.
 
 - Added a recommended SVGnest handoff alongside the editable Topomapper quick
   optimiser. This is intentionally an honest external-tool workflow rather

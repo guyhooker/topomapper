@@ -28,3 +28,15 @@ In SVGnest, upload a fixture, click inside the pale-green rectangle to select
 the stock bin, set spacing to `0`, and press **Start Nest**. For the L-parts,
 use at least four rotations. These are nesting diagnostics only and must not be
 used as cutting files or imported into a Topomapper landscape project.
+
+Two upstream SVGnest interface quirks are visible in these tests:
+
+- When a result uses exactly two bins, SVGnest's webpage positions both previews
+  at the same screen coordinates, making the second sheet look like overlapping
+  parts on the first. **Download SVG** stacks the bins vertically with a gap and
+  reveals the real two-sheet result.
+- A Part rotations value of `0` is rejected rather than meaning “no rotation”.
+  SVGnest silently retains the preceding valid value (or its default of four),
+  so parts can still rotate. Use `1` for the smallest accepted rotation count,
+  although the upstream implementation has also been reported to rotate parts
+  in that mode; four explicitly means the cardinal 0/90/180/270-degree choices.

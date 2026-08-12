@@ -144,8 +144,8 @@ maps every sheet, labels all parts, preserves assembly-north arrows after
 arbitrary stock rotation, and includes a part/rotation index for hand labelling.
 For production-quality irregular nesting, Sheet Layout can now create a
 ready-to-upload SVGnest proxy. To avoid SVGnest stalling during no-fit-polygon
-preparation, the proxy contains the usable stock boundary and a bounded-point
-outer outline for each production or replacement part. Exact coastlines, water
+preparation, the proxy contains the usable stock boundary and a
+tolerance-controlled outer outline for each production or replacement part. Exact coastlines, water
 holes, and registration drilling remain untouched in the project. Topomapper
 renders the selectable stock bin as a pale green filled rectangle so clicking
 inside it cannot accidentally select the tall white staging page. It adds a
@@ -154,6 +154,10 @@ rotations rather than converting a 1° or 2° editing step into hundreds of
 SVGnest rotations. The downloaded SVGnest result can now be imported back into
 Sheet Layout: Topomapper recovers the named instances, sheets, positions and
 rotations, restores exact geometry, and reruns the full-resolution DRC.
+Proxy simplification is controlled by a physical manufacturing tolerance rather
+than an arbitrary fixed vertex count. Sheet Layout defaults to a 3 mm cutter
+and 0.25 mm geometry tolerance, persists both settings in the project, and
+reports the proxy's measured maximum error and point count when downloaded.
 The interface names the current background search Optimise I and keeps disabled
 Optimise II/III positions visible for a later embedded SVGnest and deeper search,
 without implying that the external round trip has already been automated.

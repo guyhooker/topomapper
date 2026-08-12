@@ -597,6 +597,15 @@
   positions exactly two bin previews on top of one another even though its
   downloaded SVG separates them, and a rotation count of zero is ignored by
   configuration validation rather than disabling rotation.
+- Replaced the fixed approximately-64-point SVGnest proxy with adaptive,
+  tolerance-controlled simplification. The default 0.25 mm physical geometry
+  tolerance is checked in both directions between the exact ring and proxy,
+  including samples across simplified chords to catch concave-inlet shortcuts.
+  The proxy download reports its measured maximum error and vertex count.
+- Added persisted Cutter diameter (3 mm default) and Geometry tolerance (0.25
+  mm default) sheet settings. Cutter-aware feature rejection and final arc
+  fitting remain separate manufacturing-stage work; SVGnest still receives
+  polygonal proxy paths because it polygonifies SVG curves internally.
 
 - Added a recommended SVGnest handoff alongside the editable Topomapper quick
   optimiser. This is intentionally an honest external-tool workflow rather
@@ -606,8 +615,7 @@
   at approximately 0% while preparing no-fit polygons; enlarging the bin could
   not reduce this geometric workload.
 - Replaced that input with a nesting-only proxy. Each part's outer coastline is
-  reduced toward at most 64 retained points using a measured-error line
-  simplifier; water and registration holes remain in
+  reduced using a measured-error line simplifier; water and registration holes remain in
   the Topomapper project rather than participating in SVGnest's search.
 - Measures the maximum proxy deviation and adds twice that value plus a small
   tolerance to the requested spacing, protecting the later exact outlines.

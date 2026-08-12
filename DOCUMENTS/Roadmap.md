@@ -275,7 +275,7 @@ editor, and its machining operations can be selected independently by layer.
   assembly-north arrows, and indexed stock rotations/positions, so parts can be
   labelled by hand after cutting.
 - A prepared SVGnest proxy containing the usable stock bin and a non-overlapping
-  bounded-point outer outline for every requested production/replacement part.
+  tolerance-controlled outer outline for every requested production/replacement part.
   Exact water cutouts, internal holes, and registration drilling remain in the
   project for restoration after nesting.
 - A conservative SVGnest spacing value that includes measured proxy deviation,

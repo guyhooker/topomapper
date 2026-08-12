@@ -182,7 +182,15 @@ type SheetRules = {
   thickness: number;
   edgeMargin: number;
   partSpacing: number;
+  cutterDiameter: number;
+  geometryTolerance: number;
 };
+
+const DEFAULT_SHEET_RULES: SheetRules = { width: 1200, height: 600, thickness: 3, edgeMargin: 15, partSpacing: 3, cutterDiameter: 3, geometryTolerance: .25 };
+
+function normalizedSheetRules(rules?: Partial<SheetRules>): SheetRules {
+  return { ...DEFAULT_SHEET_RULES, ...(rules ?? {}) };
+}
 
 type LayoutViolation = {
   placementIds: string[];
@@ -1373,7 +1381,27 @@ function simplifyOpenLine(points: { x: number; y: number }[], tolerance: number)
   ];
 }
 
-function simplifyClosedRingForNesting(ring: { x: number; y: number }[], targetPoints = 64) {
+function ringApproximationError(exact: { x: number; y: number }[], simplified: { x: number; y: number }[]) {
+  const distanceToLine = (point: { x: number; y: number }, line: { x: number; y: number }[]) => {
+    let minimum = Number.POSITIVE_INFINITY;
+    for (let index = 1; index < line.length; index += 1) minimum = Math.min(minimum, distanceToSegment(point, line[index - 1], line[index]));
+    return minimum;
+  };
+  let maximum = exact.reduce((error, point) => Math.max(error, distanceToLine(point, simplified)), 0);
+  // RDP bounds original points against proxy chords. Sampling the chords back
+  // against the original ring also catches a chord crossing a concave inlet.
+  for (let index = 1; index < simplified.length; index += 1) {
+    const start = simplified[index - 1];
+    const end = simplified[index];
+    for (let sample = 1; sample < 8; sample += 1) {
+      const ratio = sample / 8;
+      maximum = Math.max(maximum, distanceToLine({ x: start.x + (end.x - start.x) * ratio, y: start.y + (end.y - start.y) * ratio }, exact));
+    }
+  }
+  return maximum;
+}
+
+function simplifyClosedRingForNesting(ring: { x: number; y: number }[], requestedTolerance = .25) {
   const open = ring.length > 1 && Math.hypot(ring[0].x - ring[ring.length - 1].x, ring[0].y - ring[ring.length - 1].y) < 1e-8 ? ring.slice(0, -1) : [...ring];
   if (open.length <= 3) return { ring, errorMm: 0 };
   const leftIndex = open.reduce((best, point, index) => point.x < open[best].x ? index : best, 0);
@@ -1384,26 +1412,24 @@ function simplifyClosedRingForNesting(ring: { x: number; y: number }[], targetPo
     for (let index = start; index !== end;) { index = (index + 1) % open.length; result.push(open[index]); }
     return result;
   };
-  let tolerance = .5;
+  const toleranceLimit = Math.max(.01, requestedTolerance);
+  let tolerance = toleranceLimit;
   let simplified = ring;
-  for (let pass = 0; pass < 12; pass += 1) {
+  let errorMm = 0;
+  for (let pass = 0; pass < 10; pass += 1) {
     const first = simplifyOpenLine(chain(leftIndex, rightIndex), tolerance);
     const second = simplifyOpenLine(chain(rightIndex, leftIndex), tolerance);
     simplified = [...first.slice(0, -1), ...second.slice(0, -1), first[0]];
-    if (simplified.length <= targetPoints) break;
-    tolerance *= 1.45;
+    errorMm = ringApproximationError([...open, open[0]], simplified);
+    if (errorMm <= toleranceLimit + 1e-6) break;
+    tolerance *= .65;
   }
-  const errorMm = open.reduce((maximum, point) => {
-    let minimum = Number.POSITIVE_INFINITY;
-    for (let index = 1; index < simplified.length; index += 1) minimum = Math.min(minimum, distanceToSegment(point, simplified[index - 1], simplified[index]));
-    return Math.max(maximum, minimum);
-  }, 0);
   return { ring: simplified, errorMm };
 }
 
 function buildSvgNestJob(projectName: string, rules: SheetRules, parts: LayoutPart[], placements: SheetPlacement[]) {
   const proxyParts = parts.map((part) => {
-    const simplified = simplifyClosedRingForNesting(part.rings[0]);
+    const simplified = simplifyClosedRingForNesting(part.rings[0], rules.geometryTolerance);
     return { ...part, rings: [simplified.ring], holes: [], searchErrorMm: simplified.errorMm };
   });
   const partMap = new Map(proxyParts.map((part) => [part.id, part]));
@@ -1449,6 +1475,8 @@ function buildSvgNestJob(projectName: string, rules: SheetRules, parts: LayoutPa
     sheet_height_mm: rules.height,
     edge_margin_mm: rules.edgeMargin,
     requested_spacing_mm: rules.partSpacing,
+    cutter_diameter_mm: rules.cutterDiameter,
+    geometry_tolerance_mm: rules.geometryTolerance,
     svgnest_spacing_mm: svgNumber(safeSpacing),
     maximum_proxy_error_mm: svgNumber(maximumProxyError),
     nesting_bin_margin_mm: svgNumber(nestingBinMargin),
@@ -1574,7 +1602,7 @@ function importSvgNestLayout(svgText: string, parts: LayoutPart[], rules: SheetR
       seenPartIds.add(partId);
 
       const rawPoints = svgMoveLinePoints(path.getAttribute("d") ?? "");
-      const proxy = simplifyClosedRingForNesting(part.rings[0]).ring;
+      const proxy = simplifyClosedRingForNesting(part.rings[0], rules.geometryTolerance).ring;
       const rawMinimumX = Math.min(...rawPoints.map((point) => point.x));
       const rawMinimumY = Math.min(...rawPoints.map((point) => point.y));
       const proxyMinimumX = Math.min(...proxy.map((point) => point.x));
@@ -2501,8 +2529,8 @@ export function MapWorkspace() {
   const [appliedSmoothingLevels, setAppliedSmoothingLevels] = useState<Record<number, number>>({});
   const [smoothingCalculating, setSmoothingCalculating] = useState(false);
   const [smoothingZoom, setSmoothingZoom] = useState(1);
-  const [sheetRules, setSheetRules] = useState<SheetRules>({ width: 1200, height: 600, thickness: 3, edgeMargin: 15, partSpacing: 3 });
-  const [sheetRuleDraft, setSheetRuleDraft] = useState({ width: 1200, height: 600, edgeMargin: 15, partSpacing: 3 });
+  const [sheetRules, setSheetRules] = useState<SheetRules>(DEFAULT_SHEET_RULES);
+  const [sheetRuleDraft, setSheetRuleDraft] = useState({ width: 1200, height: 600, edgeMargin: 15, partSpacing: 3, cutterDiameter: 3, geometryTolerance: .25 });
   const [sheetRulesCalculating, setSheetRulesCalculating] = useState(false);
   const [sheetCount, setSheetCount] = useState(1);
   const [activeSheetIndex, setActiveSheetIndex] = useState(0);
@@ -2572,6 +2600,8 @@ export function MapWorkspace() {
       && sheetRuleDraft.height === sheetRules.height
       && sheetRuleDraft.edgeMargin === sheetRules.edgeMargin
       && sheetRuleDraft.partSpacing === sheetRules.partSpacing
+      && sheetRuleDraft.cutterDiameter === sheetRules.cutterDiameter
+      && sheetRuleDraft.geometryTolerance === sheetRules.geometryTolerance
       && rotationStepDraft === rotationStepDeg;
     if (unchanged) {
       setSheetRulesCalculating(false);
@@ -2588,7 +2618,7 @@ export function MapWorkspace() {
     return () => {
       if (sheetRulesTimerRef.current) clearTimeout(sheetRulesTimerRef.current);
     };
-  }, [sheetRuleDraft.width, sheetRuleDraft.height, sheetRuleDraft.edgeMargin, sheetRuleDraft.partSpacing, rotationStepDraft]);
+  }, [sheetRuleDraft.width, sheetRuleDraft.height, sheetRuleDraft.edgeMargin, sheetRuleDraft.partSpacing, sheetRuleDraft.cutterDiameter, sheetRuleDraft.geometryTolerance, rotationStepDraft]);
   useEffect(() => {
     if (!optimizerWorkerRef.current) return;
     optimizerWorkerRef.current.terminate();
@@ -3236,10 +3266,12 @@ export function MapWorkspace() {
     setSheetRuleDraft((rules) => ({ ...rules, [axis]: Math.max(100, value) }));
   }
 
-  function setSheetRuleDraftValue(axis: "edgeMargin" | "partSpacing", value: number) {
+  function setSheetRuleDraftValue(axis: "edgeMargin" | "partSpacing" | "cutterDiameter" | "geometryTolerance", value: number) {
     if (!Number.isFinite(value)) return;
     if (optimizerWorkerRef.current) stopNestingOptimiser();
-    setSheetRuleDraft((rules) => ({ ...rules, [axis]: Math.max(0, value) }));
+    const minimum = axis === "cutterDiameter" ? .1 : axis === "geometryTolerance" ? .01 : 0;
+    const bounded = axis === "geometryTolerance" ? Math.min(1, value) : value;
+    setSheetRuleDraft((rules) => ({ ...rules, [axis]: Math.max(minimum, bounded) }));
   }
 
   function setRotationStepDraftValue(value: number) {
@@ -3564,7 +3596,7 @@ export function MapWorkspace() {
       layers: { distribution: "log", count: DEFAULT_LAYER_COUNT, boundaries: [] },
       model: { stackView: "three-dimensional", stackYaw: 0, stackPitch: 34, showTrueElevation: true, smoothingLevels: {} },
       assembly: { gridPitchMm: 100, dowelDiameterMm: 4, holeDiameterMm: 4.2, holeEdgeClearanceMm: 6 },
-      layout: { sheetRules: { width: 1200, height: 600, thickness: 3, edgeMargin: 15, partSpacing: 3 }, sheetCount: 1, activeSheetIndex: 0, placements: [], rotationStepDeg: 15 },
+      layout: { sheetRules: DEFAULT_SHEET_RULES, sheetCount: 1, activeSheetIndex: 0, placements: [], rotationStepDeg: 15 },
       colour: { paletteId: "molotow-terrain", snowCapMode: "on", snowLayers: DEFAULT_SNOW_LAYERS, paintNotes: {} },
       view: { workspaceView: "two-dimensional", assemblyLayerIndex: 0, smoothingLayerIndex: 0 },
     };
@@ -3719,9 +3751,9 @@ export function MapWorkspace() {
     setDowelDiameterMm(project.assembly.dowelDiameterMm);
     setHoleDiameterMm(project.assembly.holeDiameterMm);
     setHoleEdgeClearanceMm(project.assembly.holeEdgeClearanceMm);
-    const restoredSheetRules = { ...project.layout.sheetRules, thickness: restoredMaterialThickness };
+    const restoredSheetRules = normalizedSheetRules({ ...project.layout.sheetRules, thickness: restoredMaterialThickness });
     setSheetRules(restoredSheetRules);
-    setSheetRuleDraft({ width: restoredSheetRules.width, height: restoredSheetRules.height, edgeMargin: restoredSheetRules.edgeMargin, partSpacing: restoredSheetRules.partSpacing });
+    setSheetRuleDraft({ width: restoredSheetRules.width, height: restoredSheetRules.height, edgeMargin: restoredSheetRules.edgeMargin, partSpacing: restoredSheetRules.partSpacing, cutterDiameter: restoredSheetRules.cutterDiameter, geometryTolerance: restoredSheetRules.geometryTolerance });
     setSheetCount(project.layout.sheetCount);
     setActiveSheetIndex(Math.min(project.layout.activeSheetIndex, Math.max(0, project.layout.sheetCount - 1)));
     setSheetPlacements(project.layout.placements);
@@ -3840,8 +3872,9 @@ export function MapWorkspace() {
     if (!data || data.format !== "topomapper-sheet-layout" || data.version !== 1 || !Array.isArray(data.sheetPlacements)) throw new Error("Not a Topomapper sheet layout file.");
     suppressLayoutDirtyRef.current = true;
     if (data.sheetRules) {
-      setSheetRules(data.sheetRules);
-      setSheetRuleDraft({ width: data.sheetRules.width, height: data.sheetRules.height, edgeMargin: data.sheetRules.edgeMargin, partSpacing: data.sheetRules.partSpacing });
+      const restoredRules = normalizedSheetRules(data.sheetRules);
+      setSheetRules(restoredRules);
+      setSheetRuleDraft({ width: restoredRules.width, height: restoredRules.height, edgeMargin: restoredRules.edgeMargin, partSpacing: restoredRules.partSpacing, cutterDiameter: restoredRules.cutterDiameter, geometryTolerance: restoredRules.geometryTolerance });
     }
     const count = Math.max(1, Math.round(data.sheetCount ?? 1));
     setSheetCount(count);
@@ -4107,12 +4140,14 @@ export function MapWorkspace() {
     setSheetExportStatus(`${populatedSheets.length} populated cutting SVG${populatedSheets.length === 1 ? "" : "s"} downloaded as a ZIP.`);
   }
 
-  function downloadSvgNestJob() {
+  async function downloadSvgNestJob() {
     if (!layoutParts.length) { setSheetExportStatus("Generate the manufacturing parts before creating an SVGnest job."); return; }
+    setSheetExportStatus(`Preparing a ${sheetRules.geometryTolerance.toFixed(3)} mm tolerance-controlled SVGnest proxy…`);
+    await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
     const result = buildSvgNestJob(projectName || "Topomapper project", sheetRules, layoutParts, sheetPlacements);
     const stem = projectFilename(projectName || "topomapper-project").replace(/\.topomapper$/i, "");
     downloadFile(result.svg, "image/svg+xml;charset=utf-8", `${stem}-svgnest-proxy.svg`);
-    setSheetExportStatus(`Lightweight SVGnest proxy downloaded: ${result.instanceCount} parts, ${result.proxyVertices.toLocaleString("en-NZ")} outline points. In SVGnest click inside the pale green stock rectangle—not the white page—then set spacing to ${result.safeSpacing.toFixed(1)} and rotations to ${svgNestRotations}. The adjusted ${result.nestingBinMargin.toFixed(1)} mm proxy-bin inset compensates for SVGnest's half-spacing border offset and provides at least ${result.effectiveEdgeClearance.toFixed(1)} mm exact edge clearance on import.`);
+    setSheetExportStatus(`Tolerance-controlled SVGnest proxy downloaded: ${result.instanceCount} parts, ${result.proxyVertices.toLocaleString("en-NZ")} outline points, maximum measured error ${result.maximumProxyError.toFixed(3)} mm (limit ${sheetRules.geometryTolerance.toFixed(3)} mm). In SVGnest click inside the pale green stock rectangle—not the white page—then set spacing to ${result.safeSpacing.toFixed(2)} and rotations to ${svgNestRotations}. The adjusted ${result.nestingBinMargin.toFixed(2)} mm proxy-bin inset compensates for SVGnest's half-spacing border offset and provides at least ${result.effectiveEdgeClearance.toFixed(2)} mm exact edge clearance on import.`);
   }
 
   async function importSvgNestResult(event: ChangeEvent<HTMLInputElement>) {
@@ -4702,6 +4737,8 @@ export function MapWorkspace() {
             <label><span>Sheet Thickness</span><strong><input type="number" value={materialThicknessMm} readOnly aria-label="Sheet thickness from Section 4" /><em>mm</em></strong></label>
             <label><span>Material Border</span><strong><input type="number" min="0" step="1" value={sheetRuleDraft.edgeMargin} onChange={(event) => setSheetRuleDraftValue("edgeMargin", Number(event.target.value))} /><em>mm</em></strong></label>
             <label><span>Part Spacing</span><strong><input type="number" min="0" step="0.1" value={sheetRuleDraft.partSpacing} onChange={(event) => setSheetRuleDraftValue("partSpacing", Number(event.target.value))} /><em>mm</em></strong></label>
+            <label><span>Cutter Diameter</span><strong><input type="number" min="0.1" step="0.1" value={sheetRuleDraft.cutterDiameter} onChange={(event) => setSheetRuleDraftValue("cutterDiameter", Number(event.target.value))} /><em>mm</em></strong></label>
+            <label><span>Geometry Tolerance</span><strong><input type="number" min="0.01" max="1" step="0.05" value={sheetRuleDraft.geometryTolerance} onChange={(event) => setSheetRuleDraftValue("geometryTolerance", Number(event.target.value))} /><em>mm</em></strong></label>
             <label><span>Min Rotation</span><strong><input type="number" min="1" max="90" step="1" value={rotationStepDraft} onChange={(event) => setRotationStepDraftValue(Number(event.target.value))} /><em>deg</em></strong></label>
             {sheetRulesCalculating && <p className="sheet-rules-calculating" role="status"><i aria-hidden="true" /> Rechecking sheet layout…</p>}
             <div className="drawer-placement-actions">
@@ -4886,6 +4923,8 @@ export function MapWorkspace() {
             <label>Thickness <span><input type="number" value={materialThicknessMm} readOnly /> mm</span></label>
             <label>Material border <span><input type="number" min="0" step="1" value={sheetRuleDraft.edgeMargin} onChange={(event) => setSheetRuleDraftValue("edgeMargin", Number(event.target.value))} /> mm</span></label>
             <label>Part spacing <span><input type="number" min="0" step="0.1" value={sheetRuleDraft.partSpacing} onChange={(event) => setSheetRuleDraftValue("partSpacing", Number(event.target.value))} /> mm</span></label>
+            <label>Cutter <span><input type="number" min="0.1" step="0.1" value={sheetRuleDraft.cutterDiameter} onChange={(event) => setSheetRuleDraftValue("cutterDiameter", Number(event.target.value))} /> mm</span></label>
+            <label>Tolerance <span><input type="number" min="0.01" max="1" step="0.05" value={sheetRuleDraft.geometryTolerance} onChange={(event) => setSheetRuleDraftValue("geometryTolerance", Number(event.target.value))} /> mm</span></label>
             <label>Rotation <span><select value={rotationStepDraft} onChange={(event) => setRotationStepDraftValue(Number(event.target.value))}><option value={1}>1°</option><option value={2}>2°</option><option value={5}>5°</option><option value={10}>10°</option><option value={15}>15°</option></select></span></label>
             <button disabled={sheetRulesCalculating} onClick={autoLayoutUnplaced}>Quick Placement</button>
             <button onClick={addReplacementSheet}>+ Replacement sheet</button>
@@ -4901,7 +4940,7 @@ export function MapWorkspace() {
             <div><span className="section-label">RECOMMENDED IRREGULAR NESTING</span><strong>Test the layout in SVGnest</strong><p>Topomapper prepares the stock boundary and a lightweight outer proxy for every part. SVGnest then searches part order and rotation with its no-fit-polygon genetic engine.</p></div>
             <ol><li>Download the lightweight nesting proxy.</li><li>Open SVGnest and upload it.</li><li>Click inside the pale green stock rectangle as the bin—not the white page—and use the safety-adjusted spacing reported after download.</li><li>Set <label className="svgnest-rotations">rotations <select value={svgNestRotations} onChange={(event) => setSvgNestRotations(Number(event.target.value))}><option value={4}>4 · 90°</option><option value={8}>8 · 45°</option><option value={12}>12 · 30°</option><option value={24}>24 · 15°</option></select></label>, then Start Nest.</li><li>Download SVGnest's result and import it here.</li></ol>
             <div><button disabled={!layoutParts.length} onClick={downloadSvgNestJob}>Download SVGnest proxy</button><a href="https://svgnest.com/" target="_blank" rel="noreferrer">Open SVGnest ↗</a><label className={`svgnest-import-button ${!layoutParts.length ? "disabled" : ""}`}>Import SVGnest result<input disabled={!layoutParts.length} type="file" accept=".svg,image/svg+xml" onChange={(event) => void importSvgNestResult(event)} /></label></div>
-            <small>The proxy deliberately contains simplified outer coastlines only, allowing SVGnest to solve placement without processing hundreds of holes or thousands of raster steps. It is not suitable for cutting. Keep part-in-part off. Import restores exact coastlines, water holes and drilling, then reruns the full-resolution DRC before any manufacturing export.</small>
+            <small>The proxy contains tolerance-controlled outer coastlines only, allowing SVGnest to solve placement without processing water or drilling holes. It is not suitable for cutting. Keep part-in-part off. Import restores exact coastlines, water holes and drilling, then reruns the full-resolution DRC before any manufacturing export.</small>
           </div>
           <div className="sheet-tabs" aria-label="Material sheets">
             {Array.from({ length: sheetCount }, (_, index) => <button key={index} className={index === activeSheetIndex ? "active" : ""} onClick={() => { setActiveSheetIndex(index); setSelectedPlacementId(null); setSheetZoom(1); setSheetViewCenter({ x: sheetRules.width / 2, y: sheetRules.height / 2 }); }}>Sheet {index + 1}<small>{sheetPlacements.filter((placement) => placement.sheetIndex === index).length} parts</small></button>)}

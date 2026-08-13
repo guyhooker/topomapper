@@ -2632,6 +2632,7 @@ export function MapWorkspace() {
   const [rotationStepDeg, setRotationStepDeg] = useState(15);
   const [rotationStepDraft, setRotationStepDraft] = useState(15);
   const [svgNestRotations, setSvgNestRotations] = useState(12);
+  const [lastSvgNestSpacing, setLastSvgNestSpacing] = useState<number | null>(null);
   const [optimizerRunning, setOptimizerRunning] = useState(false);
   const [optimizerStatus, setOptimizerStatus] = useState("Ready to search for a tighter polygon-aware layout.");
   const [optimizerProgress, setOptimizerProgress] = useState("");
@@ -3646,9 +3647,11 @@ export function MapWorkspace() {
     layoutViolationsRef.current = checked;
     return checked;
   }, [sheetPlacements, layoutParts, sheetRules.width, sheetRules.height, sheetRules.edgeMargin, sheetRules.partSpacing, sheetPartDragging]);
-  const sheetLayoutComplete = layoutParts.length > 0
-    && layoutParts.every((part) => sheetPlacements.some((placement) => placement.partId === part.id))
-    && layoutViolations.length === 0;
+  const allLayoutPartsPlaced = layoutParts.length > 0
+    && layoutParts.every((part) => sheetPlacements.some((placement) => placement.partId === part.id));
+  const sheetLayoutComplete = allLayoutPartsPlaced && layoutViolations.length === 0;
+  const sheetLayoutStatus = sheetLayoutComplete ? "Complete" : allLayoutPartsPlaced ? "Warnings" : "Incomplete";
+  const sheetLayoutStatusClass = sheetLayoutComplete ? "complete" : allLayoutPartsPlaced ? "warning" : "incomplete";
   const highlightedPlacementIds = selectedViolationIndex !== null ? (layoutViolations[selectedViolationIndex]?.placementIds ?? []) : [];
   const selectedPlacement = sheetPlacements.find((placement) => placement.id === selectedPlacementId) ?? null;
   const placedArea = sheetPlacements.reduce((total, placement) => total + (layoutParts.find((part) => part.id === placement.partId)?.areaMm2 ?? 0), 0);
@@ -4247,6 +4250,7 @@ export function MapWorkspace() {
     setSheetExportStatus(`Preparing a ${sheetRules.geometryTolerance.toFixed(3)} mm tolerance-controlled SVGnest proxy…`);
     await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
     const result = buildSvgNestJob(projectName || "Topomapper project", sheetRules, layoutParts, sheetPlacements);
+    setLastSvgNestSpacing(result.safeSpacing);
     const stem = projectFilename(projectName || "topomapper-project").replace(/\.topomapper$/i, "");
     downloadFile(result.svg, "image/svg+xml;charset=utf-8", `${stem}-svgnest-proxy.svg`);
     setSheetExportStatus(`SVGnest search proxy downloaded: ${result.instanceCount} parts and ${result.proxyVertices.toLocaleString("en-NZ")} outline points. Search tolerance ${result.nestingProxyTolerance.toFixed(3)} mm; measured maximum error ${result.maximumProxyError.toFixed(3)} mm. In SVGnest click inside the pale green stock rectangle, set Space between parts to ${result.safeSpacing.toFixed(2)} (do not leave it at 0), Curve tolerance to 0.3 and Part rotations to ${svgNestRotations}. Exact ${sheetRules.geometryTolerance.toFixed(3)} mm manufacturing geometry remains in Topomapper and is restored on import.`);
@@ -4841,8 +4845,8 @@ export function MapWorkspace() {
         <details className="workflow-stage sheet-stage" open={sheetStageOpen} onToggle={(event) => setSheetStageOpen(event.currentTarget.open)}>
           <summary className="workflow-stage-summary">
             <span><strong>7) Sheet Layout</strong></span>
-            <em>{sheetLayoutComplete ? "Complete" : "Incomplete"}</em>
-            <i className={`stage-status-led ${sheetLayoutComplete ? "complete" : "incomplete"}`} aria-hidden="true" />
+            <em>{sheetLayoutStatus}</em>
+            <i className={`stage-status-led ${sheetLayoutStatusClass}`} aria-hidden="true" />
             <b aria-hidden="true">{sheetStageOpen ? "−" : "+"}</b>
           </summary>
           <div className="workflow-stage-body sheet-size-settings">
@@ -4857,9 +4861,22 @@ export function MapWorkspace() {
             {sheetRulesCalculating && <p className="sheet-rules-calculating" role="status"><i aria-hidden="true" /> Rechecking sheet layout…</p>}
             <div className="drawer-placement-actions">
               <button disabled={!layoutParts.length || sheetRulesCalculating} onClick={() => { autoLayoutUnplaced(); setWorkspaceView("sheet-layout"); }}>Quick Placement</button>
-              <div><button disabled={optimizerRunning || !layoutParts.length || sheetRulesCalculating} onClick={() => { setWorkspaceView("sheet-layout"); void startNestingOptimiser(); }}>Optimise I</button><button disabled title="Reserved for embedded SVGnest optimisation">Optimise II</button><button disabled title="Reserved for deeper multi-start optimisation">Optimise III</button></div>
+              <div><button onClick={addReplacementSheet}>+ Replacement sheet</button><button disabled={optimizerRunning || !layoutParts.length || sheetRulesCalculating} onClick={() => { setWorkspaceView("sheet-layout"); void startNestingOptimiser(); }}>Optimise I</button><button disabled title="Reserved for embedded SVGnest optimisation">Optimise II</button><button disabled title="Reserved for deeper multi-start optimisation">Optimise III</button></div>
               {optimizerRunning && <button className="stop-optimising" onClick={stopNestingOptimiser}>Stop optimisation</button>}
               <p role="status">{optimizerProgress || optimizerStatus}</p>
+            </div>
+            <div className="drawer-svgnest-actions">
+              <strong>SVGnest process</strong>
+              <p>Topomapper calculates the compensated spacing when it prepares the file.</p>
+              <label>Part rotations<select value={svgNestRotations} onChange={(event) => setSvgNestRotations(Number(event.target.value))}><option value={4}>4 · 90°</option><option value={8}>8 · 45°</option><option value={12}>12 · 30°</option><option value={24}>24 · 15°</option></select></label>
+              <ol>
+                <li><button disabled={!layoutParts.length} onClick={downloadSvgNestJob}>1 · Download nest file</button></li>
+                <li><a href="https://svgnest.com/" target="_blank" rel="noreferrer">2 · Process in SVGnest ↗</a></li>
+                <li><label className={`drawer-svgnest-import ${!layoutParts.length ? "disabled" : ""}`}>3 · Import nest result<input disabled={!layoutParts.length} type="file" accept=".svg,image/svg+xml" onChange={(event) => void importSvgNestResult(event)} /></label></li>
+              </ol>
+              <p className="drawer-svgnest-spacing">SVGnest spacing: <b>{lastSvgNestSpacing === null ? "shown after download" : `${lastSvgNestSpacing.toFixed(2)} mm`}</b>. Enter it in SVGnest and press Save Settings.</p>
+              <details><summary>Diagnostic test file</summary><button disabled={!layoutParts.length} onClick={downloadSvgNestDiagnosticJob}>Download 20% diagnostic</button></details>
+              <p role="status">{sheetExportStatus}</p>
             </div>
           </div>
         </details>
@@ -5031,31 +5048,9 @@ export function MapWorkspace() {
             <div><span className="section-label">SECTION 7 · SHEET FITTING</span><strong id="sheet-layout-heading">Place production or replacement parts</strong></div>
             <span className={sheetPartDragging ? "checking" : layoutViolations.length ? "warning" : "ready"}>{sheetPartDragging ? "Moving · DRC on release" : layoutViolations.length ? `${layoutViolations.length} DRC warning${layoutViolations.length === 1 ? "" : "s"}` : "DRC clear"}</span>
           </div>
-          <div className="sheet-rules-toolbar">
-            <label>Sheet W <span><input type="number" min="100" step="10" value={sheetRuleDraft.width} onChange={(event) => setSheetDimension("width", Number(event.target.value))} /> mm</span></label>
-            <label>Sheet H <span><input type="number" min="100" step="10" value={sheetRuleDraft.height} onChange={(event) => setSheetDimension("height", Number(event.target.value))} /> mm</span></label>
-            <label>Thickness <span><input type="number" value={materialThicknessMm} readOnly /> mm</span></label>
-            <label>Material border <span><input type="number" min="0" step="1" value={sheetRuleDraft.edgeMargin} onChange={(event) => setSheetRuleDraftValue("edgeMargin", Number(event.target.value))} /> mm</span></label>
-            <label>Part spacing <span><input type="number" min="0" step="0.1" value={sheetRuleDraft.partSpacing} onChange={(event) => setSheetRuleDraftValue("partSpacing", Number(event.target.value))} /> mm</span></label>
-            <label>Cutter <span><input type="number" min="0.1" step="0.1" value={sheetRuleDraft.cutterDiameter} onChange={(event) => setSheetRuleDraftValue("cutterDiameter", Number(event.target.value))} /> mm</span></label>
-            <label>Tolerance <span><input type="number" min="0.01" max="1" step="0.05" value={sheetRuleDraft.geometryTolerance} onChange={(event) => setSheetRuleDraftValue("geometryTolerance", Number(event.target.value))} /> mm</span></label>
-            <label>Rotation <span><select value={rotationStepDraft} onChange={(event) => setRotationStepDraftValue(Number(event.target.value))}><option value={1}>1°</option><option value={2}>2°</option><option value={5}>5°</option><option value={10}>10°</option><option value={15}>15°</option></select></span></label>
-            <button disabled={sheetRulesCalculating} onClick={autoLayoutUnplaced}>Quick Placement</button>
-            <button onClick={addReplacementSheet}>+ Replacement sheet</button>
-            <button disabled={optimizerRunning || !layoutParts.length || sheetRulesCalculating} onClick={() => void startNestingOptimiser()}>Optimise I</button>
-            <button disabled title="Reserved for embedded SVGnest optimisation">Optimise II</button>
-            <button disabled title="Reserved for deeper multi-start optimisation">Optimise III</button>
-            <button disabled={!optimizerRunning} onClick={stopNestingOptimiser}>Stop</button>
-          </div>
           {sheetRulesCalculating && <p className="sheet-rules-calculating toolbar-rule-status" role="status"><i aria-hidden="true" /> Rechecking sheet layout…</p>}
           <p className={`optimizer-status ${optimizerRunning ? "running" : ""}`} role="status">{optimizerStatus}</p>
           {optimizerProgress && <p className="optimizer-progress" aria-live="polite">{optimizerProgress}</p>}
-          <div className="svgnest-handoff">
-            <div><span className="section-label">RECOMMENDED IRREGULAR NESTING</span><strong>Test the layout in SVGnest</strong><p>Topomapper prepares the stock boundary and a lightweight outer proxy for every part. SVGnest then searches part order and rotation with its no-fit-polygon genetic engine.</p></div>
-            <ol><li>Download the lightweight nesting proxy.</li><li>Open SVGnest and upload it.</li><li>Click inside the pale green stock rectangle as the bin—not the white page.</li><li>Open SVGnest Settings, enter the Space between parts value Topomapper reports, then click SVGnest's Save Settings button. Do not leave the default 0.</li><li>Keep Curve tolerance at 0.3 and set <label className="svgnest-rotations">rotations <select value={svgNestRotations} onChange={(event) => setSvgNestRotations(Number(event.target.value))}><option value={4}>4 · 90°</option><option value={8}>8 · 45°</option><option value={12}>12 · 30°</option><option value={24}>24 · 15°</option></select></label>, then Start Nest.</li><li>Download SVGnest's result and import it here.</li></ol>
-            <div><button disabled={!layoutParts.length} onClick={downloadSvgNestJob}>Download full SVGnest proxy</button><button disabled={!layoutParts.length} onClick={downloadSvgNestDiagnosticJob}>Download 20% diagnostic</button><a href="https://svgnest.com/" target="_blank" rel="noreferrer">Open SVGnest ↗</a><label className={`svgnest-import-button ${!layoutParts.length ? "disabled" : ""}`}>Import SVGnest result<input disabled={!layoutParts.length} type="file" accept=".svg,image/svg+xml" onChange={(event) => void importSvgNestResult(event)} /></label></div>
-            <small>The proxy contains tolerance-controlled outer coastlines only, allowing SVGnest to solve placement without processing water or drilling holes. It is not suitable for cutting. Keep part-in-part off. Import restores exact coastlines, water holes and drilling, then reruns the full-resolution DRC before any manufacturing export.</small>
-          </div>
           <div className="sheet-tabs" aria-label="Material sheets">
             {Array.from({ length: sheetCount }, (_, index) => <button key={index} className={index === activeSheetIndex ? "active" : ""} onClick={() => { setActiveSheetIndex(index); setSelectedPlacementId(null); setSheetZoom(1); setSheetViewCenter({ x: sheetRules.width / 2, y: sheetRules.height / 2 }); }}>Sheet {index + 1}<small>{sheetPlacements.filter((placement) => placement.sheetIndex === index).length} parts</small></button>)}
             <div className="sheet-view-controls"><span>View</span>{[1, 2, 4, 8].map((value) => <button key={value} className={sheetZoom === value ? "active" : ""} onClick={() => setSheetZoom(value)}>{value}×</button>)}<button onClick={() => { setSheetZoom(1); setSheetViewCenter({ x: sheetRules.width / 2, y: sheetRules.height / 2 }); }}>Fit</button><button disabled={!selectedPlacement} onClick={() => selectedPlacement && focusSheetPlacement(selectedPlacement)}>Focus selected</button><button disabled={!selectedPlacement} onClick={() => { setSelectedPlacementId(null); setSelectedViolationIndex(null); }}>Deselect</button></div>
@@ -5083,13 +5078,10 @@ export function MapWorkspace() {
               <div className="sheet-layout-metrics"><span><small>Sheets</small><strong>{sheetCount}</strong></span><span><small>Instances</small><strong>{sheetPlacements.length}</strong></span><span><small>Area use</small><strong>{sheetUtilisation.toFixed(1)}%</strong></span></div>
               <p className="layout-save-status" role="status">Project: {projectName || "none"} · {projectStatus}</p>
               <div className="sheet-export-actions">
-                <button disabled={!layoutParts.length} onClick={downloadSvgNestJob}>Download SVGnest proxy</button>
-                <label className={`sheet-import-action ${!layoutParts.length ? "disabled" : ""}`}>Import SVGnest result<input disabled={!layoutParts.length} type="file" accept=".svg,image/svg+xml" onChange={(event) => void importSvgNestResult(event)} /></label>
                 <button disabled={!sheetPlacements.some((placement) => placement.sheetIndex === activeSheetIndex)} onClick={downloadActiveSheetSvg}>Download Sheet {activeSheetIndex + 1} SVG</button>
                 <button disabled={!sheetPlacements.length} onClick={downloadAllSheetSvgs}>Download all sheet SVGs</button>
                 <button disabled={!sheetPlacements.length} onClick={() => void downloadLayoutGuidePdf()}>Download printable layout guide PDF</button>
               </div>
-              <p className="sheet-export-status" role="status">{sheetExportStatus}</p>
               {selectedPlacement && (
                 <div className="selected-placement-controls">
                   <strong>{selectedPlacement.partId}</strong><span>Sheet {selectedPlacement.sheetIndex + 1} · {selectedPlacement.rotation}° · X {selectedPlacement.x.toFixed(1)}, Y {selectedPlacement.y.toFixed(1)} mm</span>

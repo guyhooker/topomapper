@@ -806,3 +806,25 @@
   nested layouts exhaust the browser tab.
 - Removed the duplicate synchronous DRC pass from the import handler; the normal
   layout-state refresh now performs the check once after import.
+
+### Sheet Layout control consolidation
+
+- Made the Sheet Layout canvas a viewing and editing workspace rather than a
+  second settings form. Stock dimensions, border, spacing, cutter, tolerance,
+  rotation, Quick Placement, optimisation and replacement-sheet controls now
+  live only in Section 7 of the Setup drawer.
+- Moved the external nesting handoff into the same drawer as a numbered
+  Download nest file, Process in SVGnest and Import nest result sequence. The
+  compensated SVGnest spacing is shown there after export, beside the SVGnest
+  rotation choice. The 20% test export remains under a diagnostic disclosure.
+- Kept only finished manufacturing SVG/PDF downloads, part controls and DRC in
+  the right-hand layout panel. Increased DRC explanatory and warning text from
+  7 px to 9 px with more line spacing and larger click targets.
+- Sheet Layout progress now distinguishes three conditions: red means parts are
+  unplaced, amber means all parts are placed but DRC warnings remain, and green
+  means every part is placed and full-resolution DRC is clear.
+- The eventual one-button nesting cycle will embed SVGnest's MIT-licensed
+  browser/Web Worker engine in Topomapper. It will pass compensated spacing and
+  rotation settings directly and return placements without browser downloads;
+  automating the separate svgnest.com page is deliberately not part of the
+  design.

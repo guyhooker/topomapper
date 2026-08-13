@@ -180,6 +180,13 @@ and changed outlines are checked again by the normal full-resolution DRC.
 SVGnest settings take effect only after its own **Save Settings** control is
 pressed. A downloaded result with touching outlines indicates that its spacing
 remained at zero; Topomapper's post-import DRC reports those clearances.
+The complete handoff is grouped in Setup Section 7 as Download, Process and
+Import. Sheet dimensions and nesting rules are no longer duplicated above the
+layout canvas. A red Sheet Layout status means parts remain unplaced, amber
+means every part is placed with DRC warnings, and green means the layout is
+fully placed and DRC-clear. Embedding SVGnest's MIT-licensed Web Worker is the
+planned next step for passing spacing automatically and eliminating the file
+round trip; Topomapper will not attempt to remote-control svgnest.com.
 Optimise I uses tighter proxy clearance and repeated upper-left settling, with
 exact coastline DRC still required before an improved layout is displayed.
 Later attempts also probe cross-boundary cavities and favour placements inside

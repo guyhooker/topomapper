@@ -257,7 +257,7 @@ editor, and its machining operations can be selected independently by layer.
 
 ## Stage 11 — Automatic Sheet Nesting
 
-**Status: SVGnest export/import round trip implemented — acceptance test pending**
+**Status: SVGnest multi-sheet round trip validated — embedded worker pending**
 
 ### Adds
 

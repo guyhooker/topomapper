@@ -127,6 +127,7 @@ type FilledLayerPreview = {
 
 type PhysicalPart = {
   id: string;
+  displayId: string;
   layerIndex: number;
   feature: FilledLayerFeature;
   labelPoint: [number, number];
@@ -156,16 +157,33 @@ type AssemblyPlan = {
 
 type LayoutPart = {
   id: string;
+  displayId: string;
   layerIndex: number;
   width: number;
   height: number;
   areaMm2: number;
   labelPoint: { x: number; y: number };
   machineLabel: boolean;
+  hasIdFlag: boolean;
   rings: { x: number; y: number }[][];
   holes: { x: number; y: number; kind: "grid" | "vent" }[];
   searchErrorMm?: number;
 };
+
+type PartIdentificationSettings = {
+  addIdsToUnderside: boolean;
+  useFlagsForSmallParts: boolean;
+  applied: boolean;
+};
+
+const DEFAULT_PART_IDENTIFICATION: PartIdentificationSettings = {
+  addIdsToUnderside: true,
+  useFlagsForSmallParts: true,
+  applied: false,
+};
+const ID_FLAG_WIDTH_MM = 6;
+const ID_FLAG_LENGTH_MM = 10;
+const ID_FLAG_NECK_MM = 3;
 
 type SheetPlacement = {
   id: string;
@@ -246,6 +264,7 @@ type TopomapperProject = {
     holeDiameterMm: number;
     holeEdgeClearanceMm: number;
   };
+  identification?: PartIdentificationSettings;
   layout: {
     sheetRules: SheetRules;
     sheetCount: number;
@@ -298,7 +317,7 @@ const PROJECT_STORE_NAME = "projects";
 const ACTIVE_PROJECT_KEY = "topomapper:active-project";
 const DEFAULT_LAYER_COUNT = 10;
 const MIN_LAYER_COUNT = 5;
-const MAX_LAYER_COUNT = 30;
+const MAX_LAYER_COUNT = 26;
 const DEFAULT_SNOW_LAYERS = 1;
 const MIN_SNOW_LAYERS = 1;
 const MAX_SNOW_LAYERS = 5;
@@ -782,6 +801,7 @@ function buildPhysicalParts(preview: FilledLayerPreview, modelWidth: number, mod
       result.push({
         ...part,
         id: `L${String(layer.index + 1).padStart(2, "0")}${partLetter(index)}`,
+        displayId: `${String.fromCharCode(65 + Math.min(25, layer.index))}${index + 1}`,
         machineLabel: part.labelClearanceMm >= 9 && coveringClearance >= 9 && part.areaMm2 >= 300,
       });
     });
@@ -872,28 +892,101 @@ function buildAssemblyPlan(
   const warnings: string[] = [];
   if (!vents.length) warnings.push("No peak-to-base vent could fit safely; use the north marks and buried grid holes for alignment.");
   if (!holes.length) warnings.push("No alignment hole has enough buried material and edge clearance.");
+  if (parts.some((part) => Number(part.displayId.slice(1)) > 99)) warnings.push("At least one layer has more than 99 parts. Increase smoothing until every A1–Z99 identifier is unique.");
   const unlabelled = parts.filter((part) => !part.machineLabel).length;
   if (unlabelled) warnings.push(`${unlabelled} small part${unlabelled === 1 ? " is" : "s are"} too small for reliable machining text; use the assembly sheet.`);
   return { parts, holes, ventComplete: vents.length > 0, warnings };
 }
 
-function buildLayoutParts(preview: FilledLayerPreview, plan: AssemblyPlan, modelWidth: number, modelHeight: number): LayoutPart[] {
+function appendNorthIdFlag(outerRing: { x: number; y: number }[]) {
+  const closed = outerRing.length > 1 && Math.hypot(outerRing[0].x - outerRing[outerRing.length - 1].x, outerRing[0].y - outerRing[outerRing.length - 1].y) < 1e-7;
+  const ring = closed ? outerRing.slice(0, -1) : [...outerRing];
+  if (ring.length < 3) return null;
+  const numericRing = ring.map((point) => [point.x, point.y]);
+  let best: { index: number; score: number } | null = null;
+  ring.forEach((start, index) => {
+    const end = ring[(index + 1) % ring.length];
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const length = Math.hypot(dx, dy);
+    if (length < ID_FLAG_NECK_MM + .5 || Math.abs(dx) < ID_FLAG_NECK_MM * .8) return;
+    const centre = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
+    const northOutside = !pointInRing([centre.x, centre.y - .5], numericRing);
+    const southInside = pointInRing([centre.x, centre.y + .5], numericRing);
+    if (!northOutside || !southInside) return;
+    const score = centre.y + Math.abs(dy / length) * 20;
+    if (!best || score < best.score) best = { index, score };
+  });
+  if (!best) return null;
+
+  const edgeIndex = best.index;
+  const start = ring[edgeIndex];
+  const end = ring[(edgeIndex + 1) % ring.length];
+  const length = Math.hypot(end.x - start.x, end.y - start.y);
+  const unit = { x: (end.x - start.x) / length, y: (end.y - start.y) / length };
+  const centre = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
+  const firstAttach = { x: centre.x - unit.x * ID_FLAG_NECK_MM / 2, y: centre.y - unit.y * ID_FLAG_NECK_MM / 2 };
+  const secondAttach = { x: centre.x + unit.x * ID_FLAG_NECK_MM / 2, y: centre.y + unit.y * ID_FLAG_NECK_MM / 2 };
+  const shoulderY = Math.min(firstAttach.y, secondAttach.y) - 1.5;
+  const topY = Math.min(firstAttach.y, secondAttach.y) - ID_FLAG_LENGTH_MM;
+  const firstSideX = centre.x + (unit.x >= 0 ? -ID_FLAG_WIDTH_MM / 2 : ID_FLAG_WIDTH_MM / 2);
+  const secondSideX = centre.x + (unit.x >= 0 ? ID_FLAG_WIDTH_MM / 2 : -ID_FLAG_WIDTH_MM / 2);
+  const excursion = [
+    firstAttach,
+    { x: firstAttach.x, y: shoulderY },
+    { x: firstSideX, y: shoulderY },
+    { x: firstSideX, y: topY },
+    { x: secondSideX, y: topY },
+    { x: secondSideX, y: shoulderY },
+    { x: secondAttach.x, y: shoulderY },
+    secondAttach,
+  ];
+  const result = [...ring.slice(0, edgeIndex + 1), ...excursion, ...ring.slice(edgeIndex + 1)];
+  result.push({ ...result[0] });
+  return { ring: result, labelPoint: { x: centre.x, y: topY + ID_FLAG_LENGTH_MM * .52 } };
+}
+
+function identifiedPartGeometry(
+  preview: FilledLayerPreview,
+  part: PhysicalPart,
+  modelWidth: number,
+  modelHeight: number,
+  identification: PartIdentificationSettings,
+) {
+  const rings = part.feature.geometry.coordinates.map((ring) => ring.map((point) => physicalPoint(preview, modelWidth, modelHeight, point)));
+  const ordinaryLabel = physicalPoint(preview, modelWidth, modelHeight, part.labelPoint);
+  if (identification.applied && identification.addIdsToUnderside && identification.useFlagsForSmallParts && !part.machineLabel) {
+    const flagged = appendNorthIdFlag(rings[0]);
+    if (flagged) return { rings: [flagged.ring, ...rings.slice(1)], labelPoint: flagged.labelPoint, machineLabel: true, hasIdFlag: true };
+  }
+  return {
+    rings,
+    labelPoint: ordinaryLabel,
+    machineLabel: identification.applied && identification.addIdsToUnderside && part.machineLabel,
+    hasIdFlag: false,
+  };
+}
+
+function buildLayoutParts(preview: FilledLayerPreview, plan: AssemblyPlan, modelWidth: number, modelHeight: number, identification: PartIdentificationSettings): LayoutPart[] {
   return plan.parts.map((part) => {
-    const physicalRings = part.feature.geometry.coordinates.map((ring) => ring.map((point) => physicalPoint(preview, modelWidth, modelHeight, point)));
+    const identified = identifiedPartGeometry(preview, part, modelWidth, modelHeight, identification);
+    const physicalRings = identified.rings;
     const points = physicalRings.flat();
     const minimumX = Math.min(...points.map((point) => point.x));
     const maximumX = Math.max(...points.map((point) => point.x));
     const minimumY = Math.min(...points.map((point) => point.y));
     const maximumY = Math.max(...points.map((point) => point.y));
-    const physicalLabel = physicalPoint(preview, modelWidth, modelHeight, part.labelPoint);
+    const physicalLabel = identified.labelPoint;
     return {
       id: part.id,
+      displayId: part.displayId,
       layerIndex: part.layerIndex,
       width: maximumX - minimumX,
       height: maximumY - minimumY,
       areaMm2: part.areaMm2,
       labelPoint: { x: physicalLabel.x - minimumX, y: physicalLabel.y - minimumY },
-      machineLabel: part.machineLabel,
+      machineLabel: identified.machineLabel,
+      hasIdFlag: identified.hasIdFlag,
       rings: physicalRings.map((ring) => ring.map((point) => ({ x: point.x - minimumX, y: point.y - minimumY }))),
       holes: plan.holes.filter((hole) => hole.partIds.includes(part.id)).map((hole) => ({ x: hole.xMm - minimumX, y: hole.yMm - minimumY, kind: hole.kind })),
     };
@@ -1340,7 +1433,7 @@ function findSheetWasteLabels(placements: SheetPlacement[], parts: LayoutPart[],
     if (!part) return;
     const rotatedLabel = rotateLayoutPoint(part.labelPoint, part, placement.rotation);
     const anchor = { x: rotatedLabel.x + placement.x, y: rotatedLabel.y + placement.y };
-    const shortId = abbreviatedPartId(part.id);
+    const shortId = part.displayId;
     const labelWidth = vectorTextWidth(shortId, 4) + 9;
     const labelHeight = 7;
     let found: SheetWasteLabel | null = null;
@@ -1411,15 +1504,34 @@ function buildSheetSvg(projectName: string, sheetIndex: number, rules: SheetRule
       ${part.holes.map((hole) => `<circle data-hole-kind="${hole.kind}" cx="${svgNumber(hole.x)}" cy="${svgNumber(hole.y)}" r="${svgNumber(holeDiameter / 2)}" />`).join("\n      ")}
     </g>`;
   }).join("\n    ");
+  const undersideIds = placements.map((placement) => {
+    const part = partMap.get(placement.partId);
+    if (!part || !part.machineLabel) return "";
+    const label = part.labelPoint;
+    if (part.hasIdFlag) {
+      const text = vectorTextPath(part.displayId, 0, 0, 4);
+      return `<g data-placement-id="${xmlText(placement.id)}" data-part-id="${xmlText(part.id)}" data-display-id="${xmlText(part.displayId)}" transform="${sheetPlacementTransform(placement, part)}">
+        <g transform="translate(${svgNumber(label.x)} ${svgNumber(label.y)}) rotate(90)"><path d="${text}" /></g>
+      </g>`;
+    }
+    const text = vectorTextPath(part.displayId, label.x, label.y + 1.3, 4.5);
+    const north = `M${svgNumber(label.x)} ${svgNumber(label.y - 2)} L${svgNumber(label.x)} ${svgNumber(label.y - 7)} M${svgNumber(label.x)} ${svgNumber(label.y - 7)} L${svgNumber(label.x - 1.5)} ${svgNumber(label.y - 4.7)} M${svgNumber(label.x)} ${svgNumber(label.y - 7)} L${svgNumber(label.x + 1.5)} ${svgNumber(label.y - 4.7)}`;
+    return `<g data-placement-id="${xmlText(placement.id)}" data-part-id="${xmlText(part.id)}" data-display-id="${xmlText(part.displayId)}" transform="${sheetPlacementTransform(placement, part)}">
+      <path d="${text} ${north}" />
+    </g>`;
+  }).join("\n      ");
   const metadata = JSON.stringify({ project: projectName, sheet: sheetIndex + 1, sheet_width_mm: rules.width, sheet_height_mm: rules.height, material_thickness_mm: rules.thickness, part_instances: placements.length, labels: "See the separately generated printable layout guide." });
   const svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" width="${svgNumber(rules.width)}mm" height="${svgNumber(rules.height)}mm" viewBox="0 0 ${svgNumber(rules.width)} ${svgNumber(rules.height)}">
   <title>${xmlText(projectName)} · Sheet ${sheetIndex + 1}</title>
-  <desc>Finished-size sheet layout. CUT_OUTLINES is through-cut. DRILL_HOLES is through-drill. SHEET_REFERENCE is visual only. Part engraving is intentionally deferred.</desc>
+  <desc>Finished-size sheet layout. SIDE_1_UNDERSIDE_IDS is engraved before the long-axis board flip. CUT_OUTLINES and DRILL_HOLES are machined on side 2.</desc>
   <metadata>${xmlText(metadata)}</metadata>
   <g id="SHEET_REFERENCE" inkscape:groupmode="layer" inkscape:label="REFERENCE — DO NOT MACHINE" data-operation="reference" fill="none" stroke="#8a8174" stroke-width="0.2" stroke-dasharray="4 3">
     <rect x="0" y="0" width="${svgNumber(rules.width)}" height="${svgNumber(rules.height)}" />
     <rect x="${svgNumber(rules.edgeMargin)}" y="${svgNumber(rules.edgeMargin)}" width="${svgNumber(rules.width - rules.edgeMargin * 2)}" height="${svgNumber(rules.height - rules.edgeMargin * 2)}" />
+  </g>
+  <g id="SIDE_1_UNDERSIDE_IDS" inkscape:groupmode="layer" inkscape:label="SIDE 1 — ENGRAVE IDS BEFORE LONG-AXIS FLIP" data-operation="engrave-underside" data-depth-mm="0.5" transform="translate(0 ${svgNumber(rules.height)}) scale(1 -1)" fill="none" stroke="#214f3d" stroke-width="0.35" stroke-linecap="round" stroke-linejoin="round">
+    ${undersideIds}
   </g>
   <g id="DRILL_HOLES" inkscape:groupmode="layer" inkscape:label="DRILL — THROUGH" data-operation="drill-through" data-depth-mm="${svgNumber(rules.thickness)}" fill="none" stroke="#187c91" stroke-width="0.2">
     ${drills}
@@ -1851,6 +1963,10 @@ function svgPathForFeature(preview: FilledLayerPreview, feature: FilledLayerFeat
   }).join(" ") + " Z").join(" ");
 }
 
+function svgPathForPhysicalRings(rings: { x: number; y: number }[][]) {
+  return rings.map((ring) => ring.map((point, index) => `${index === 0 ? "M" : "L"}${svgNumber(point.x)} ${svgNumber(point.y)}`).join(" ") + " Z").join(" ");
+}
+
 type WasteLabel = {
   partId: string;
   x: number;
@@ -1934,18 +2050,23 @@ function buildLayerSvgBody(
   modelWidth: number,
   modelHeight: number,
   holeDiameter: number,
+  identification: PartIdentificationSettings,
 ) {
   const parts = plan.parts.filter((part) => part.layerIndex === layerIndex);
   const holes = plan.holes.filter((hole) => hole.drilledLayers.includes(layerIndex));
-  const wasteLabels = findWasteLabels(preview, plan, layerIndex, modelWidth, modelHeight);
-  const cuts = parts.map((part) => `<path data-part-id="${part.id}" d="${svgPathForFeature(preview, part.feature, modelWidth, modelHeight)}" />`).join("\n    ");
+  const designedParts = parts.map((part) => ({ part, geometry: identifiedPartGeometry(preview, part, modelWidth, modelHeight, identification) }));
+  const wasteLabels = identification.applied ? [] : findWasteLabels(preview, plan, layerIndex, modelWidth, modelHeight);
+  const cuts = designedParts.map(({ part, geometry }) => `<path data-part-id="${part.id}" data-display-id="${part.displayId}" d="${svgPathForPhysicalRings(geometry.rings)}" />`).join("\n    ");
   const drills = holes.map((hole) => `<circle data-hole-id="${hole.id}" data-hole-kind="${hole.kind}" cx="${svgNumber(hole.xMm)}" cy="${svgNumber(hole.yMm)}" r="${svgNumber(holeDiameter / 2)}" />`).join("\n    ");
-  const engraving = parts.filter((part) => part.machineLabel).map((part) => {
-    const position = physicalPoint(preview, modelWidth, modelHeight, part.labelPoint);
+  const engraving = designedParts.filter(({ geometry }) => geometry.machineLabel).map(({ part, geometry }) => {
+    const position = geometry.labelPoint;
     const x = svgNumber(position.x);
     const y = svgNumber(position.y);
+    if (geometry.hasIdFlag) return `<g data-part-id="${part.id}" transform="translate(${x} ${y}) rotate(90)">
+      <text x="0" y="1.5" text-anchor="middle">${part.displayId}</text>
+    </g>`;
     return `<g data-part-id="${part.id}" transform="translate(${x} ${y})">
-      <text x="0" y="2" text-anchor="middle">${part.id}</text>
+      <text x="0" y="2" text-anchor="middle">${part.displayId}</text>
       <path d="M0 -4 L0 -10 M0 -10 L-2 -7 M0 -10 L2 -7" />
     </g>`;
   }).join("\n    ");
@@ -1976,6 +2097,7 @@ function buildLayerSvg(
   holeDiameter: number,
   materialThickness: number,
   sourceFiles: string[],
+  identification: PartIdentificationSettings,
 ) {
   const layer = preview.layers[layerIndex];
   const layerName = `L${String(layerIndex + 1).padStart(2, "0")}`;
@@ -1994,7 +2116,7 @@ function buildLayerSvg(
   <title>Topomapper ${layerName} manufacturing geometry</title>
   <desc>North is at the top. Red paths are profile cuts, blue circles are drilled holes, and green paths are covered engraving.</desc>
   <metadata>${xmlText(metadata)}</metadata>
-  ${buildLayerSvgBody(preview, plan, layerIndex, modelWidth, modelHeight, holeDiameter)}
+  ${buildLayerSvgBody(preview, plan, layerIndex, modelWidth, modelHeight, holeDiameter, identification)}
 </svg>`;
 }
 
@@ -2004,6 +2126,7 @@ function buildOverviewSvg(
   modelWidth: number,
   modelHeight: number,
   holeDiameter: number,
+  identification: PartIdentificationSettings,
 ) {
   const gap = 12;
   const heading = 10;
@@ -2021,7 +2144,7 @@ function buildOverviewSvg(
     <text x="0" y="6" font-family="Arial, sans-serif" font-size="5" fill="#214f3d">${name} · ${svgNumber(layer.lower_elevation)}–${svgNumber(layer.upper_elevation)} m · North ↑</text>
     <g transform="translate(0 ${heading})">
       <rect id="REFERENCE_${name}" width="${svgNumber(modelWidth)}" height="${svgNumber(modelHeight)}" fill="none" stroke="#9ca89f" stroke-width="0.2" stroke-dasharray="2 2" />
-      ${buildLayerSvgBody(preview, plan, layer.index, modelWidth, modelHeight, holeDiameter)}
+      ${buildLayerSvgBody(preview, plan, layer.index, modelWidth, modelHeight, holeDiameter, identification)}
     </g>
   </g>`;
   }).join("\n  ");
@@ -2383,7 +2506,7 @@ function AssemblyPreviewCanvas({
         context.font = `${part.machineLabel ? "700" : "500"} 12px Inter, sans-serif`;
         context.textAlign = "center";
         context.textBaseline = "middle";
-        context.fillText(`${part.id} ↑N`, label.x, label.y);
+        context.fillText(`${part.displayId} ↑N`, label.x, label.y);
         if (!part.machineLabel) {
           context.font = "500 9px Inter, sans-serif";
           context.fillText("assembly sheet", label.x, label.y + 13);
@@ -2617,7 +2740,7 @@ function SheetLayoutCanvas({
         context.fillStyle = "#173c2f";
         context.font = "700 10px Inter, sans-serif";
         context.textAlign = "center";
-        context.fillText(`${part.id} · ${placement.rotation}°`, size.width * scale / 2, size.height * scale / 2);
+        context.fillText(`${part.displayId} · ${placement.rotation}°`, size.width * scale / 2, size.height * scale / 2);
         context.restore();
       });
       context.strokeStyle = "#6e4d2f";
@@ -2746,6 +2869,9 @@ export function MapWorkspace() {
   const [appliedSmoothingLevels, setAppliedSmoothingLevels] = useState<Record<number, number>>({});
   const [smoothingCalculating, setSmoothingCalculating] = useState(false);
   const [smoothingZoom, setSmoothingZoom] = useState(1);
+  const [partIdentification, setPartIdentification] = useState<PartIdentificationSettings>(DEFAULT_PART_IDENTIFICATION);
+  const [partIdentificationDraft, setPartIdentificationDraft] = useState({ addIdsToUnderside: true, useFlagsForSmallParts: true });
+  const [partIdStageOpen, setPartIdStageOpen] = useState(false);
   const [sheetRules, setSheetRules] = useState<SheetRules>(DEFAULT_SHEET_RULES);
   const [sheetRuleDraft, setSheetRuleDraft] = useState({ width: 1200, height: 600, edgeMargin: 15, partSpacing: 3, cutterDiameter: 3, geometryTolerance: .25 });
   const [sheetRulesCalculating, setSheetRulesCalculating] = useState(false);
@@ -2859,7 +2985,7 @@ export function MapWorkspace() {
     if (!layoutDirtyReadyRef.current) { layoutDirtyReadyRef.current = true; return; }
     if (suppressLayoutDirtyRef.current) { suppressLayoutDirtyRef.current = false; return; }
     setLayoutSaveStatus("Layout has unsaved changes.");
-  }, [sheetPlacements, sheetRules, smoothingLevels, outputFormat, outputOrientation, customWidthMm, customHeightMm]);
+  }, [sheetPlacements, sheetRules, smoothingLevels, partIdentification, outputFormat, outputOrientation, customWidthMm, customHeightMm]);
   useEffect(() => {
     let cancelled = false;
     async function initialiseProjects() {
@@ -2893,7 +3019,7 @@ export function MapWorkspace() {
     setProjectStatus("Changes waiting to autosave…");
     projectAutosaveTimerRef.current = setTimeout(() => { void saveCurrentProject(true); }, 1500);
     return () => { if (projectAutosaveTimerRef.current) clearTimeout(projectAutosaveTimerRef.current); };
-  }, [projectId, projectName, selection, query, analysis, filledLayerPreview, visibleLayerIndices, waterSourceFilenames, outputFormat, outputOrientation, customWidthMm, customHeightMm, materialThicknessMm, layerDistribution, layerCount, layerBoundaries, stackView, stackYaw, stackPitch, showTrueElevation, smoothingLevels, gridPitchMm, dowelDiameterMm, holeDiameterMm, holeEdgeClearanceMm, sheetRules, sheetCount, activeSheetIndex, sheetPlacements, rotationStepDeg, snowCapMode, snowLevelCount, paintNotes, workspaceView, assemblyLayerIndex, smoothingLayerIndex]);
+  }, [projectId, projectName, selection, query, analysis, filledLayerPreview, visibleLayerIndices, waterSourceFilenames, outputFormat, outputOrientation, customWidthMm, customHeightMm, materialThicknessMm, layerDistribution, layerCount, layerBoundaries, stackView, stackYaw, stackPitch, showTrueElevation, smoothingLevels, partIdentification, gridPitchMm, dowelDiameterMm, holeDiameterMm, holeEdgeClearanceMm, sheetRules, sheetCount, activeSheetIndex, sheetPlacements, rotationStepDeg, snowCapMode, snowLevelCount, paintNotes, workspaceView, assemblyLayerIndex, smoothingLayerIndex]);
   const elevationDataComplete = hasUsableElevationAnalysis(analysis, selection);
   const chosenOutput = outputDimensions(outputFormat, outputOrientation, customWidthMm, customHeightMm);
   const selectedFramePreset = chosenOutput
@@ -3740,7 +3866,8 @@ export function MapWorkspace() {
     holeDiameterMm,
     materialThicknessMm,
     analysis?.datasets.map((dataset) => dataset.filename) ?? [],
-  ) : "", [fabricationPreview, assemblyPlan, selectedAssemblyLayer, assemblyLayerIndex, previewDimensions.width, previewDimensions.height, holeDiameterMm, materialThicknessMm, analysis]);
+    partIdentification,
+  ) : "", [fabricationPreview, assemblyPlan, selectedAssemblyLayer, assemblyLayerIndex, previewDimensions.width, previewDimensions.height, holeDiameterMm, materialThicknessMm, analysis, partIdentification]);
   const originalSmoothingMetrics = filledLayerPreview ? layerGeometryMetrics(filledLayerPreview, smoothingLayerIndex, previewDimensions.width, previewDimensions.height) : null;
   const smoothedSmoothingMetrics = fabricationPreview ? layerGeometryMetrics(fabricationPreview, smoothingLayerIndex, previewDimensions.width, previewDimensions.height) : null;
   const smoothingLayerMetrics = useMemo(() => filledLayerPreview && fabricationPreview
@@ -3755,7 +3882,13 @@ export function MapWorkspace() {
   const smallestSmoothedPartSize = smoothedPartSizes.length ? Math.min(...smoothedPartSizes) : 0;
   const filledTotalParts = filledLayerPreview?.layers.reduce((total, layer) => total + layer.piece_count, 0) ?? 0;
   const smoothedTotalParts = smoothingLayerMetrics.reduce((total, row) => total + row.after.parts, 0);
-  const layoutParts = useMemo(() => fabricationPreview && assemblyPlan ? buildLayoutParts(fabricationPreview, assemblyPlan, previewDimensions.width, previewDimensions.height) : [], [fabricationPreview, assemblyPlan, previewDimensions.width, previewDimensions.height]);
+  const partIdentificationComplete = Boolean(filledStageComplete
+    && partIdentification.applied
+    && partIdentification.addIdsToUnderside === partIdentificationDraft.addIdsToUnderside
+    && partIdentification.useFlagsForSmallParts === (partIdentificationDraft.addIdsToUnderside && partIdentificationDraft.useFlagsForSmallParts));
+  const layoutParts = useMemo(() => fabricationPreview && assemblyPlan ? buildLayoutParts(fabricationPreview, assemblyPlan, previewDimensions.width, previewDimensions.height, partIdentification) : [], [fabricationPreview, assemblyPlan, previewDimensions.width, previewDimensions.height, partIdentification]);
+  const flaggedPartCount = layoutParts.filter((part) => part.hasIdFlag).length;
+  const engravedPartCount = layoutParts.filter((part) => part.machineLabel).length;
   const layoutPartIds = useMemo(() => new Set(layoutParts.map((part) => part.id)), [layoutParts]);
   useEffect(() => {
     // Smoothing can remove islands/parts after a sheet layout already exists.
@@ -3776,7 +3909,7 @@ export function MapWorkspace() {
     layoutViolationsRef.current = checked;
     return checked;
   }, [sheetPlacements, layoutParts, sheetRules.width, sheetRules.height, sheetRules.edgeMargin, sheetRules.partSpacing, sheetPartDragging]);
-  const allLayoutPartsPlaced = layoutParts.length > 0
+  const allLayoutPartsPlaced = partIdentificationComplete && layoutParts.length > 0
     && layoutParts.every((part) => sheetPlacements.some((placement) => placement.partId === part.id));
   const sheetLayoutComplete = allLayoutPartsPlaced && layoutViolations.length === 0;
   const sheetLayoutStatus = sheetLayoutComplete ? "Complete" : allLayoutPartsPlaced ? "Warnings" : "Incomplete";
@@ -3814,6 +3947,22 @@ export function MapWorkspace() {
     setSmoothingLevels(Object.fromEntries(filledLayerPreview.layers.map((layer) => [layer.index, value])));
   }
 
+  function applyPartIdentification() {
+    if (!fabricationPreview) return;
+    const next: PartIdentificationSettings = {
+      ...partIdentificationDraft,
+      useFlagsForSmallParts: partIdentificationDraft.addIdsToUnderside && partIdentificationDraft.useFlagsForSmallParts,
+      applied: true,
+    };
+    setPartIdentification(next);
+    setSheetPlacements([]);
+    setSheetCount(1);
+    setActiveSheetIndex(0);
+    setSelectedPlacementId(null);
+    setSelectedViolationIndex(null);
+    setOptimizerStatus("Part identification changed the manufacturable outlines. Run Quick Placement before nesting.");
+  }
+
   function blankProjectDocument(name: string): TopomapperProject {
     const now = new Date().toISOString();
     return {
@@ -3830,6 +3979,7 @@ export function MapWorkspace() {
       layers: { distribution: "log", count: DEFAULT_LAYER_COUNT, boundaries: [] },
       model: { stackView: "three-dimensional", stackYaw: 0, stackPitch: 34, showTrueElevation: true, smoothingLevels: {} },
       assembly: { gridPitchMm: 100, dowelDiameterMm: 4, holeDiameterMm: 4.2, holeEdgeClearanceMm: 6 },
+      identification: DEFAULT_PART_IDENTIFICATION,
       layout: { sheetRules: DEFAULT_SHEET_RULES, sheetCount: 1, activeSheetIndex: 0, placements: [], rotationStepDeg: 15 },
       colour: { paletteId: "molotow-terrain", snowCapMode: "on", snowLayers: DEFAULT_SNOW_LAYERS, paintNotes: {} },
       view: { workspaceView: "two-dimensional", assemblyLayerIndex: 0, smoothingLayerIndex: 0 },
@@ -3907,6 +4057,7 @@ export function MapWorkspace() {
       layers: { distribution: layerDistribution, count: layerCount, boundaries: layerBoundaries },
       model: { stackView, stackYaw, stackPitch, showTrueElevation, smoothingLevels },
       assembly: { gridPitchMm, dowelDiameterMm, holeDiameterMm, holeEdgeClearanceMm },
+      identification: partIdentification,
       layout: { sheetRules, sheetCount, activeSheetIndex, placements: sheetPlacements, rotationStepDeg },
       colour: { paletteId: "molotow-terrain", snowCapMode, snowLayers: snowLevelCount, paintNotes },
       view: { workspaceView, assemblyLayerIndex, smoothingLayerIndex },
@@ -3985,6 +4136,9 @@ export function MapWorkspace() {
     setDowelDiameterMm(project.assembly.dowelDiameterMm);
     setHoleDiameterMm(project.assembly.holeDiameterMm);
     setHoleEdgeClearanceMm(project.assembly.holeEdgeClearanceMm);
+    const restoredIdentification = { ...DEFAULT_PART_IDENTIFICATION, ...(project.identification ?? {}) };
+    setPartIdentification(restoredIdentification);
+    setPartIdentificationDraft({ addIdsToUnderside: restoredIdentification.addIdsToUnderside, useFlagsForSmallParts: restoredIdentification.useFlagsForSmallParts });
     const restoredSheetRules = normalizedSheetRules({ ...project.layout.sheetRules, thickness: restoredMaterialThickness });
     setSheetRules(restoredSheetRules);
     setSheetRuleDraft({ width: restoredSheetRules.width, height: restoredSheetRules.height, edgeMargin: restoredSheetRules.edgeMargin, partSpacing: restoredSheetRules.partSpacing, cutterDiameter: restoredSheetRules.cutterDiameter, geometryTolerance: restoredSheetRules.geometryTolerance });
@@ -4085,6 +4239,7 @@ export function MapWorkspace() {
       activeSheetIndex,
       sheetPlacements,
       smoothingLevels,
+      partIdentification,
       output: { outputFormat, outputOrientation, customWidthMm, customHeightMm },
       assembly: { gridPitchMm, dowelDiameterMm, holeDiameterMm, holeEdgeClearanceMm },
       partSignature: layoutParts.map((part) => ({ id: part.id, width: svgNumber(part.width), height: svgNumber(part.height) })),
@@ -4100,6 +4255,7 @@ export function MapWorkspace() {
       activeSheetIndex?: number;
       sheetPlacements?: SheetPlacement[];
       smoothingLevels?: Record<number, number>;
+      partIdentification?: PartIdentificationSettings;
       output?: { outputFormat?: OutputFormat; outputOrientation?: OutputOrientation; customWidthMm?: number; customHeightMm?: number };
       assembly?: { gridPitchMm?: number; dowelDiameterMm?: number; holeDiameterMm?: number; holeEdgeClearanceMm?: number };
     };
@@ -4116,6 +4272,11 @@ export function MapWorkspace() {
     setSheetPlacements(data.sheetPlacements);
     setSmoothingLevels(data.smoothingLevels ?? {});
     setAppliedSmoothingLevels(data.smoothingLevels ?? {});
+    if (data.partIdentification) {
+      const restored = { ...DEFAULT_PART_IDENTIFICATION, ...data.partIdentification };
+      setPartIdentification(restored);
+      setPartIdentificationDraft({ addIdsToUnderside: restored.addIdsToUnderside, useFlagsForSmallParts: restored.useFlagsForSmallParts });
+    }
     if (data.output?.outputFormat) setOutputFormat(data.output.outputFormat);
     if (data.output?.outputOrientation) setOutputOrientation(data.output.outputOrientation);
     if (Number.isFinite(data.output?.customWidthMm)) setCustomWidthMm(Number(data.output?.customWidthMm));
@@ -4533,11 +4694,12 @@ export function MapWorkspace() {
         holeDiameterMm,
         materialThicknessMm,
         analysis?.datasets.map((dataset) => dataset.filename) ?? [],
+        partIdentification,
       ),
     }));
     files.push({
       name: "topomapper-overview.svg",
-      contents: buildOverviewSvg(fabricationPreview, assemblyPlan, previewDimensions.width, previewDimensions.height, holeDiameterMm),
+      contents: buildOverviewSvg(fabricationPreview, assemblyPlan, previewDimensions.width, previewDimensions.height, holeDiameterMm, partIdentification),
     });
     files.push({
       name: "manufacturing-notes.txt",
@@ -4971,9 +5133,25 @@ export function MapWorkspace() {
           </div>
         </details>
 
+        <details className="workflow-stage part-id-stage" open={partIdStageOpen} onToggle={(event) => setPartIdStageOpen(event.currentTarget.open)}>
+          <summary className="workflow-stage-summary">
+            <span><strong>7) Part ID</strong></span>
+            <em>{partIdentificationComplete ? "Complete" : "Incomplete"}</em>
+            <i className={`stage-status-led ${partIdentificationComplete ? "complete" : "incomplete"}`} aria-hidden="true" />
+            <b aria-hidden="true">{partIdStageOpen ? "−" : "+"}</b>
+          </summary>
+          <div className="workflow-stage-body part-id-settings">
+            <label><input type="checkbox" checked={partIdentificationDraft.addIdsToUnderside} disabled={!fabricationPreview} onChange={(event) => setPartIdentificationDraft((current) => ({ ...current, addIdsToUnderside: event.target.checked }))} /> Add IDs to underside</label>
+            <label><input type="checkbox" checked={partIdentificationDraft.useFlagsForSmallParts} disabled={!fabricationPreview || !partIdentificationDraft.addIdsToUnderside} onChange={(event) => setPartIdentificationDraft((current) => ({ ...current, useFlagsForSmallParts: event.target.checked }))} /> Use flags for small parts</label>
+            <button disabled={!fabricationPreview} onClick={applyPartIdentification}>Add IDs</button>
+            <p>IDs use A–Z for layers and 1–99 for parts. Small-part flags are 6 × 10 mm, point to geographic north and remain attached until assembly.</p>
+            {partIdentification.applied && <dl className="plain-smoothing-stats"><div><dt>Underside IDs:</dt><dd>{engravedPartCount}</dd></div><div><dt>North ID flags:</dt><dd>{flaggedPartCount}</dd></div></dl>}
+          </div>
+        </details>
+
         <details className="workflow-stage sheet-stage" open={sheetStageOpen} onToggle={(event) => setSheetStageOpen(event.currentTarget.open)}>
           <summary className="workflow-stage-summary">
-            <span><strong>7) Sheet Layout</strong></span>
+            <span><strong>8) Sheet Layout</strong></span>
             <em>{sheetLayoutStatus}</em>
             <i className={`stage-status-led ${sheetLayoutStatusClass}`} aria-hidden="true" />
             <b aria-hidden="true">{sheetStageOpen ? "−" : "+"}</b>
@@ -4989,8 +5167,8 @@ export function MapWorkspace() {
             <label><span>Min Rotation</span><strong><input type="number" min="1" max="90" step="1" value={rotationStepDraft} onChange={(event) => setRotationStepDraftValue(Number(event.target.value))} /><em>deg</em></strong></label>
             {sheetRulesCalculating && <p className="sheet-rules-calculating" role="status"><i aria-hidden="true" /> Rechecking sheet layout…</p>}
             <div className="drawer-placement-actions">
-              <button disabled={!layoutParts.length || sheetRulesCalculating} onClick={() => { autoLayoutUnplaced(); setWorkspaceView("sheet-layout"); }}>Quick Placement</button>
-              <div><button onClick={addReplacementSheet}>+ Replacement sheet</button><button disabled={optimizerRunning || !layoutParts.length || sheetRulesCalculating} onClick={() => { setWorkspaceView("sheet-layout"); void startNestingOptimiser(); }}>Optimise I</button><button disabled title="Reserved for embedded SVGnest optimisation">Optimise II</button><button disabled title="Reserved for deeper multi-start optimisation">Optimise III</button></div>
+              <button disabled={!layoutParts.length || !partIdentificationComplete || sheetRulesCalculating} onClick={() => { autoLayoutUnplaced(); setWorkspaceView("sheet-layout"); }}>Quick Placement</button>
+              <div><button onClick={addReplacementSheet}>+ Replacement sheet</button><button disabled={optimizerRunning || !layoutParts.length || !partIdentificationComplete || sheetRulesCalculating} onClick={() => { setWorkspaceView("sheet-layout"); void startNestingOptimiser(); }}>Optimise I</button><button disabled title="Reserved for embedded SVGnest optimisation">Optimise II</button><button disabled title="Reserved for deeper multi-start optimisation">Optimise III</button></div>
               {optimizerRunning && <button className="stop-optimising" onClick={stopNestingOptimiser}>Stop optimisation</button>}
               <p role="status">{optimizerProgress || optimizerStatus}</p>
             </div>
@@ -4999,12 +5177,12 @@ export function MapWorkspace() {
               <p>Topomapper enlarges every green proxy to include its machining clearance.</p>
               <label>Part rotations<select value={svgNestRotations} onChange={(event) => setSvgNestRotations(Number(event.target.value))}><option value={4}>4 · 90°</option><option value={8}>8 · 45°</option><option value={12}>12 · 30°</option><option value={24}>24 · 15°</option></select></label>
               <ol>
-                <li><button disabled={!layoutParts.length} onClick={downloadSvgNestJob}>1 · Download nest file</button></li>
+                <li><button disabled={!layoutParts.length || !partIdentificationComplete} onClick={downloadSvgNestJob}>1 · Download nest file</button></li>
                 <li><a href="https://svgnest.com/" target="_blank" rel="noreferrer">2 · Process in SVGnest ↗</a></li>
-                <li><label className={`drawer-svgnest-import ${!layoutParts.length ? "disabled" : ""}`}>3 · Import nest result<input disabled={!layoutParts.length} type="file" accept=".svg,image/svg+xml" onChange={(event) => void importSvgNestResult(event)} /></label></li>
+                <li><label className={`drawer-svgnest-import ${!layoutParts.length || !partIdentificationComplete ? "disabled" : ""}`}>3 · Import nest result<input disabled={!layoutParts.length || !partIdentificationComplete} type="file" accept=".svg,image/svg+xml" onChange={(event) => void importSvgNestResult(event)} /></label></li>
               </ol>
               <p className="drawer-svgnest-spacing">SVGnest Space between parts: <b>{lastSvgNestSpacing === null ? "0 (after the next download)" : `${lastSvgNestSpacing.toFixed(0)}`}</b>. The downloaded green shapes already contain the clearance halo; press Save Settings after entering zero.</p>
-              <details><summary>Diagnostic test file</summary><button disabled={!layoutParts.length} onClick={downloadSvgNestDiagnosticJob}>Download 20% diagnostic</button></details>
+              <details><summary>Diagnostic test file</summary><button disabled={!layoutParts.length || !partIdentificationComplete} onClick={downloadSvgNestDiagnosticJob}>Download 20% diagnostic</button></details>
               <p role="status">{sheetExportStatus}</p>
             </div>
           </div>
@@ -5107,7 +5285,7 @@ export function MapWorkspace() {
               <ol className="assembly-part-list">
                 {selectedAssemblyParts.map((part) => {
                   const partHoles = assemblyPlan.holes.filter((hole) => hole.partIds.includes(part.id)).length;
-                  return <li key={part.id}><strong>{part.id}</strong><span>{Math.round(part.areaMm2).toLocaleString("en-NZ")} mm² · {partHoles} hole{partHoles === 1 ? "" : "s"}</span><small>{part.machineLabel ? "Machine ID + north arrow in covered area" : "Identify on assembly sheet — too small to engrave safely"}</small></li>;
+                  return <li key={part.id}><strong>{part.displayId}</strong><span>{Math.round(part.areaMm2).toLocaleString("en-NZ")} mm² · {partHoles} hole{partHoles === 1 ? "" : "s"}</span><small>{part.machineLabel ? "Machine ID + north arrow in covered area" : "Identify on assembly sheet — too small to engrave safely"}</small></li>;
                 })}
               </ol>
               <div className="assembly-plan-summary">
@@ -5222,7 +5400,7 @@ export function MapWorkspace() {
                 {layoutParts.filter((part) => part.id.toLowerCase().includes(partLibraryFilter.trim().toLowerCase())).map((part) => {
                   const copies = sheetPlacements.filter((placement) => placement.partId === part.id).length;
                   const activeCopy = sheetPlacements.find((placement) => placement.partId === part.id && placement.sheetIndex === activeSheetIndex);
-                  return <li key={part.id}><button className="part-library-focus" disabled={!activeCopy} onClick={() => activeCopy && focusSheetPlacement(activeCopy)}><strong>{part.id}</strong><small>{part.width.toFixed(1)} × {part.height.toFixed(1)} mm · L{String(part.layerIndex + 1).padStart(2, "0")}</small></button><b>{copies} placed</b><button onClick={() => addPartToSheet(part.id)}>Add</button></li>;
+                  return <li key={part.id}><button className="part-library-focus" disabled={!activeCopy} onClick={() => activeCopy && focusSheetPlacement(activeCopy)}><strong>{part.displayId}</strong><small>{part.width.toFixed(1)} × {part.height.toFixed(1)} mm · L{String(part.layerIndex + 1).padStart(2, "0")}{part.hasIdFlag ? " · ID flag" : ""}</small></button><b>{copies} placed</b><button onClick={() => addPartToSheet(part.id)}>Add</button></li>;
                 })}
               </ol>
               <div className={`drc-panel ${layoutViolations.length ? "has-warnings" : ""}`}>

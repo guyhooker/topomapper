@@ -259,6 +259,16 @@ loaded into established CAM software. Direct G-code is deferred until cutter
 diameter, toolpaths, feeds, speeds, origin, tabs, safe height, and the target CNC
 controller/postprocessor are specified.
 
+## Part identification
+
+- Gate sheet layout behind a Part ID step following smoothing.
+- Support A1–Z99 workshop identifiers: A–Z identifies the physical layer and
+  1–99 identifies a part on that layer.
+- Optionally engrave IDs on the underside of parts. Small parts may receive a
+  6 × 10 mm flag pointing to geographic north, joined by a 3 mm breakaway neck.
+- Treat every enabled flag as part of the manufactured outline throughout
+  nesting, DRC, sheet export and assembly documentation.
+
 ## Quality and Safety
 
 - Record the source, date, resolution, horizontal coordinate system, vertical

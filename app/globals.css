@@ -410,7 +410,13 @@ button { color: inherit; }
 .dataset-name { margin: 7px 2px 0; overflow: hidden; color: var(--muted); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
 
 .layer-editor { margin-top: 19px; padding-top: 17px; border-top: 1px solid var(--line); }
-.workflow-stage.layer-editor, .workflow-stage.filled-layer-section, .workflow-stage.smoothing-stage, .workflow-stage.sheet-stage { margin-top: 0; padding-top: 0; border-top: 0; }
+.workflow-stage.layer-editor, .workflow-stage.filled-layer-section, .workflow-stage.smoothing-stage, .workflow-stage.part-id-stage, .workflow-stage.sheet-stage { margin-top: 0; padding-top: 0; border-top: 0; }
+
+.part-id-settings { display: grid; gap: 9px; }
+.part-id-settings > label { display: flex; align-items: center; gap: 8px; color: var(--ink); font-size: 10px; font-weight: 700; }
+.part-id-settings > label input { width: 15px; height: 15px; margin: 0; accent-color: #5a8f51; }
+.part-id-settings > button { justify-self: start; width: max-content; padding: 8px 13px; border: 0; border-radius: 7px; background: #5a8f51; color: white; font-weight: 800; }
+.part-id-settings > p { margin: 0; color: var(--muted); font-size: 9px; line-height: 1.45; }
 .layer-editor-heading { display: flex; align-items: start; justify-content: space-between; gap: 10px; }
 .layer-editor-heading strong { display: block; margin-top: 5px; font-family: Georgia, "Times New Roman", serif; font-size: 19px; font-weight: 500; }
 .layer-ready { padding: 5px 7px; border-radius: 999px; background: rgba(75,149,105,.1); color: #34714f; font-size: 8px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; }

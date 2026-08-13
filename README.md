@@ -184,7 +184,7 @@ SVGnest settings take effect only after its own **Save Settings** control is
 pressed. With clearance-expanded proxies, touching green outlines are expected:
 they represent touching clearance halos, while the restored cut outlines retain
 the requested separation.
-The complete handoff is grouped in Setup Section 7 as Download, Process and
+The complete handoff is grouped in Setup Section 8 as Download, Process and
 Import. Sheet dimensions and nesting rules are no longer duplicated above the
 layout canvas. A red Sheet Layout status means parts remain unplaced, amber
 means every part is placed with DRC warnings, and green means the layout is
@@ -220,3 +220,12 @@ mirrored Side 2 exact cutting SVG after an end-to-end flip. Initially, accuratel
 sized stock is relocated against fixed machine edge stops; alignment-pin holes
 remain an optional later method. Side 1 may be used only as a visual
 hand-labelling map, and the printable PDF remains an optional workshop guide.
+
+Part ID is now a separate gated step between Smoothing and Sheet Layout. It
+assigns compact workshop IDs from A1 through Z99, where the letter identifies
+one of up to 26 layers. Large parts receive a shallow underside ID and north
+mark. When enabled, parts too small for safe engraving gain a 6 × 10 mm
+north-pointing ID flag through a 3 mm breakaway neck. The flag is manufacturing
+geometry, so it is included in DRC, SVGnest proxies, sheet SVGs and layout
+documentation, and is cut off only during assembly. Applying changed ID options
+clears an obsolete sheet placement because the part outlines may have changed.

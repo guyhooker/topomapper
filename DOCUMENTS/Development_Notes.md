@@ -812,7 +812,7 @@
 - Made the Sheet Layout canvas a viewing and editing workspace rather than a
   second settings form. Stock dimensions, border, spacing, cutter, tolerance,
   rotation, Quick Placement, optimisation and replacement-sheet controls now
-  live only in Section 7 of the Setup drawer.
+  live only in the Sheet Layout section of the Setup drawer (now Section 8).
 - Moved the external nesting handoff into the same drawer as a numbered
   Download nest file, Process in SVGnest and Import nest result sequence. The
   compensated SVGnest spacing is shown there after export, beside the SVGnest
@@ -854,3 +854,17 @@
   and restore the exact coastline at SVGnest's translation and rotation without
   recomputing the raster buffer. Older spacing-based results retain their legacy
   minimum-coordinate fallback and remain importable.
+
+### Part identification gate
+
+- Inserted Part ID after Smoothing and renumbered Sheet Layout as drawer section
+  8. Its LED remains red until the user applies the identification options.
+- Added persisted controls for underside IDs and automatic small-part flags.
+- Added compact A1–Z99 display IDs while retaining established internal part
+  keys so saved data and SVGnest round trips remain stable.
+- Small parts gain a true 6 × 10 mm north-pointing outline extension through a
+  3 mm breakaway neck. The changed outline flows into nesting, exact DRC, sheet
+  cut SVGs and manufacturing overviews.
+- Sheet SVGs include a mirrored `SIDE_1_UNDERSIDE_IDS` engraving layer for the
+  established long-axis board-flip workflow. Flag text runs along the 10 mm
+  flag so a three-character Z99 identifier remains legible at 4 mm high.

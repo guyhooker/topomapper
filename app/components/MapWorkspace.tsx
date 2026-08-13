@@ -926,43 +926,59 @@ function buildAssemblyPlan(
 
 function appendNorthIdFlag(outerRing: { x: number; y: number }[]) {
   const closed = outerRing.length > 1 && Math.hypot(outerRing[0].x - outerRing[outerRing.length - 1].x, outerRing[0].y - outerRing[outerRing.length - 1].y) < 1e-7;
-  const ring = closed ? outerRing.slice(0, -1) : [...outerRing];
-  if (ring.length < 3) return null;
-  const numericRing = ring.map((point) => [point.x, point.y]);
-  let best: { index: number; score: number } | null = null;
-  ring.forEach((start, index) => {
-    const end = ring[(index + 1) % ring.length];
+  const source = closed ? outerRing.slice(0, -1) : [...outerRing];
+  if (source.length < 3) return null;
+  const samplePitch = .4;
+  const samples: { x: number; y: number; sourceIndex: number }[] = [];
+  source.forEach((start, index) => {
+    const end = source[(index + 1) % source.length];
+    const length = Math.hypot(end.x - start.x, end.y - start.y);
+    const divisions = Math.max(1, Math.ceil(length / samplePitch));
+    for (let step = 0; step < divisions; step += 1) samples.push({
+      x: start.x + (end.x - start.x) * step / divisions,
+      y: start.y + (end.y - start.y) * step / divisions,
+      sourceIndex: index,
+    });
+  });
+  if (samples.length < 10) return null;
+  const numericRing = source.map((point) => [point.x, point.y]);
+  let best: { index: number; span: number; score: number; strict: boolean } | null = null;
+  samples.forEach((start, index) => {
+    let span = 0;
+    let arc = 0;
+    while (span < samples.length - 1 && arc < 3.2) {
+      const current = samples[(index + span) % samples.length];
+      const next = samples[(index + span + 1) % samples.length];
+      arc += Math.hypot(next.x - current.x, next.y - current.y);
+      span += 1;
+    }
+    if (arc < 3.2) return;
+    const end = samples[(index + span) % samples.length];
     const dx = end.x - start.x;
     const dy = end.y - start.y;
-    const length = Math.hypot(dx, dy);
-    if (length < ID_FLAG_NECK_MM + .5 || Math.abs(dx) < ID_FLAG_NECK_MM * .8) return;
+    const chord = Math.hypot(dx, dy);
+    if (chord < ID_FLAG_NECK_MM) return;
+    const straightness = chord / Math.max(chord, arc);
+    if (straightness < .9) return;
     const centre = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
-    const northOutside = !pointInRing([centre.x, centre.y - .5], numericRing);
-    const southInside = pointInRing([centre.x, centre.y + .5], numericRing);
-    if (!northOutside || !southInside) return;
-    const score = centre.y + Math.abs(dy / length) * 20;
-    if (!best || score < best.score) best = { index, score };
+    const northOutside = !pointInRing([centre.x, centre.y - .8], numericRing)
+      && !pointInRing([centre.x, centre.y - 2], numericRing);
+    if (!northOutside) return;
+    const southInside = pointInRing([centre.x, centre.y + .6], numericRing);
+    const horizontalPenalty = Math.abs(dy) / chord;
+    const strict = southInside && horizontalPenalty <= .42 && straightness >= .94;
+    const score = (1 - straightness) * 220 + horizontalPenalty * 45 + centre.y * .015 + (strict ? 0 : 80);
+    if (!best || (strict && !best.strict) || strict === best.strict && score < best.score) best = { index, span, score, strict };
   });
-  if (!best) {
-    ring.forEach((start, index) => {
-      const end = ring[(index + 1) % ring.length];
-      const length = Math.hypot(end.x - start.x, end.y - start.y);
-      if (length < .5) return;
-      const score = Math.min(start.y, end.y) + Math.abs(end.y - start.y) / length * 8;
-      if (!best || score < best.score) best = { index, score };
-    });
-  }
   if (!best) return null;
 
-  const edgeIndex = best.index;
-  const start = ring[edgeIndex];
-  const end = ring[(edgeIndex + 1) % ring.length];
+  const start = samples[best.index];
+  const end = samples[(best.index + best.span) % samples.length];
   const length = Math.hypot(end.x - start.x, end.y - start.y);
   const unit = { x: (end.x - start.x) / length, y: (end.y - start.y) / length };
   const centre = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
-  const neckWidth = Math.min(ID_FLAG_NECK_MM, length * .6);
-  const firstAttach = { x: centre.x - unit.x * neckWidth / 2, y: centre.y - unit.y * neckWidth / 2 };
-  const secondAttach = { x: centre.x + unit.x * neckWidth / 2, y: centre.y + unit.y * neckWidth / 2 };
+  const firstAttach = start;
+  const secondAttach = end;
   const shoulderY = Math.min(firstAttach.y, secondAttach.y) - 1.5;
   const topY = Math.min(firstAttach.y, secondAttach.y) - ID_FLAG_LENGTH_MM;
   const pointShoulderY = topY + 3;
@@ -979,7 +995,16 @@ function appendNorthIdFlag(outerRing: { x: number; y: number }[]) {
     { x: secondAttach.x, y: shoulderY },
     secondAttach,
   ];
-  const result = [...ring.slice(0, edgeIndex + 1), ...excursion, ...ring.slice(edgeIndex + 1)];
+  // Replace the sampled 3.2 mm boundary chain with a straight 3 mm neck. This
+  // prevents tiny source segments at a pointed ridge from shrinking the bridge.
+  const remaining: { x: number; y: number }[] = [];
+  let sourceIndex = (end.sourceIndex + 1) % source.length;
+  while (sourceIndex !== start.sourceIndex) {
+    remaining.push(source[sourceIndex]);
+    sourceIndex = (sourceIndex + 1) % source.length;
+  }
+  remaining.push(source[start.sourceIndex]);
+  const result = [...excursion, ...remaining];
   result.push({ ...result[0] });
   return { ring: result, labelPoint: { x: centre.x, y: topY + 7.5 } };
 }

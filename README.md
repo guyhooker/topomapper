@@ -230,3 +230,7 @@ The flag is manufacturing
 geometry, so it is included in DRC, SVGnest proxies, sheet SVGs and layout
 documentation, and is cut off only during assembly. Applying changed ID options
 clears an obsolete sheet placement because the part outlines may have changed.
+Flag placement evaluates a continuous 3 mm coastline section rather than an
+individual source segment. It favours a nearly straight, north-facing section
+with supporting land behind it and rejects sharply turning ridge tips, keeping
+the breakaway bridge at least 3 mm wide.

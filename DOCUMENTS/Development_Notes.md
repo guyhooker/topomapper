@@ -869,3 +869,8 @@
 - Sheet SVGs include a mirrored `SIDE_1_UNDERSIDE_IDS` engraving layer for the
   established long-axis board-flip workflow. Flag text runs along the 12 mm
   flag so a three-character Z99 identifier remains legible at 4 mm high.
+- Replaced single-segment flag attachment with a uniformly sampled boundary
+  search. Each candidate spans at least 3 mm of continuous coastline and is
+  scored for straightness, horizontal orientation, northern clearance and land
+  immediately behind the neck. The selected boundary chain is replaced with a
+  straight full-width neck, avoiding sub-millimetre bridges on ridge tips.

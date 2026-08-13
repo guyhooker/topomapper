@@ -269,6 +269,10 @@ controller/postprocessor are specified.
   breakaway neck; the pointed flag end identifies geographic north.
 - Treat every enabled flag as part of the manufactured outline throughout
   nesting, DRC, sheet export and assembly documentation.
+- Attach flags across a continuous boundary section at least 3 mm wide. Prefer
+  the straightest north-facing section with land behind it; do not reduce the
+  bridge width to match a short source polygon segment or select a pointed tip
+  when a straighter edge exists.
 
 ## Quality and Safety
 

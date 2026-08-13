@@ -836,3 +836,14 @@
 - Restored the exact-fit helper's construction of indexed placed geometry after
   the import-performance refactor. This keeps Quick Placement and Optimise I
   compatible with the faster full-resolution DRC representation.
+- The DRC panel now renders every warning in its own 280 px scrolling list
+  rather than truncating at twelve. Its header reports the full warning count;
+  explanatory and warning text use a darker high-contrast colour and separated
+  rows for easier inspection and selection.
+- Prefer clearance-expanded nesting proxies for the embedded SVGnest stage:
+  construct a real polygon at the outside edge of each part's required halo,
+  nest those polygons at zero SVGnest spacing, then restore the original exact
+  cut outlines from their IDs and transforms. A stroke is not sufficient because
+  SVGnest nests path geometry, not SVG stroke width. The expansion must use a
+  robust polygon-offset operation and must also inset the usable stock boundary
+  by the requested edge zone.

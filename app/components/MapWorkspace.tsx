@@ -5101,9 +5101,9 @@ export function MapWorkspace() {
                 })}
               </ol>
               <div className={`drc-panel ${layoutViolations.length ? "has-warnings" : ""}`}>
-                <strong>Design rule check</strong>
+                <strong>Design rule check <small>{layoutViolations.length ? `${layoutViolations.length} warning${layoutViolations.length === 1 ? "" : "s"}` : "Clear"}</small></strong>
                 <p>{sheetPartDragging ? "Precise checking is paused while the part follows the pointer and refreshes when released." : "Warnings do not block placement or saving. Clearance follows each part’s rotated coastline."}</p>
-                {layoutViolations.length ? <ul>{layoutViolations.slice(0, 12).map((violation, index) => <li key={`${violation.message}-${index}`} className={selectedViolationIndex === index || Boolean(selectedPlacementId && violation.placementIds.includes(selectedPlacementId)) ? "active" : ""}><button onClick={() => { const placement = sheetPlacements.find((candidate) => candidate.id === violation.placementIds[0]); if (placement) focusSheetPlacement(placement, index); }}>{violation.message}</button></li>)}</ul> : <span>No rule violations on placed parts.</span>}
+                {layoutViolations.length ? <ul aria-label={`All ${layoutViolations.length} design rule warnings`}>{layoutViolations.map((violation, index) => <li key={`${violation.message}-${index}`} className={selectedViolationIndex === index || Boolean(selectedPlacementId && violation.placementIds.includes(selectedPlacementId)) ? "active" : ""}><button onClick={() => { const placement = sheetPlacements.find((candidate) => candidate.id === violation.placementIds[0]); if (placement) focusSheetPlacement(placement, index); }}>{violation.message}</button></li>)}</ul> : <span>No rule violations on placed parts.</span>}
               </div>
             </aside>
           </div>

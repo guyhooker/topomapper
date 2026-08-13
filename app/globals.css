@@ -783,12 +783,14 @@ button { color: inherit; }
 .part-library-list button { height: 23px; padding: 0 6px; border: 1px solid rgba(33,79,61,.2); border-radius: 5px; background: #fff; color: var(--forest); font-size: 7px; cursor: pointer; }
 .drc-panel { margin-top: 8px; padding: 7px; border-radius: 7px; background: rgba(75,149,105,.09); }
 .drc-panel.has-warnings { background: rgba(201,73,42,.09); }
-.drc-panel > strong { color: var(--forest); font-size: 9px; }
+.drc-panel > strong { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; color: var(--forest); font-size: 10px; }
+.drc-panel > strong small { color: #44534c; font-size: 8px; font-weight: 750; }
 .drc-panel.has-warnings > strong { color: #a83e22; }
-.drc-panel p, .drc-panel span, .drc-panel li { color: var(--muted); font-size: 9px; line-height: 1.45; }
+.drc-panel p, .drc-panel span, .drc-panel li { color: #35443d; font-size: 9px; line-height: 1.45; }
 .drc-panel p { margin: 5px 0; }
-.drc-panel ul { margin: 4px 0 0; padding-left: 14px; }
-.drc-panel li { border-radius: 4px; }
+.drc-panel ul { max-height: 280px; margin: 6px 0 0; padding: 2px 4px 2px 18px; overflow-y: auto; overscroll-behavior: contain; border-top: 1px solid rgba(168,62,34,.15); border-bottom: 1px solid rgba(168,62,34,.15); scrollbar-gutter: stable; }
+.drc-panel li { border-radius: 4px; border-bottom: 1px solid rgba(53,68,61,.08); }
+.drc-panel li:last-child { border-bottom: 0; }
 .drc-panel li.active { background: rgba(209,138,24,.16); color: #76510f; }
 .drc-panel li button { padding: 4px 3px; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 

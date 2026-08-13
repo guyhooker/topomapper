@@ -292,6 +292,10 @@ editor, and its machining operations can be selected independently by layer.
 - Present the existing background search as Optimise I and reserve Optimise II
   for an embedded SVGnest worker, eliminating the manual download/site/import
   steps once that integration has its own performance and round-trip tests.
+- For the embedded worker, offset every proxy outward to the outside of its
+  required clearance halo and run SVGnest with zero additional spacing. Restore
+  exact cut outlines after placement. This makes clearance part of the geometry
+  SVGnest sees instead of relying on its separate spacing control.
 - Once the round trip is reliable, offer two manufacturing outputs per sheet:
   an optional Side 1 annotation SVG and a mirrored Side 2 exact cutting SVG.
   The first convention is an end-to-end flip with the accurately sized stock

@@ -874,3 +874,7 @@
   scored for straightness, horizontal orientation, northern clearance and land
   immediately behind the neck. The selected boundary chain is replaced with a
   straight full-width neck, avoiding sub-millimetre bridges on ridge tips.
+- Extended that neck into a 6 mm parallel-sided stalk perpendicular to the
+  selected coastline chord. Its far end intersects the flat base of the upright
+  north-pointing flag, eliminating the acute unmachinable notch seen where a
+  vertical flag previously met a sloping ridge edge.

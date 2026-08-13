@@ -185,6 +185,7 @@ const DEFAULT_PART_IDENTIFICATION: PartIdentificationSettings = {
 const ID_FLAG_WIDTH_MM = 8;
 const ID_FLAG_LENGTH_MM = 12;
 const ID_FLAG_NECK_MM = 3;
+const ID_FLAG_STALK_MM = 6;
 
 type SheetPlacement = {
   id: string;
@@ -966,6 +967,7 @@ function appendNorthIdFlag(outerRing: { x: number; y: number }[]) {
     if (!northOutside) return;
     const southInside = pointInRing([centre.x, centre.y + .6], numericRing);
     const horizontalPenalty = Math.abs(dy) / chord;
+    if (horizontalPenalty > .6) return;
     const strict = southInside && horizontalPenalty <= .42 && straightness >= .94;
     const score = (1 - straightness) * 220 + horizontalPenalty * 45 + centre.y * .015 + (strict ? 0 : 80);
     if (!best || (strict && !best.strict) || strict === best.strict && score < best.score) best = { index, span, score, strict };
@@ -979,22 +981,28 @@ function appendNorthIdFlag(outerRing: { x: number; y: number }[]) {
   const centre = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
   const firstAttach = start;
   const secondAttach = end;
-  const shoulderY = Math.min(firstAttach.y, secondAttach.y) - 1.5;
-  const topY = Math.min(firstAttach.y, secondAttach.y) - ID_FLAG_LENGTH_MM;
+  // Of the two perpendiculars to the edge, use the one pointing north. The
+  // parallel stalk sides therefore leave the terrain edge at 90 degrees.
+  const outward = unit.x >= 0 ? { x: unit.y, y: -unit.x } : { x: -unit.y, y: unit.x };
+  if (outward.y >= -.35) return null;
+  const flagBottomY = Math.min(firstAttach.y, secondAttach.y) + outward.y * ID_FLAG_STALK_MM;
+  const firstDistance = (flagBottomY - firstAttach.y) / outward.y;
+  const secondDistance = (flagBottomY - secondAttach.y) / outward.y;
+  if (firstDistance <= 0 || secondDistance <= 0) return null;
+  const firstStalkEnd = { x: firstAttach.x + outward.x * firstDistance, y: flagBottomY };
+  const secondStalkEnd = { x: secondAttach.x + outward.x * secondDistance, y: flagBottomY };
+  if (Math.abs(firstStalkEnd.x - secondStalkEnd.x) > ID_FLAG_WIDTH_MM - 1) return null;
+  const flagCentreX = (firstStalkEnd.x + secondStalkEnd.x) / 2;
+  const topY = flagBottomY - ID_FLAG_LENGTH_MM;
   const pointShoulderY = topY + 3;
-  const firstSideX = centre.x + (unit.x >= 0 ? -ID_FLAG_WIDTH_MM / 2 : ID_FLAG_WIDTH_MM / 2);
-  const secondSideX = centre.x + (unit.x >= 0 ? ID_FLAG_WIDTH_MM / 2 : -ID_FLAG_WIDTH_MM / 2);
-  const excursion = [
-    firstAttach,
-    { x: firstAttach.x, y: shoulderY },
-    { x: firstSideX, y: shoulderY },
-    { x: firstSideX, y: pointShoulderY },
-    { x: centre.x, y: topY },
-    { x: secondSideX, y: pointShoulderY },
-    { x: secondSideX, y: shoulderY },
-    { x: secondAttach.x, y: shoulderY },
-    secondAttach,
-  ];
+  const leftBottom = { x: flagCentreX - ID_FLAG_WIDTH_MM / 2, y: flagBottomY };
+  const rightBottom = { x: flagCentreX + ID_FLAG_WIDTH_MM / 2, y: flagBottomY };
+  const leftShoulder = { x: leftBottom.x, y: pointShoulderY };
+  const rightShoulder = { x: rightBottom.x, y: pointShoulderY };
+  const point = { x: flagCentreX, y: topY };
+  const excursion = firstStalkEnd.x <= secondStalkEnd.x
+    ? [firstAttach, firstStalkEnd, leftBottom, leftShoulder, point, rightShoulder, rightBottom, secondStalkEnd, secondAttach]
+    : [firstAttach, firstStalkEnd, rightBottom, rightShoulder, point, leftShoulder, leftBottom, secondStalkEnd, secondAttach];
   // Replace the sampled 3.2 mm boundary chain with a straight 3 mm neck. This
   // prevents tiny source segments at a pointed ridge from shrinking the bridge.
   const remaining: { x: number; y: number }[] = [];
@@ -1006,7 +1014,7 @@ function appendNorthIdFlag(outerRing: { x: number; y: number }[]) {
   remaining.push(source[start.sourceIndex]);
   const result = [...excursion, ...remaining];
   result.push({ ...result[0] });
-  return { ring: result, labelPoint: { x: centre.x, y: topY + 7.5 } };
+  return { ring: result, labelPoint: { x: flagCentreX, y: topY + 7.5 } };
 }
 
 function identifiedPartGeometry(

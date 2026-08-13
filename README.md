@@ -233,4 +233,6 @@ clears an obsolete sheet placement because the part outlines may have changed.
 Flag placement evaluates a continuous 3 mm coastline section rather than an
 individual source segment. It favours a nearly straight, north-facing section
 with supporting land behind it and rejects sharply turning ridge tips, keeping
-the breakaway bridge at least 3 mm wide.
+the breakaway bridge at least 3 mm wide. A 6 mm-long, parallel-sided stalk now
+leaves that edge perpendicularly before joining the upright pointed flag. This
+removes acute inside corners which a 3 mm cutter could not machine.

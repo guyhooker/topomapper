@@ -273,6 +273,9 @@ controller/postprocessor are specified.
   the straightest north-facing section with land behind it; do not reduce the
   bridge width to match a short source polygon segment or select a pointed tip
   when a straighter edge exists.
+- Extend the 3 mm bridge as a parallel-sided stalk normal to the selected part
+  edge before it meets the upright flag. Avoid acute re-entrant corners and
+  require the resulting outline to remain machinable with the selected cutter.
 
 ## Quality and Safety
 

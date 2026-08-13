@@ -279,23 +279,20 @@ editor, and its machining operations can be selected independently by layer.
   production/replacement part.
   Exact water cutouts, internal holes, and registration drilling remain in the
   project for restoration after nesting.
-- A conservative SVGnest spacing value that includes measured proxy deviation,
-  plus a separate practical 4–24 rotation selector. Fine 1°/2° Topomapper
-  editing no longer expands into an impractical 180–360 SVGnest rotations.
+- Clearance-expanded proxies that include measured proxy deviation and permit
+  zero SVGnest spacing, plus a separate practical 4–24 rotation selector. Fine
+  1°/2° Topomapper editing no longer expands into an impractical 180–360
+  SVGnest rotations.
 - A single physical clearance definition: Cut-edge gap is the final exact
   outline-to-outline distance, while each visible part halo occupies half that
-  distance. Decimal cutter clearances are supported. The exported bin
-  compensates for SVGnest's half-spacing inward offset at stock boundaries.
+  distance. Decimal cutter clearances are supported. The exported bin accounts
+  for the clearance already built into the expanded proxy boundaries.
 - SVGnest remains an explicit external nesting tool. Its downloaded result can
   be imported back into Topomapper, preserving IDs, sheets, translations and
   rotations while restoring exact geometry and rerunning DRC.
 - Present the existing background search as Optimise I and reserve Optimise II
   for an embedded SVGnest worker, eliminating the manual download/site/import
   steps once that integration has its own performance and round-trip tests.
-- For the embedded worker, offset every proxy outward to the outside of its
-  required clearance halo and run SVGnest with zero additional spacing. Restore
-  exact cut outlines after placement. This makes clearance part of the geometry
-  SVGnest sees instead of relying on its separate spacing control.
 - Once the round trip is reliable, offer two manufacturing outputs per sheet:
   an optional Side 1 annotation SVG and a mirrored Side 2 exact cutting SVG.
   The first convention is an end-to-end flip with the accurately sized stock

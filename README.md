@@ -148,19 +148,22 @@ preparation, the proxy contains the usable stock boundary and a
 tolerance-controlled outer outline for each production or replacement part. Exact coastlines, water
 holes, and registration drilling remain untouched in the project. Topomapper
 renders the selectable stock bin as a pale green filled rectangle so clicking
-inside it cannot accidentally select the tall white staging page. It adds a
-conservative spacing allowance for proxy error and recommends 12 initial
-rotations rather than converting a 1° or 2° editing step into hundreds of
-SVGnest rotations. The downloaded SVGnest result can now be imported back into
+inside it cannot accidentally select the tall white staging page. Every proxy
+is raster-buffered outward to include half the requested cut-edge gap, its
+measured simplification error, and a small discretisation allowance. SVGnest
+therefore runs with Space between parts set to zero instead of performing its
+own unreliable offset on these deeply concave coastlines. Topomapper recommends
+12 initial rotations rather than converting a 1° or 2° editing step into
+hundreds of SVGnest rotations. The downloaded result can be imported back into
 Sheet Layout: Topomapper recovers the named instances, sheets, positions and
 rotations, restores exact geometry, and reruns the full-resolution DRC.
 Proxy simplification is controlled by physical tolerances rather than an
 arbitrary fixed vertex count. Sheet Layout defaults to a 3 mm cutter and 0.25
 mm manufacturing tolerance. Because SVGnest's no-fit-polygon cost rises steeply
 with vertex count, its search proxy uses at least the cutter radius (1.5 mm by
-default); measured proxy error is added to search spacing, then exact geometry
-is restored and checked after import. The download reports the required SVGnest
-spacing, measured maximum error and point count.
+default); measured proxy error is included in each expanded proxy, then exact
+geometry is restored and checked after import. The download reports the zero
+SVGnest spacing requirement and proxy point count.
 Coarse simplification is prevented from collapsing a retained part into a
 two-point line, which SVGnest would silently omit. If SVGnest nevertheless
 returns a partial result, Topomapper imports the valid placements and leaves the
@@ -178,8 +181,9 @@ removes their obsolete placement records while preserving surviving manual
 positions. Any genuinely new/unplaced parts remain available to Quick Placement,
 and changed outlines are checked again by the normal full-resolution DRC.
 SVGnest settings take effect only after its own **Save Settings** control is
-pressed. A downloaded result with touching outlines indicates that its spacing
-remained at zero; Topomapper's post-import DRC reports those clearances.
+pressed. With clearance-expanded proxies, touching green outlines are expected:
+they represent touching clearance halos, while the restored cut outlines retain
+the requested separation.
 The complete handoff is grouped in Setup Section 7 as Download, Process and
 Import. Sheet dimensions and nesting rules are no longer duplicated above the
 layout canvas. A red Sheet Layout status means parts remain unplaced, amber
@@ -195,8 +199,8 @@ Best-result ranking primarily minimises total occupied sheet length, preventing
 a longer final offcut from being accepted merely because it is shallower.
 Sheet Layout defines Cut-edge gap as the final edge-to-edge distance between
 neighbouring exact parts. Each on-screen halo extends half that value outside
-its cut outline. The SVGnest proxy bin is moved outward to compensate for
-SVGnest's own half-spacing inset, preserving the requested stock-edge zone.
+its cut outline. The SVGnest proxy is the real outside edge of that halo and the
+stock bin is adjusted correspondingly, preserving the requested edge zone.
 Future CAM preparation will warn when a retained river or internal slot is too
 narrow for the selected cutter. It will also offer optional east-facing,
 sacrificial label tails for small detached parts; these will be added before

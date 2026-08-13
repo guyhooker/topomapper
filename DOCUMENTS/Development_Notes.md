@@ -840,10 +840,17 @@
   rather than truncating at twelve. Its header reports the full warning count;
   explanatory and warning text use a darker high-contrast colour and separated
   rows for easier inspection and selection.
-- Prefer clearance-expanded nesting proxies for the embedded SVGnest stage:
-  construct a real polygon at the outside edge of each part's required halo,
-  nest those polygons at zero SVGnest spacing, then restore the original exact
-  cut outlines from their IDs and transforms. A stroke is not sufficient because
-  SVGnest nests path geometry, not SVG stroke width. The expansion must use a
-  robust polygon-offset operation and must also inset the usable stock boundary
-  by the requested edge zone.
+- Replaced the external SVGnest spacing dependency with clearance-expanded
+  nesting geometry. Each simplified coastline is scanline-rasterised, dilated
+  conservatively with an eight-neighbour distance field, traced back to its
+  outside polygon and tolerance-simplified. Its expansion includes half the
+  requested cut-edge gap, measured proxy error and raster safety allowance.
+- SVGnest now receives those real outside-halo paths and must use Space between
+  parts = 0. Touching green paths are therefore correct: their restored exact
+  cut outlines remain separated. The usable bin is adjusted for the baked-in
+  half-gap while preserving the material edge zone. SVG strokes remain visual
+  only and are never relied upon as nesting geometry.
+- Added per-path proxy-origin metadata so import can discard expanded geometry
+  and restore the exact coastline at SVGnest's translation and rotation without
+  recomputing the raster buffer. Older spacing-based results retain their legacy
+  minimum-coordinate fallback and remain importable.

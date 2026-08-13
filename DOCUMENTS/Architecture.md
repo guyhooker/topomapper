@@ -120,10 +120,11 @@ original source files remain external and are only needed for regeneration.
   workspace: the usable sheet rectangle is the bin and every requested part is
   a bounded-point outer proxy staged below it without overlap. Internal water
   and registration holes are omitted from the search proxy; exact geometry
-  remains in the project. The maximum measured proxy deviation is added twice
-  to the requested spacing before SVGnest runs. SVGnest uses its no-fit-polygon
-  genetic engine; its result is not yet parsed back into `SheetPlacement`
-  records for exact-geometry DRC and export.
+  remains in the project. Each proxy is conservatively raster-offset to include
+  its half-gap halo and measured approximation error, so SVGnest runs with zero
+  extra spacing. SVGnest uses its no-fit-polygon genetic engine; returned IDs
+  and transforms are parsed back into `SheetPlacement` records, exact geometry
+  is restored, and full-resolution DRC is rerun.
 - Controller-specific G-code generated only from a validated manufacturing and
   sheet-layout plan; SVG remains the visual audit format.
 - G-code only through a later, explicitly configured CAM/postprocessor stage.

@@ -1500,6 +1500,116 @@ function simplifyClosedRingForNesting(ring: { x: number; y: number }[], requeste
   return { ring: simplified, errorMm };
 }
 
+function expandedRasterNestingRing(ring: { x: number; y: number }[], radiusMm: number) {
+  const open = ring.length > 1 && Math.hypot(ring[0].x - ring[ring.length - 1].x, ring[0].y - ring[ring.length - 1].y) < 1e-8 ? ring.slice(0, -1) : ring;
+  if (open.length < 3 || radiusMm <= 0) return ring;
+  const sourceMinimumX = Math.min(...open.map((point) => point.x));
+  const sourceMaximumX = Math.max(...open.map((point) => point.x));
+  const sourceMinimumY = Math.min(...open.map((point) => point.y));
+  const sourceMaximumY = Math.max(...open.map((point) => point.y));
+  let cellSize = Math.max(.5, Math.min(1.25, radiusMm / 4));
+  const padding = radiusMm + cellSize * 3;
+  const originX = sourceMinimumX - padding;
+  const originY = sourceMinimumY - padding;
+  let columns = Math.ceil((sourceMaximumX - sourceMinimumX + padding * 2) / cellSize);
+  let rows = Math.ceil((sourceMaximumY - sourceMinimumY + padding * 2) / cellSize);
+  const maximumCells = 2_500_000;
+  if (columns * rows > maximumCells) {
+    cellSize *= Math.sqrt(columns * rows / maximumCells);
+    columns = Math.ceil((sourceMaximumX - sourceMinimumX + padding * 2) / cellSize);
+    rows = Math.ceil((sourceMaximumY - sourceMinimumY + padding * 2) / cellSize);
+  }
+  const mask = new Uint8Array(columns * rows);
+  // Scanline-fill the source polygon at cell centres.
+  for (let row = 0; row < rows; row += 1) {
+    const y = originY + (row + .5) * cellSize;
+    const intersections: number[] = [];
+    open.forEach((start, index) => {
+      const end = open[(index + 1) % open.length];
+      if ((start.y > y) === (end.y > y)) return;
+      intersections.push(start.x + (y - start.y) * (end.x - start.x) / (end.y - start.y));
+    });
+    intersections.sort((left, right) => left - right);
+    for (let index = 0; index + 1 < intersections.length; index += 2) {
+      const first = Math.max(0, Math.ceil((intersections[index] - originX) / cellSize - .5));
+      const last = Math.min(columns - 1, Math.floor((intersections[index + 1] - originX) / cellSize - .5));
+      for (let column = first; column <= last; column += 1) mask[row * columns + column] = 1;
+    }
+  }
+  // Conservative eight-neighbour chamfer dilation. Two extra cells cover the
+  // chamfer approximation and the later contour simplification.
+  const infinity = 1e9;
+  const distance = new Float32Array(mask.length);
+  for (let index = 0; index < mask.length; index += 1) distance[index] = mask[index] ? 0 : infinity;
+  const diagonal = Math.SQRT2;
+  for (let row = 0; row < rows; row += 1) {
+    for (let column = 0; column < columns; column += 1) {
+      const index = row * columns + column;
+      if (column > 0) distance[index] = Math.min(distance[index], distance[index - 1] + 1);
+      if (row > 0) {
+        distance[index] = Math.min(distance[index], distance[index - columns] + 1);
+        if (column > 0) distance[index] = Math.min(distance[index], distance[index - columns - 1] + diagonal);
+        if (column + 1 < columns) distance[index] = Math.min(distance[index], distance[index - columns + 1] + diagonal);
+      }
+    }
+  }
+  for (let row = rows - 1; row >= 0; row -= 1) {
+    for (let column = columns - 1; column >= 0; column -= 1) {
+      const index = row * columns + column;
+      if (column + 1 < columns) distance[index] = Math.min(distance[index], distance[index + 1] + 1);
+      if (row + 1 < rows) {
+        distance[index] = Math.min(distance[index], distance[index + columns] + 1);
+        if (column > 0) distance[index] = Math.min(distance[index], distance[index + columns - 1] + diagonal);
+        if (column + 1 < columns) distance[index] = Math.min(distance[index], distance[index + columns + 1] + diagonal);
+      }
+    }
+  }
+  const threshold = radiusMm / cellSize + 2;
+  const filled = (column: number, row: number) => column >= 0 && column < columns && row >= 0 && row < rows && distance[row * columns + column] <= threshold;
+  const outgoing = new Map<string, { x: number; y: number }[]>();
+  const addEdge = (startX: number, startY: number, endX: number, endY: number) => {
+    const key = `${startX}:${startY}`;
+    const entries = outgoing.get(key);
+    if (entries) entries.push({ x: endX, y: endY }); else outgoing.set(key, [{ x: endX, y: endY }]);
+  };
+  for (let row = 0; row < rows; row += 1) {
+    for (let column = 0; column < columns; column += 1) {
+      if (!filled(column, row)) continue;
+      if (!filled(column, row - 1)) addEdge(column, row, column + 1, row);
+      if (!filled(column + 1, row)) addEdge(column + 1, row, column + 1, row + 1);
+      if (!filled(column, row + 1)) addEdge(column + 1, row + 1, column, row + 1);
+      if (!filled(column - 1, row)) addEdge(column, row + 1, column, row);
+    }
+  }
+  const loops: { x: number; y: number }[][] = [];
+  while (outgoing.size) {
+    const firstEntry = outgoing.entries().next().value as [string, { x: number; y: number }[]] | undefined;
+    if (!firstEntry) break;
+    const [startKey] = firstEntry;
+    const [startX, startY] = startKey.split(":").map(Number);
+    const loop = [{ x: startX, y: startY }];
+    let key = startKey;
+    for (let guard = 0; guard < columns * rows * 4; guard += 1) {
+      const entries = outgoing.get(key);
+      if (!entries?.length) break;
+      const next = entries.pop()!;
+      if (!entries.length) outgoing.delete(key);
+      loop.push(next);
+      key = `${next.x}:${next.y}`;
+      if (key === startKey) break;
+    }
+    if (loop.length > 3 && key === startKey) loops.push(loop);
+  }
+  if (!loops.length) return ring;
+  const area = (loop: { x: number; y: number }[]) => Math.abs(loop.slice(0, -1).reduce((total, point, index, points) => {
+    const next = points[(index + 1) % points.length];
+    return total + point.x * next.y - next.x * point.y;
+  }, 0));
+  const boundary = loops.sort((left, right) => area(right) - area(left))[0]
+    .map((point) => ({ x: originX + point.x * cellSize, y: originY + point.y * cellSize }));
+  return simplifyClosedRingForNesting(boundary, Math.min(1, cellSize)).ring;
+}
+
 function buildSvgNestJob(projectName: string, rules: SheetRules, parts: LayoutPart[], placements: SheetPlacement[], diagnosticFraction = 1) {
   // SVGnest's NFP cost rises steeply with coastline vertex count. Search at no
   // finer than the cutter radius, then restore exact/manufacturing geometry on
@@ -1507,16 +1617,17 @@ function buildSvgNestJob(projectName: string, rules: SheetRules, parts: LayoutPa
   const nestingProxyTolerance = Math.max(rules.geometryTolerance, rules.cutterDiameter / 2);
   const proxyParts = parts.map((part) => {
     const simplified = simplifyClosedRingForNesting(part.rings[0], nestingProxyTolerance);
-    return { ...part, rings: [simplified.ring], holes: [], searchErrorMm: simplified.errorMm };
+    const expansionMm = rules.partSpacing / 2 + simplified.errorMm + .5;
+    return { ...part, rings: [expandedRasterNestingRing(simplified.ring, expansionMm)], holes: [], searchErrorMm: simplified.errorMm, expansionMm };
   });
   const partMap = new Map(proxyParts.map((part) => [part.id, part]));
   const maximumProxyError = Math.max(0, ...proxyParts.map((part) => part.searchErrorMm ?? 0));
-  const safeSpacing = rules.partSpacing + maximumProxyError * 2 + .5;
-  // SVGnest expands every part by half its spacing and shrinks the bin by the
-  // other half. Move the exported bin outward so the restored exact outline,
-  // including measured proxy error, retains Topomapper's requested edge zone.
-  const nestingBinMargin = Math.max(0, rules.edgeMargin + maximumProxyError - safeSpacing / 2);
-  const effectiveEdgeClearance = nestingBinMargin + safeSpacing / 2 - maximumProxyError;
+  const safeSpacing = 0;
+  // Clearance is baked into every proxy. Move the bin outward by half the
+  // requested inter-part gap: the proxy-error component of each expansion then
+  // leaves the restored exact outline at or beyond the requested edge zone.
+  const nestingBinMargin = Math.max(0, rules.edgeMargin - rules.partSpacing / 2);
+  const effectiveEdgeClearance = rules.edgeMargin;
   const placedPartIds = new Set(placements.map((placement) => placement.partId));
   const allInstances = [
     ...placements.map((placement) => ({ id: placement.id, partId: placement.partId })),
@@ -1534,24 +1645,33 @@ function buildSvgNestJob(projectName: string, rules: SheetRules, parts: LayoutPa
     return Array.from({ length: count }, (_, index) => ranked[Math.round(index * (ranked.length - 1) / (count - 1))]);
   })() : allInstances;
   const stagingGap = Math.max(10, rules.partSpacing + 6);
-  const stagingWidth = Math.max(rules.width, ...proxyParts.map((part) => part.width + stagingGap * 2));
+  const stagingWidth = Math.max(rules.width, ...proxyParts.map((part) => {
+    const ring = part.rings[0];
+    return Math.max(...ring.map((point) => point.x)) - Math.min(...ring.map((point) => point.x)) + stagingGap * 2;
+  }));
   let cursorX = stagingGap;
   let cursorY = rules.height + 30;
   let rowHeight = 0;
   const sourceParts = instances.flatMap((instance) => {
     const part = partMap.get(instance.partId);
     if (!part) return [];
-    if (cursorX + part.width + stagingGap > stagingWidth && cursorX > stagingGap) {
+    const proxyMinimumX = Math.min(...part.rings[0].map((point) => point.x));
+    const proxyMinimumY = Math.min(...part.rings[0].map((point) => point.y));
+    const proxyMaximumX = Math.max(...part.rings[0].map((point) => point.x));
+    const proxyMaximumY = Math.max(...part.rings[0].map((point) => point.y));
+    const proxyWidth = proxyMaximumX - proxyMinimumX;
+    const proxyHeight = proxyMaximumY - proxyMinimumY;
+    if (cursorX + proxyWidth + stagingGap > stagingWidth && cursorX > stagingGap) {
       cursorX = stagingGap;
       cursorY += rowHeight + stagingGap;
       rowHeight = 0;
     }
-    const x = cursorX;
-    const y = cursorY;
-    cursorX += part.width + stagingGap;
-    rowHeight = Math.max(rowHeight, part.height);
+    const x = cursorX - proxyMinimumX;
+    const y = cursorY - proxyMinimumY;
+    cursorX += proxyWidth + stagingGap;
+    rowHeight = Math.max(rowHeight, proxyHeight);
     const outline = part.rings.map(layoutRingSvgPath).join(" ");
-    return [`  <path id="${xmlText(instance.id)}" data-topomapper-part-id="${xmlText(part.id)}" d="${outline}" transform="translate(${svgNumber(x)} ${svgNumber(y)})" fill="#b8cfaa" fill-rule="evenodd" stroke="#214f3d" stroke-width="0.2" />`];
+    return [`  <path id="${xmlText(instance.id)}" data-topomapper-part-id="${xmlText(part.id)}" data-topomapper-proxy-min-x="${svgNumber(proxyMinimumX)}" data-topomapper-proxy-min-y="${svgNumber(proxyMinimumY)}" d="${outline}" transform="translate(${svgNumber(x)} ${svgNumber(y)})" fill="#b8cfaa" fill-rule="evenodd" stroke="#214f3d" stroke-width="0.2" />`];
   });
   const stagingHeight = cursorY + rowHeight + stagingGap;
   const usableWidth = Math.max(1, rules.width - nestingBinMargin * 2);
@@ -1571,6 +1691,7 @@ function buildSvgNestJob(projectName: string, rules: SheetRules, parts: LayoutPa
     nesting_bin_margin_mm: svgNumber(nestingBinMargin),
     effective_exact_edge_clearance_mm: svgNumber(effectiveEdgeClearance),
     proxy_geometry_only: true,
+    proxy_clearance_mode: "expanded-halo-v1",
     exact_geometry_and_drilling: "retained in the Topomapper project",
     instances: instances.length,
     diagnostic_subset: diagnostic,
@@ -1579,9 +1700,9 @@ function buildSvgNestJob(projectName: string, rules: SheetRules, parts: LayoutPa
   const svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${svgNumber(stagingWidth)}mm" height="${svgNumber(stagingHeight)}mm" viewBox="0 0 ${svgNumber(stagingWidth)} ${svgNumber(stagingHeight)}">
   <title>${xmlText(projectName)} · SVGnest ${diagnostic ? "20% diagnostic" : "input"}</title>
-  <desc>${diagnostic ? `DIAGNOSTIC SUBSET ONLY — ${instances.length} OF ${allInstances.length} PARTS — DO NOT IMPORT OR CUT. ` : "NESTING PROXY ONLY — NOT A CUTTING FILE. "}Click inside the pale green stock rectangle to select it as the SVGnest bin. Do not select the white page. Set spacing to ${svgNumber(safeSpacing)} SVG units. Exact coastlines, water holes, and drilling remain in Topomapper.</desc>
+  <desc>${diagnostic ? `DIAGNOSTIC SUBSET ONLY — ${instances.length} OF ${allInstances.length} PARTS — DO NOT IMPORT OR CUT. ` : "NESTING PROXY ONLY — NOT A CUTTING FILE. "}The proxy outlines already include the required clearance halo. Click inside the pale green stock rectangle to select it as the SVGnest bin, set Space between parts to 0, then nest. Exact coastlines, water holes, and drilling remain in Topomapper.</desc>
   <metadata>${xmlText(metadata)}</metadata>
-  <rect id="TOPOMAPPER_SHEET_BIN" x="${svgNumber(nestingBinMargin)}" y="${svgNumber(nestingBinMargin)}" width="${svgNumber(usableWidth)}" height="${svgNumber(usableHeight)}" data-topomapper-edge-margin="${svgNumber(rules.edgeMargin)}" data-topomapper-nesting-margin="${svgNumber(nestingBinMargin)}" data-topomapper-spacing="${svgNumber(safeSpacing)}" data-topomapper-proxy-tolerance="${svgNumber(nestingProxyTolerance)}" data-topomapper-diagnostic="${diagnostic ? "true" : "false"}" fill="#dcefdc" fill-opacity="0.72" stroke="#16815f" stroke-width="1.2" />
+  <rect id="TOPOMAPPER_SHEET_BIN" x="${svgNumber(nestingBinMargin)}" y="${svgNumber(nestingBinMargin)}" width="${svgNumber(usableWidth)}" height="${svgNumber(usableHeight)}" data-topomapper-edge-margin="${svgNumber(rules.edgeMargin)}" data-topomapper-nesting-margin="${svgNumber(nestingBinMargin)}" data-topomapper-spacing="0" data-topomapper-requested-gap="${svgNumber(rules.partSpacing)}" data-topomapper-proxy-tolerance="${svgNumber(nestingProxyTolerance)}" data-topomapper-clearance-mode="expanded-halo-v1" data-topomapper-diagnostic="${diagnostic ? "true" : "false"}" fill="#dcefdc" fill-opacity="0.72" stroke="#16815f" stroke-width="1.2" />
 ${sourceParts.join("\n")}
 </svg>`;
   const proxyVertices = instances.reduce((total, instance) => total + (partMap.get(instance.partId)?.rings[0]?.length ?? 0), 0);
@@ -1695,11 +1816,15 @@ function importSvgNestLayout(svgText: string, parts: LayoutPart[], rules: SheetR
       seenPartIds.add(partId);
 
       const rawPoints = svgMoveLinePoints(path.getAttribute("d") ?? "");
-      const proxy = simplifyClosedRingForNesting(part.rings[0], nestingProxyTolerance).ring;
       const rawMinimumX = Math.min(...rawPoints.map((point) => point.x));
       const rawMinimumY = Math.min(...rawPoints.map((point) => point.y));
-      const proxyMinimumX = Math.min(...proxy.map((point) => point.x));
-      const proxyMinimumY = Math.min(...proxy.map((point) => point.y));
+      const storedProxyMinimumX = Number(path.getAttribute("data-topomapper-proxy-min-x"));
+      const storedProxyMinimumY = Number(path.getAttribute("data-topomapper-proxy-min-y"));
+      const legacyProxy = Number.isFinite(storedProxyMinimumX) && Number.isFinite(storedProxyMinimumY)
+        ? null
+        : simplifyClosedRingForNesting(part.rings[0], nestingProxyTolerance).ring;
+      const proxyMinimumX = Number.isFinite(storedProxyMinimumX) ? storedProxyMinimumX : Math.min(...legacyProxy!.map((point) => point.x));
+      const proxyMinimumY = Number.isFinite(storedProxyMinimumY) ? storedProxyMinimumY : Math.min(...legacyProxy!.map((point) => point.y));
       const stagingOffset = { x: rawMinimumX - proxyMinimumX, y: rawMinimumY - proxyMinimumY };
       const matrix = elementTransformWithinSheet(path, sheet);
       const scaleX = Math.hypot(matrix.a, matrix.b);
@@ -4257,7 +4382,7 @@ export function MapWorkspace() {
     setLastSvgNestSpacing(result.safeSpacing);
     const stem = projectFilename(projectName || "topomapper-project").replace(/\.topomapper$/i, "");
     downloadFile(result.svg, "image/svg+xml;charset=utf-8", `${stem}-svgnest-proxy.svg`);
-    setSheetExportStatus(`SVGnest search proxy downloaded: ${result.instanceCount} parts and ${result.proxyVertices.toLocaleString("en-NZ")} outline points. Search tolerance ${result.nestingProxyTolerance.toFixed(3)} mm; measured maximum error ${result.maximumProxyError.toFixed(3)} mm. In SVGnest click inside the pale green stock rectangle, set Space between parts to ${result.safeSpacing.toFixed(2)} (do not leave it at 0), Curve tolerance to 0.3 and Part rotations to ${svgNestRotations}. Exact ${sheetRules.geometryTolerance.toFixed(3)} mm manufacturing geometry remains in Topomapper and is restored on import.`);
+    setSheetExportStatus(`Clearance-expanded SVGnest proxy downloaded: ${result.instanceCount} parts and ${result.proxyVertices.toLocaleString("en-NZ")} outline points. The green shapes already include the required ${sheetRules.partSpacing.toFixed(2)} mm cut-edge gap. In SVGnest click inside the pale green stock rectangle, set Space between parts to 0, Curve tolerance to 0.3 and Part rotations to ${svgNestRotations}. Exact ${sheetRules.geometryTolerance.toFixed(3)} mm manufacturing geometry remains in Topomapper and is restored on import.`);
   }
 
   async function downloadSvgNestDiagnosticJob() {
@@ -4267,7 +4392,7 @@ export function MapWorkspace() {
     const result = buildSvgNestJob(projectName || "Topomapper project", sheetRules, layoutParts, sheetPlacements, .2);
     const stem = projectFilename(projectName || "topomapper-project").replace(/\.topomapper$/i, "");
     downloadFile(result.svg, "image/svg+xml;charset=utf-8", `${stem}-svgnest-diagnostic-20pct.svg`);
-    setSheetExportStatus(`20% diagnostic downloaded: ${result.instanceCount} of ${result.totalInstanceCount} parts and ${result.proxyVertices.toLocaleString("en-NZ")} outline points. This cannot be imported or used for cutting. In SVGnest select the pale green bin; set Space between parts to ${result.safeSpacing.toFixed(2)}, Curve tolerance to 0.3, Part rotations to 4, and keep both Part in part and Explore concave areas off.`);
+    setSheetExportStatus(`20% clearance-expanded diagnostic downloaded: ${result.instanceCount} of ${result.totalInstanceCount} parts and ${result.proxyVertices.toLocaleString("en-NZ")} outline points. This cannot be imported or used for cutting. In SVGnest select the pale green bin; set Space between parts to 0, Curve tolerance to 0.3, Part rotations to 4, and keep both Part in part and Explore concave areas off.`);
   }
 
   async function importSvgNestResult(event: ChangeEvent<HTMLInputElement>) {
@@ -4871,14 +4996,14 @@ export function MapWorkspace() {
             </div>
             <div className="drawer-svgnest-actions">
               <strong>SVGnest process</strong>
-              <p>Topomapper calculates the compensated spacing when it prepares the file.</p>
+              <p>Topomapper enlarges every green proxy to include its machining clearance.</p>
               <label>Part rotations<select value={svgNestRotations} onChange={(event) => setSvgNestRotations(Number(event.target.value))}><option value={4}>4 · 90°</option><option value={8}>8 · 45°</option><option value={12}>12 · 30°</option><option value={24}>24 · 15°</option></select></label>
               <ol>
                 <li><button disabled={!layoutParts.length} onClick={downloadSvgNestJob}>1 · Download nest file</button></li>
                 <li><a href="https://svgnest.com/" target="_blank" rel="noreferrer">2 · Process in SVGnest ↗</a></li>
                 <li><label className={`drawer-svgnest-import ${!layoutParts.length ? "disabled" : ""}`}>3 · Import nest result<input disabled={!layoutParts.length} type="file" accept=".svg,image/svg+xml" onChange={(event) => void importSvgNestResult(event)} /></label></li>
               </ol>
-              <p className="drawer-svgnest-spacing">SVGnest spacing: <b>{lastSvgNestSpacing === null ? "shown after download" : `${lastSvgNestSpacing.toFixed(2)} mm`}</b>. Enter it in SVGnest and press Save Settings.</p>
+              <p className="drawer-svgnest-spacing">SVGnest Space between parts: <b>{lastSvgNestSpacing === null ? "0 (after the next download)" : `${lastSvgNestSpacing.toFixed(0)}`}</b>. The downloaded green shapes already contain the clearance halo; press Save Settings after entering zero.</p>
               <details><summary>Diagnostic test file</summary><button disabled={!layoutParts.length} onClick={downloadSvgNestDiagnosticJob}>Download 20% diagnostic</button></details>
               <p role="status">{sheetExportStatus}</p>
             </div>

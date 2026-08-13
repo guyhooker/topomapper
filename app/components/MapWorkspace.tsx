@@ -131,6 +131,7 @@ type PhysicalPart = {
   layerIndex: number;
   feature: FilledLayerFeature;
   labelPoint: [number, number];
+  idPoint: [number, number] | null;
   areaMm2: number;
   labelClearanceMm: number;
   machineLabel: boolean;
@@ -181,8 +182,8 @@ const DEFAULT_PART_IDENTIFICATION: PartIdentificationSettings = {
   useFlagsForSmallParts: true,
   applied: false,
 };
-const ID_FLAG_WIDTH_MM = 6;
-const ID_FLAG_LENGTH_MM = 10;
+const ID_FLAG_WIDTH_MM = 8;
+const ID_FLAG_LENGTH_MM = 12;
 const ID_FLAG_NECK_MM = 3;
 
 type SheetPlacement = {
@@ -777,13 +778,42 @@ function featureLabelPoint(preview: FilledLayerPreview, feature: FilledLayerFeat
   return { point: bestPoint, clearance: Math.max(0, bestClearance) };
 }
 
+function featureIdPoint(preview: FilledLayerPreview, feature: FilledLayerFeature, modelWidth: number, modelHeight: number): [number, number] | null {
+  const outer = feature.geometry.coordinates[0];
+  const physicalOuter = outer.map((point) => physicalPoint(preview, modelWidth, modelHeight, point));
+  const west = Math.min(...physicalOuter.map((point) => point.x));
+  const east = Math.max(...physicalOuter.map((point) => point.x));
+  const north = Math.min(...physicalOuter.map((point) => point.y));
+  const south = Math.max(...physicalOuter.map((point) => point.y));
+  let best: { point: [number, number]; clearance: number } | null = null;
+  if (east - west < 8 || south - north < 12) return null;
+  for (let row = 0; row < 17; row += 1) {
+    for (let column = 0; column < 17; column += 1) {
+      const x = west + (east - west) * (column + .5) / 17;
+      const y = north + (south - north) * (row + .5) / 17;
+      const fits = [-5.9, 0, 5.9].every((offsetY) => (
+        [-3.9, 0, 3.9].every((offsetX) => (
+          pointInFeature(geographicPoint(preview, modelWidth, modelHeight, x + offsetX, y + offsetY), feature)
+        ))
+      ));
+      if (!fits) continue;
+      const geographic = geographicPoint(preview, modelWidth, modelHeight, x, y);
+      const clearance = featureClearanceMm(preview, feature, modelWidth, modelHeight, geographic);
+      if (!best || clearance > best.clearance) best = { point: geographic, clearance };
+    }
+  }
+  return best?.point ?? null;
+}
+
 function buildPhysicalParts(preview: FilledLayerPreview, modelWidth: number, modelHeight: number) {
   const prepared = preview.feature_collection.features.map((feature) => {
     const label = featureLabelPoint(preview, feature, modelWidth, modelHeight);
+    const idPoint = featureIdPoint(preview, feature, modelWidth, modelHeight);
     return {
       feature,
       layerIndex: feature.properties.layer_index,
       labelPoint: label.point,
+      idPoint,
       labelClearanceMm: label.clearance,
       areaMm2: featureAreaMm2(preview, feature, modelWidth, modelHeight),
     };
@@ -794,15 +824,11 @@ function buildPhysicalParts(preview: FilledLayerPreview, modelWidth: number, mod
     const largest = [...layerParts].sort((left, right) => right.areaMm2 - left.areaMm2)[0];
     const ordered = largest ? [largest, ...layerParts.filter((part) => part !== largest).sort((left, right) => right.labelPoint[1] - left.labelPoint[1] || left.labelPoint[0] - right.labelPoint[0])] : [];
     ordered.forEach((part, index) => {
-      const coveringPart = prepared.find((candidate) => candidate.layerIndex === part.layerIndex + 1 && pointInFeature(part.labelPoint, candidate.feature));
-      const coveringClearance = coveringPart
-        ? featureClearanceMm(preview, coveringPart.feature, modelWidth, modelHeight, part.labelPoint)
-        : 0;
       result.push({
         ...part,
         id: `L${String(layer.index + 1).padStart(2, "0")}${partLetter(index)}`,
         displayId: `${String.fromCharCode(65 + Math.min(25, layer.index))}${index + 1}`,
-        machineLabel: part.labelClearanceMm >= 9 && coveringClearance >= 9 && part.areaMm2 >= 300,
+        machineLabel: Boolean(part.idPoint),
       });
     });
   });
@@ -894,7 +920,7 @@ function buildAssemblyPlan(
   if (!holes.length) warnings.push("No alignment hole has enough buried material and edge clearance.");
   if (parts.some((part) => Number(part.displayId.slice(1)) > 99)) warnings.push("At least one layer has more than 99 parts. Increase smoothing until every A1–Z99 identifier is unique.");
   const unlabelled = parts.filter((part) => !part.machineLabel).length;
-  if (unlabelled) warnings.push(`${unlabelled} small part${unlabelled === 1 ? " is" : "s are"} too small for reliable machining text; use the assembly sheet.`);
+  if (unlabelled) warnings.push(`${unlabelled} part${unlabelled === 1 ? " requires" : "s require"} a north-pointing ID flag because an 8 × 12 mm engraving area does not fit.`);
   return { parts, holes, ventComplete: vents.length > 0, warnings };
 }
 
@@ -917,6 +943,15 @@ function appendNorthIdFlag(outerRing: { x: number; y: number }[]) {
     const score = centre.y + Math.abs(dy / length) * 20;
     if (!best || score < best.score) best = { index, score };
   });
+  if (!best) {
+    ring.forEach((start, index) => {
+      const end = ring[(index + 1) % ring.length];
+      const length = Math.hypot(end.x - start.x, end.y - start.y);
+      if (length < .5) return;
+      const score = Math.min(start.y, end.y) + Math.abs(end.y - start.y) / length * 8;
+      if (!best || score < best.score) best = { index, score };
+    });
+  }
   if (!best) return null;
 
   const edgeIndex = best.index;
@@ -925,25 +960,28 @@ function appendNorthIdFlag(outerRing: { x: number; y: number }[]) {
   const length = Math.hypot(end.x - start.x, end.y - start.y);
   const unit = { x: (end.x - start.x) / length, y: (end.y - start.y) / length };
   const centre = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
-  const firstAttach = { x: centre.x - unit.x * ID_FLAG_NECK_MM / 2, y: centre.y - unit.y * ID_FLAG_NECK_MM / 2 };
-  const secondAttach = { x: centre.x + unit.x * ID_FLAG_NECK_MM / 2, y: centre.y + unit.y * ID_FLAG_NECK_MM / 2 };
+  const neckWidth = Math.min(ID_FLAG_NECK_MM, length * .6);
+  const firstAttach = { x: centre.x - unit.x * neckWidth / 2, y: centre.y - unit.y * neckWidth / 2 };
+  const secondAttach = { x: centre.x + unit.x * neckWidth / 2, y: centre.y + unit.y * neckWidth / 2 };
   const shoulderY = Math.min(firstAttach.y, secondAttach.y) - 1.5;
   const topY = Math.min(firstAttach.y, secondAttach.y) - ID_FLAG_LENGTH_MM;
+  const pointShoulderY = topY + 3;
   const firstSideX = centre.x + (unit.x >= 0 ? -ID_FLAG_WIDTH_MM / 2 : ID_FLAG_WIDTH_MM / 2);
   const secondSideX = centre.x + (unit.x >= 0 ? ID_FLAG_WIDTH_MM / 2 : -ID_FLAG_WIDTH_MM / 2);
   const excursion = [
     firstAttach,
     { x: firstAttach.x, y: shoulderY },
     { x: firstSideX, y: shoulderY },
-    { x: firstSideX, y: topY },
-    { x: secondSideX, y: topY },
+    { x: firstSideX, y: pointShoulderY },
+    { x: centre.x, y: topY },
+    { x: secondSideX, y: pointShoulderY },
     { x: secondSideX, y: shoulderY },
     { x: secondAttach.x, y: shoulderY },
     secondAttach,
   ];
   const result = [...ring.slice(0, edgeIndex + 1), ...excursion, ...ring.slice(edgeIndex + 1)];
   result.push({ ...result[0] });
-  return { ring: result, labelPoint: { x: centre.x, y: topY + ID_FLAG_LENGTH_MM * .52 } };
+  return { ring: result, labelPoint: { x: centre.x, y: topY + 7.5 } };
 }
 
 function identifiedPartGeometry(
@@ -954,7 +992,7 @@ function identifiedPartGeometry(
   identification: PartIdentificationSettings,
 ) {
   const rings = part.feature.geometry.coordinates.map((ring) => ring.map((point) => physicalPoint(preview, modelWidth, modelHeight, point)));
-  const ordinaryLabel = physicalPoint(preview, modelWidth, modelHeight, part.labelPoint);
+  const ordinaryLabel = physicalPoint(preview, modelWidth, modelHeight, part.idPoint ?? part.labelPoint);
   if (identification.applied && identification.addIdsToUnderside && identification.useFlagsForSmallParts && !part.machineLabel) {
     const flagged = appendNorthIdFlag(rings[0]);
     if (flagged) return { rings: [flagged.ring, ...rings.slice(1)], labelPoint: flagged.labelPoint, machineLabel: true, hasIdFlag: true };
@@ -5144,7 +5182,7 @@ export function MapWorkspace() {
             <label><input type="checkbox" checked={partIdentificationDraft.addIdsToUnderside} disabled={!fabricationPreview} onChange={(event) => setPartIdentificationDraft((current) => ({ ...current, addIdsToUnderside: event.target.checked }))} /> Add IDs to underside</label>
             <label><input type="checkbox" checked={partIdentificationDraft.useFlagsForSmallParts} disabled={!fabricationPreview || !partIdentificationDraft.addIdsToUnderside} onChange={(event) => setPartIdentificationDraft((current) => ({ ...current, useFlagsForSmallParts: event.target.checked }))} /> Use flags for small parts</label>
             <button disabled={!fabricationPreview} onClick={applyPartIdentification}>Add IDs</button>
-            <p>IDs use A–Z for layers and 1–99 for parts. Small-part flags are 6 × 10 mm, point to geographic north and remain attached until assembly.</p>
+            <p>IDs use A–Z for layers and 1–99 for parts. Any part without a clear 8 × 12 mm engraving area receives an 8 × 12 mm flag whose pointed end shows geographic north.</p>
             {partIdentification.applied && <dl className="plain-smoothing-stats"><div><dt>Underside IDs:</dt><dd>{engravedPartCount}</dd></div><div><dt>North ID flags:</dt><dd>{flaggedPartCount}</dd></div></dl>}
           </div>
         </details>

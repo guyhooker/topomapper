@@ -224,8 +224,9 @@ hand-labelling map, and the printable PDF remains an optional workshop guide.
 Part ID is now a separate gated step between Smoothing and Sheet Layout. It
 assigns compact workshop IDs from A1 through Z99, where the letter identifies
 one of up to 26 layers. Large parts receive a shallow underside ID and north
-mark. When enabled, parts too small for safe engraving gain a 6 × 10 mm
-north-pointing ID flag through a 3 mm breakaway neck. The flag is manufacturing
+mark. When enabled, every part without a clear 8 × 12 mm engraving area gains
+an 8 × 12 mm ID flag through a 3 mm breakaway neck. Its pointed end shows north.
+The flag is manufacturing
 geometry, so it is included in DRC, SVGnest proxies, sheet SVGs and layout
 documentation, and is cut off only during assembly. Applying changed ID options
 clears an obsolete sheet placement because the part outlines may have changed.

@@ -862,9 +862,10 @@
 - Added persisted controls for underside IDs and automatic small-part flags.
 - Added compact A1–Z99 display IDs while retaining established internal part
   keys so saved data and SVGnest round trips remain stable.
-- Small parts gain a true 6 × 10 mm north-pointing outline extension through a
-  3 mm breakaway neck. The changed outline flows into nesting, exact DRC, sheet
+- Parts without a clear north-aligned 8 × 12 mm engraving area gain a true
+  8 × 12 mm outline extension through a 3 mm breakaway neck. Its triangular top
+  points north. The changed outline flows into nesting, exact DRC, sheet
   cut SVGs and manufacturing overviews.
 - Sheet SVGs include a mirrored `SIDE_1_UNDERSIDE_IDS` engraving layer for the
-  established long-axis board-flip workflow. Flag text runs along the 10 mm
+  established long-axis board-flip workflow. Flag text runs along the 12 mm
   flag so a three-character Z99 identifier remains legible at 4 mm high.

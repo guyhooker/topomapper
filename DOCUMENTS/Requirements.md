@@ -264,8 +264,9 @@ controller/postprocessor are specified.
 - Gate sheet layout behind a Part ID step following smoothing.
 - Support A1–Z99 workshop identifiers: A–Z identifies the physical layer and
   1–99 identifies a part on that layer.
-- Optionally engrave IDs on the underside of parts. Small parts may receive a
-  6 × 10 mm flag pointing to geographic north, joined by a 3 mm breakaway neck.
+- Optionally engrave IDs on the underside of parts. Any part without a clear
+  north-aligned 8 × 12 mm land area receives an 8 × 12 mm flag joined by a 3 mm
+  breakaway neck; the pointed flag end identifies geographic north.
 - Treat every enabled flag as part of the manufactured outline throughout
   nesting, DRC, sheet export and assembly documentation.
 

@@ -917,30 +917,35 @@ function placementBounds(placement: SheetPlacement, part: LayoutPart) {
 function checkLayoutRules(placements: SheetPlacement[], parts: LayoutPart[], rules: SheetRules): LayoutViolation[] {
   const partMap = new Map(parts.map((part) => [part.id, part]));
   const violations: LayoutViolation[] = [];
-  placements.forEach((placement) => {
+  const geometries = placements.flatMap((placement): PlacedLayoutGeometry[] => {
     const part = partMap.get(placement.partId);
-    if (!part) return;
-    const bounds = placedPartBounds(placement, part);
+    if (!part) return [];
+    const outerRing = placedPartRings(placement, part)[0];
+    const segments = ringSegments(outerRing);
+    const points = outerRing;
+    const left = Math.min(...points.map((point) => point[0]));
+    const top = Math.min(...points.map((point) => point[1]));
+    const right = Math.max(...points.map((point) => point[0]));
+    const bottom = Math.max(...points.map((point) => point[1]));
+    return [{ placement, part, outerRing, segments, segmentGrid: indexLayoutSegments(segments, rules.partSpacing), bounds: { left, top, right, bottom, width: right - left, height: bottom - top } }];
+  });
+  geometries.forEach(({ placement, part, bounds }) => {
     if (bounds.left < rules.edgeMargin || bounds.top < rules.edgeMargin || bounds.right > rules.width - rules.edgeMargin || bounds.bottom > rules.height - rules.edgeMargin) {
       violations.push({ placementIds: [placement.id], message: `${placement.partId} enters the ${rules.edgeMargin} mm sheet-edge no-cut zone.` });
     }
   });
-  placements.forEach((left, index) => {
-    const leftPart = partMap.get(left.partId);
-    if (!leftPart) return;
-    const leftBounds = placedPartBounds(left, leftPart);
-    placements.slice(index + 1).forEach((right) => {
-      if (left.sheetIndex !== right.sheetIndex) return;
-      const rightPart = partMap.get(right.partId);
-      if (!rightPart) return;
-      const rightBounds = placedPartBounds(right, rightPart);
+  geometries.forEach((left, index) => {
+    geometries.slice(index + 1).forEach((right) => {
+      if (left.placement.sheetIndex !== right.placement.sheetIndex) return;
+      const leftBounds = left.bounds;
+      const rightBounds = right.bounds;
       const broadlySeparated = leftBounds.right + rules.partSpacing <= rightBounds.left
         || rightBounds.right + rules.partSpacing <= leftBounds.left
         || leftBounds.bottom + rules.partSpacing <= rightBounds.top
         || rightBounds.bottom + rules.partSpacing <= leftBounds.top;
       if (broadlySeparated) return;
-      const clearance = layoutPartClearance(left, leftPart, right, rightPart);
-      if (clearance < rules.partSpacing) violations.push({ placementIds: [left.id, right.id], message: `${left.partId} and ${right.partId} have ${clearance.toFixed(1)} mm clearance; the rule requires ${rules.partSpacing} mm.` });
+      const clearance = layoutPartClearance(left, right, rules.partSpacing);
+      if (clearance < rules.partSpacing) violations.push({ placementIds: [left.placement.id, right.placement.id], message: `${left.part.id} and ${right.part.id} have ${clearance.toFixed(1)} mm clearance; the rule requires ${rules.partSpacing} mm.` });
     });
   });
   return violations;
@@ -1165,30 +1170,86 @@ function segmentsIntersect(a: number[], b: number[], c: number[], d: number[]) {
     || (Math.abs(fourth) < 1e-9 && onSegment(c, b, d));
 }
 
-function layoutPartClearance(leftPlacement: SheetPlacement, leftPart: LayoutPart, rightPlacement: SheetPlacement, rightPart: LayoutPart) {
-  const leftRings = placedPartRings(leftPlacement, leftPart);
-  const rightRings = placedPartRings(rightPlacement, rightPart);
-  if (pointInRing(leftRings[0][0] as [number, number], rightRings[0]) && !rightRings.slice(1).some((ring) => pointInRing(leftRings[0][0] as [number, number], ring))) return 0;
-  if (pointInRing(rightRings[0][0] as [number, number], leftRings[0]) && !leftRings.slice(1).some((ring) => pointInRing(rightRings[0][0] as [number, number], ring))) return 0;
-  let minimum = Number.POSITIVE_INFINITY;
-  for (const leftRing of leftRings) {
-    for (let leftIndex = 1; leftIndex < leftRing.length; leftIndex += 1) {
-      const leftStart = leftRing[leftIndex - 1];
-      const leftEnd = leftRing[leftIndex];
-      for (const rightRing of rightRings) {
-        for (let rightIndex = 1; rightIndex < rightRing.length; rightIndex += 1) {
-          const rightStart = rightRing[rightIndex - 1];
-          const rightEnd = rightRing[rightIndex];
-          if (segmentsIntersect(leftStart, leftEnd, rightStart, rightEnd)) return 0;
-          minimum = Math.min(
-            minimum,
-            distanceToSegment({ x: leftStart[0], y: leftStart[1] }, { x: rightStart[0], y: rightStart[1] }, { x: rightEnd[0], y: rightEnd[1] }),
-            distanceToSegment({ x: leftEnd[0], y: leftEnd[1] }, { x: rightStart[0], y: rightStart[1] }, { x: rightEnd[0], y: rightEnd[1] }),
-            distanceToSegment({ x: rightStart[0], y: rightStart[1] }, { x: leftStart[0], y: leftStart[1] }, { x: leftEnd[0], y: leftEnd[1] }),
-            distanceToSegment({ x: rightEnd[0], y: rightEnd[1] }, { x: leftStart[0], y: leftStart[1] }, { x: leftEnd[0], y: leftEnd[1] }),
-          );
-        }
+type PlacedLayoutGeometry = {
+  placement: SheetPlacement;
+  part: LayoutPart;
+  outerRing: number[][];
+  segments: LayoutSegment[];
+  segmentGrid: Map<string, number[]>;
+  bounds: { left: number; top: number; right: number; bottom: number; width: number; height: number };
+};
+
+type LayoutSegment = { start: number[]; end: number[]; left: number; top: number; right: number; bottom: number };
+
+function ringSegments(ring: number[][]): LayoutSegment[] {
+  const segments: LayoutSegment[] = [];
+  for (let index = 1; index < ring.length; index += 1) {
+    const start = ring[index - 1];
+    const end = ring[index];
+    segments.push({ start, end, left: Math.min(start[0], end[0]), top: Math.min(start[1], end[1]), right: Math.max(start[0], end[0]), bottom: Math.max(start[1], end[1]) });
+  }
+  if (ring.length > 2 && (ring[0][0] !== ring[ring.length - 1][0] || ring[0][1] !== ring[ring.length - 1][1])) {
+    const start = ring[ring.length - 1];
+    const end = ring[0];
+    segments.push({ start, end, left: Math.min(start[0], end[0]), top: Math.min(start[1], end[1]), right: Math.max(start[0], end[0]), bottom: Math.max(start[1], end[1]) });
+  }
+  return segments;
+}
+
+function indexLayoutSegments(segments: LayoutSegment[], threshold: number) {
+  const cellSize = Math.max(threshold, 4);
+  const grid = new Map<string, number[]>();
+  segments.forEach((segment, index) => {
+    const minimumColumn = Math.floor((segment.left - threshold) / cellSize);
+    const maximumColumn = Math.floor((segment.right + threshold) / cellSize);
+    const minimumRow = Math.floor((segment.top - threshold) / cellSize);
+    const maximumRow = Math.floor((segment.bottom + threshold) / cellSize);
+    for (let column = minimumColumn; column <= maximumColumn; column += 1) {
+      for (let row = minimumRow; row <= maximumRow; row += 1) {
+        const key = `${column}:${row}`;
+        const entries = grid.get(key);
+        if (entries) entries.push(index);
+        else grid.set(key, [index]);
       }
+    }
+  });
+  return grid;
+}
+
+// The SVGnest proxy deliberately excludes holes and SVGnest part-in-part is
+// disabled, so only the exterior ring controls inter-part clearance. Index the
+// segments spatially: tightly nested coastlines otherwise cause an O(n^2)
+// segment comparison large enough to exhaust a browser tab during import.
+function layoutPartClearance(left: PlacedLayoutGeometry, right: PlacedLayoutGeometry, threshold: number) {
+  if (pointInRing(left.outerRing[0] as [number, number], right.outerRing)) return 0;
+  if (pointInRing(right.outerRing[0] as [number, number], left.outerRing)) return 0;
+  const leftSegments = left.segments;
+  const rightSegments = right.segments;
+  const cellSize = Math.max(threshold, 4);
+  let minimum = threshold;
+  for (const leftSegment of leftSegments) {
+    const candidates = new Set<number>();
+    const minimumColumn = Math.floor((leftSegment.left - threshold) / cellSize);
+    const maximumColumn = Math.floor((leftSegment.right + threshold) / cellSize);
+    const minimumRow = Math.floor((leftSegment.top - threshold) / cellSize);
+    const maximumRow = Math.floor((leftSegment.bottom + threshold) / cellSize);
+    for (let column = minimumColumn; column <= maximumColumn; column += 1) {
+      for (let row = minimumRow; row <= maximumRow; row += 1) {
+        right.segmentGrid.get(`${column}:${row}`)?.forEach((index) => candidates.add(index));
+      }
+    }
+    for (const index of candidates) {
+      const rightSegment = rightSegments[index];
+      if (leftSegment.right + threshold < rightSegment.left || rightSegment.right + threshold < leftSegment.left
+        || leftSegment.bottom + threshold < rightSegment.top || rightSegment.bottom + threshold < leftSegment.top) continue;
+      if (segmentsIntersect(leftSegment.start, leftSegment.end, rightSegment.start, rightSegment.end)) return 0;
+      minimum = Math.min(
+        minimum,
+        distanceToSegment({ x: leftSegment.start[0], y: leftSegment.start[1] }, { x: rightSegment.start[0], y: rightSegment.start[1] }, { x: rightSegment.end[0], y: rightSegment.end[1] }),
+        distanceToSegment({ x: leftSegment.end[0], y: leftSegment.end[1] }, { x: rightSegment.start[0], y: rightSegment.start[1] }, { x: rightSegment.end[0], y: rightSegment.end[1] }),
+        distanceToSegment({ x: rightSegment.start[0], y: rightSegment.start[1] }, { x: leftSegment.start[0], y: leftSegment.start[1] }, { x: leftSegment.end[0], y: leftSegment.end[1] }),
+        distanceToSegment({ x: rightSegment.end[0], y: rightSegment.end[1] }, { x: leftSegment.start[0], y: leftSegment.start[1] }, { x: leftSegment.end[0], y: leftSegment.end[1] }),
+      );
     }
   }
   return minimum;
@@ -4220,11 +4281,10 @@ export function MapWorkspace() {
       setSelectedViolationIndex(null);
       setSheetZoom(1);
       setSheetViewCenter({ x: sheetRules.width / 2, y: sheetRules.height / 2 });
-      const violations = checkLayoutRules(result.placements, layoutParts, sheetRules);
       const missingSummary = result.missingPartIds.length
         ? ` SVGnest omitted ${result.missingPartIds.length} part${result.missingPartIds.length === 1 ? "" : "s"} (${result.missingPartIds.slice(0, 4).join(", ")}${result.missingPartIds.length > 4 ? ", …" : ""}); ${result.missingPartIds.length === 1 ? "it is" : "they are"} now unplaced and available in the Parts library.`
         : "";
-      setSheetExportStatus(`Imported ${result.placements.length} exact part${result.placements.length === 1 ? "" : "s"} across ${result.sheetCount} sheet${result.sheetCount === 1 ? "" : "s"}.${missingSummary}${violations.length ? ` Review ${violations.length} full-resolution DRC warning${violations.length === 1 ? "" : "s"} caused by restoring the exact coastlines or insufficient SVGnest spacing.` : " Full-resolution DRC is clear."}`);
+      setSheetExportStatus(`Imported ${result.placements.length} exact part${result.placements.length === 1 ? "" : "s"} across ${result.sheetCount} sheet${result.sheetCount === 1 ? "" : "s"}.${missingSummary} Full-resolution DRC has been refreshed.`);
     } catch (error) {
       setSheetExportStatus(error instanceof Error ? error.message : "The SVGnest result could not be imported.");
     }

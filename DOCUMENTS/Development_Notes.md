@@ -792,3 +792,17 @@
 - Terrain overlay attachment now checks for Topomapper's base map layers rather
   than MapLibre's overly strict all-sources-loaded state. This prevents a saved
   terrain preview being skipped while ordinary background tiles are loading.
+
+### SVGnest result import performance
+
+- Confirmed a 131-part, two-sheet SVGnest result was structurally valid and
+  contained every expected Topomapper part. The browser crash occurred after
+  parsing, while the restored full-detail coastlines were being compared by the
+  sheet design-rule checker.
+- Replaced exhaustive all-ring segment comparisons with cached exterior rings,
+  an initial part-bounds test and a local segment spatial index. Water and drill
+  holes do not affect inter-part clearance while part-in-part nesting is
+  disabled. This preserves exact exterior-coastline DRC without making tightly
+  nested layouts exhaust the browser tab.
+- Removed the duplicate synchronous DRC pass from the import handler; the normal
+  layout-state refresh now performs the check once after import.

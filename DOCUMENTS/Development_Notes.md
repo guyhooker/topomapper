@@ -828,3 +828,11 @@
   rotation settings directly and return placements without browser downloads;
   automating the separate svgnest.com page is deliberately not part of the
   design.
+- Follow-up testing with all 131 Taranaki parts showed that increasing SVGnest
+  spacing globally can reduce exact-outline warnings, but consumes materially
+  more stock while only a few local pairs remain problematic. Plan a local
+  post-import DRC repair which minimally nudges only offending parts rather than
+  requiring every part to carry the worst-case clearance allowance.
+- Restored the exact-fit helper's construction of indexed placed geometry after
+  the import-performance refactor. This keeps Quick Placement and Optimise I
+  compatible with the faster full-resolution DRC representation.

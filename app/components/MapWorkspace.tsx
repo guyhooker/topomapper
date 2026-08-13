@@ -920,14 +920,7 @@ function checkLayoutRules(placements: SheetPlacement[], parts: LayoutPart[], rul
   const geometries = placements.flatMap((placement): PlacedLayoutGeometry[] => {
     const part = partMap.get(placement.partId);
     if (!part) return [];
-    const outerRing = placedPartRings(placement, part)[0];
-    const segments = ringSegments(outerRing);
-    const points = outerRing;
-    const left = Math.min(...points.map((point) => point[0]));
-    const top = Math.min(...points.map((point) => point[1]));
-    const right = Math.max(...points.map((point) => point[0]));
-    const bottom = Math.max(...points.map((point) => point[1]));
-    return [{ placement, part, outerRing, segments, segmentGrid: indexLayoutSegments(segments, rules.partSpacing), bounds: { left, top, right, bottom, width: right - left, height: bottom - top } }];
+    return [placedLayoutGeometry(placement, part, rules.partSpacing)];
   });
   geometries.forEach(({ placement, part, bounds }) => {
     if (bounds.left < rules.edgeMargin || bounds.top < rules.edgeMargin || bounds.right > rules.width - rules.edgeMargin || bounds.bottom > rules.height - rules.edgeMargin) {
@@ -971,7 +964,8 @@ function candidateFitsConservative(candidate: SheetPlacement, placements: SheetP
 function candidateFitsExact(candidate: SheetPlacement, placements: SheetPlacement[], partMap: Map<string, LayoutPart>, rules: SheetRules) {
   const part = partMap.get(candidate.partId);
   if (!part) return false;
-  const bounds = placedPartBounds(candidate, part);
+  const candidateGeometry = placedLayoutGeometry(candidate, part, rules.partSpacing);
+  const bounds = candidateGeometry.bounds;
   if (bounds.left < rules.edgeMargin || bounds.top < rules.edgeMargin || bounds.right > rules.width - rules.edgeMargin || bounds.bottom > rules.height - rules.edgeMargin) return false;
   return placements.every((placement) => {
     if (placement.sheetIndex !== candidate.sheetIndex) return true;
@@ -979,7 +973,7 @@ function candidateFitsExact(candidate: SheetPlacement, placements: SheetPlacemen
     if (!otherPart) return true;
     const otherBounds = placedPartBounds(placement, otherPart);
     if (bounds.right + rules.partSpacing <= otherBounds.left || otherBounds.right + rules.partSpacing <= bounds.left || bounds.bottom + rules.partSpacing <= otherBounds.top || otherBounds.bottom + rules.partSpacing <= bounds.top) return true;
-    return layoutPartClearance(candidate, part, placement, otherPart) >= rules.partSpacing;
+    return layoutPartClearance(candidateGeometry, placedLayoutGeometry(placement, otherPart, rules.partSpacing), rules.partSpacing) >= rules.partSpacing;
   });
 }
 
@@ -1214,6 +1208,16 @@ function indexLayoutSegments(segments: LayoutSegment[], threshold: number) {
     }
   });
   return grid;
+}
+
+function placedLayoutGeometry(placement: SheetPlacement, part: LayoutPart, threshold: number): PlacedLayoutGeometry {
+  const outerRing = placedPartRings(placement, part)[0];
+  const segments = ringSegments(outerRing);
+  const left = Math.min(...outerRing.map((point) => point[0]));
+  const top = Math.min(...outerRing.map((point) => point[1]));
+  const right = Math.max(...outerRing.map((point) => point[0]));
+  const bottom = Math.max(...outerRing.map((point) => point[1]));
+  return { placement, part, outerRing, segments, segmentGrid: indexLayoutSegments(segments, threshold), bounds: { left, top, right, bottom, width: right - left, height: bottom - top } };
 }
 
 // The SVGnest proxy deliberately excludes holes and SVGnest part-in-part is

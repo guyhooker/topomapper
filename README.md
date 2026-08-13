@@ -169,6 +169,10 @@ Optimise II/III positions visible for a later embedded SVGnest and deeper search
 without implying that the external round trip has already been automated.
 Changing a sheet rule stops an active optimiser and defers full coastline DRC
 until entry has paused, so the controls respond immediately even on large models.
+When cutter-scale smoothing removes islands or other parts, Sheet Layout now
+removes their obsolete placement records while preserving surviving manual
+positions. Any genuinely new/unplaced parts remain available to Quick Placement,
+and changed outlines are checked again by the normal full-resolution DRC.
 Optimise I uses tighter proxy clearance and repeated upper-left settling, with
 exact coastline DRC still required before an improved layout is displayed.
 Later attempts also probe cross-boundary cavities and favour placements inside

@@ -620,6 +620,11 @@
   smallest, reports retained part/vertex counts and uses the same bin, tolerance
   and spacing rules as the full job. Diagnostic output is marked on the stock
   bin and explicitly rejected by Topomapper import.
+- Fixed Sheet Layout retaining stale placement records after smoothing removed
+  manufacturing parts. The layout now reconciles against the current part IDs,
+  removes only obsolete placements, preserves surviving manual positions, clears
+  stale selection/DRC focus and reports the change. New parts remain unplaced for
+  an explicit Quick Placement pass.
 
 - Added a recommended SVGnest handoff alongside the editable Topomapper quick
   optimiser. This is intentionally an honest external-tool workflow rather

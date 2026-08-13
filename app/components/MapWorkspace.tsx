@@ -3558,6 +3558,20 @@ export function MapWorkspace() {
   const filledTotalParts = filledLayerPreview?.layers.reduce((total, layer) => total + layer.piece_count, 0) ?? 0;
   const smoothedTotalParts = smoothingLayerMetrics.reduce((total, row) => total + row.after.parts, 0);
   const layoutParts = useMemo(() => fabricationPreview && assemblyPlan ? buildLayoutParts(fabricationPreview, assemblyPlan, previewDimensions.width, previewDimensions.height) : [], [fabricationPreview, assemblyPlan, previewDimensions.width, previewDimensions.height]);
+  const layoutPartIds = useMemo(() => new Set(layoutParts.map((part) => part.id)), [layoutParts]);
+  useEffect(() => {
+    // Smoothing can remove islands/parts after a sheet layout already exists.
+    // Preserve surviving manual placements, but never retain records for parts
+    // that are no longer in the current manufacturable geometry.
+    if (!layoutParts.length) return;
+    const reconciled = sheetPlacements.filter((placement) => layoutPartIds.has(placement.partId));
+    if (reconciled.length === sheetPlacements.length) return;
+    const removed = sheetPlacements.length - reconciled.length;
+    setSheetPlacements(reconciled);
+    setSelectedPlacementId((selected) => selected && reconciled.some((placement) => placement.id === selected) ? selected : null);
+    setSelectedViolationIndex(null);
+    setOptimizerStatus(`Smoothing removed ${removed} obsolete sheet placement${removed === 1 ? "" : "s"}. Surviving placements were retained; run Quick Placement for any new or unplaced parts.`);
+  }, [layoutPartIds, layoutParts.length]);
   const layoutViolations = useMemo(() => {
     if (sheetPartDragging) return layoutViolationsRef.current;
     const checked = checkLayoutRules(sheetPlacements, layoutParts, sheetRules);

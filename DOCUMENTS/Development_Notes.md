@@ -625,6 +625,17 @@
   removes only obsolete placements, preserves surviving manual positions, clears
   stale selection/DRC focus and reports the change. New parts remain unplaced for
   an explicit Quick Placement pass.
+- Diagnosed a 131-part coarse Taranaki round trip: SVGnest returned 130 paths
+  because the 5 mm search simplifier collapsed `L03G` to two distinct points,
+  which SVGnest silently discarded. Proxy simplification now falls back to the
+  exact ring whenever fewer than three unique points or negligible area remain.
+- SVGnest import now accepts useful partial multi-sheet results, clearly lists
+  omitted part IDs and leaves those parts unplaced for recovery rather than
+  rejecting the entire nest. Exact restored geometry still undergoes DRC.
+- Direct measurement of that SVGnest result found 0 mm part clearance even
+  though its proxy requested 20.492 mm. This establishes that SVGnest's spacing
+  field remained at its default zero; instructions now explicitly require its
+  separate Save Settings action before Start Nest.
 
 - Added a recommended SVGnest handoff alongside the editable Topomapper quick
   optimiser. This is intentionally an honest external-tool workflow rather

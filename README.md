@@ -161,6 +161,10 @@ with vertex count, its search proxy uses at least the cutter radius (1.5 mm by
 default); measured proxy error is added to search spacing, then exact geometry
 is restored and checked after import. The download reports the required SVGnest
 spacing, measured maximum error and point count.
+Coarse simplification is prevented from collapsing a retained part into a
+two-point line, which SVGnest would silently omit. If SVGnest nevertheless
+returns a partial result, Topomapper imports the valid placements and leaves the
+named omitted parts unplaced for manual or Quick Placement recovery.
 For performance diagnosis, a separate 20% proxy retains a deterministic range
 of large through small project parts. It is marked as diagnostic-only in its
 SVG metadata and is rejected by the normal result importer.
@@ -173,6 +177,9 @@ When cutter-scale smoothing removes islands or other parts, Sheet Layout now
 removes their obsolete placement records while preserving surviving manual
 positions. Any genuinely new/unplaced parts remain available to Quick Placement,
 and changed outlines are checked again by the normal full-resolution DRC.
+SVGnest settings take effect only after its own **Save Settings** control is
+pressed. A downloaded result with touching outlines indicates that its spacing
+remained at zero; Topomapper's post-import DRC reports those clearances.
 Optimise I uses tighter proxy clearance and repeated upper-left settling, with
 exact coastline DRC still required before an improved layout is displayed.
 Later attempts also probe cross-boundary cavities and favour placements inside

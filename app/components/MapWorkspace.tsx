@@ -1424,6 +1424,14 @@ function simplifyClosedRingForNesting(ring: { x: number; y: number }[], requeste
     if (errorMm <= toleranceLimit + 1e-6) break;
     tolerance *= .65;
   }
+  const uniquePoints = new Set(simplified.slice(0, -1).map((point) => `${point.x.toFixed(8)},${point.y.toFixed(8)}`));
+  const twiceArea = Math.abs(simplified.slice(0, -1).reduce((total, point, index, points) => {
+    const next = points[(index + 1) % points.length];
+    return total + point.x * next.y - next.x * point.y;
+  }, 0));
+  // A coarse tolerance can collapse a thin but valid island into a line.
+  // SVGnest silently discards such paths, so retain its exact ring instead.
+  if (uniquePoints.size < 3 || twiceArea < 1e-6) return { ring, errorMm: 0 };
   return { ring: simplified, errorMm };
 }
 
@@ -1642,9 +1650,8 @@ function importSvgNestLayout(svgText: string, parts: LayoutPart[], rules: SheetR
     });
   });
   const missing = parts.filter((part) => !seenPartIds.has(part.id));
-  if (missing.length) throw new Error(`This SVGnest result is missing ${missing.length} current project part${missing.length === 1 ? "" : "s"}, beginning with ${missing.slice(0, 3).map((part) => part.id).join(", ")}.`);
   if (!placements.length) throw new Error("No Topomapper parts were found in the SVGnest result.");
-  return { placements, sheetCount: sheets.length };
+  return { placements, sheetCount: sheets.length, missingPartIds: missing.map((part) => part.id) };
 }
 
 function svgPathForFeature(preview: FilledLayerPreview, feature: FilledLayerFeature, modelWidth: number, modelHeight: number) {
@@ -4214,7 +4221,10 @@ export function MapWorkspace() {
       setSheetZoom(1);
       setSheetViewCenter({ x: sheetRules.width / 2, y: sheetRules.height / 2 });
       const violations = checkLayoutRules(result.placements, layoutParts, sheetRules);
-      setSheetExportStatus(`Imported ${result.placements.length} exact part${result.placements.length === 1 ? "" : "s"} across ${result.sheetCount} sheet${result.sheetCount === 1 ? "" : "s"}.${violations.length ? ` Review ${violations.length} full-resolution DRC warning${violations.length === 1 ? "" : "s"} caused by restoring the exact coastlines.` : " Full-resolution DRC is clear."}`);
+      const missingSummary = result.missingPartIds.length
+        ? ` SVGnest omitted ${result.missingPartIds.length} part${result.missingPartIds.length === 1 ? "" : "s"} (${result.missingPartIds.slice(0, 4).join(", ")}${result.missingPartIds.length > 4 ? ", …" : ""}); ${result.missingPartIds.length === 1 ? "it is" : "they are"} now unplaced and available in the Parts library.`
+        : "";
+      setSheetExportStatus(`Imported ${result.placements.length} exact part${result.placements.length === 1 ? "" : "s"} across ${result.sheetCount} sheet${result.sheetCount === 1 ? "" : "s"}.${missingSummary}${violations.length ? ` Review ${violations.length} full-resolution DRC warning${violations.length === 1 ? "" : "s"} caused by restoring the exact coastlines or insufficient SVGnest spacing.` : " Full-resolution DRC is clear."}`);
     } catch (error) {
       setSheetExportStatus(error instanceof Error ? error.message : "The SVGnest result could not be imported.");
     }
@@ -4982,7 +4992,7 @@ export function MapWorkspace() {
           {optimizerProgress && <p className="optimizer-progress" aria-live="polite">{optimizerProgress}</p>}
           <div className="svgnest-handoff">
             <div><span className="section-label">RECOMMENDED IRREGULAR NESTING</span><strong>Test the layout in SVGnest</strong><p>Topomapper prepares the stock boundary and a lightweight outer proxy for every part. SVGnest then searches part order and rotation with its no-fit-polygon genetic engine.</p></div>
-            <ol><li>Download the lightweight nesting proxy.</li><li>Open SVGnest and upload it.</li><li>Click inside the pale green stock rectangle as the bin—not the white page.</li><li>Set Space between parts to the value Topomapper reports after download; do not leave SVGnest's default 0.</li><li>Keep Curve tolerance at 0.3 and set <label className="svgnest-rotations">rotations <select value={svgNestRotations} onChange={(event) => setSvgNestRotations(Number(event.target.value))}><option value={4}>4 · 90°</option><option value={8}>8 · 45°</option><option value={12}>12 · 30°</option><option value={24}>24 · 15°</option></select></label>, then Start Nest.</li><li>Download SVGnest's result and import it here.</li></ol>
+            <ol><li>Download the lightweight nesting proxy.</li><li>Open SVGnest and upload it.</li><li>Click inside the pale green stock rectangle as the bin—not the white page.</li><li>Open SVGnest Settings, enter the Space between parts value Topomapper reports, then click SVGnest's Save Settings button. Do not leave the default 0.</li><li>Keep Curve tolerance at 0.3 and set <label className="svgnest-rotations">rotations <select value={svgNestRotations} onChange={(event) => setSvgNestRotations(Number(event.target.value))}><option value={4}>4 · 90°</option><option value={8}>8 · 45°</option><option value={12}>12 · 30°</option><option value={24}>24 · 15°</option></select></label>, then Start Nest.</li><li>Download SVGnest's result and import it here.</li></ol>
             <div><button disabled={!layoutParts.length} onClick={downloadSvgNestJob}>Download full SVGnest proxy</button><button disabled={!layoutParts.length} onClick={downloadSvgNestDiagnosticJob}>Download 20% diagnostic</button><a href="https://svgnest.com/" target="_blank" rel="noreferrer">Open SVGnest ↗</a><label className={`svgnest-import-button ${!layoutParts.length ? "disabled" : ""}`}>Import SVGnest result<input disabled={!layoutParts.length} type="file" accept=".svg,image/svg+xml" onChange={(event) => void importSvgNestResult(event)} /></label></div>
             <small>The proxy contains tolerance-controlled outer coastlines only, allowing SVGnest to solve placement without processing water or drilling holes. It is not suitable for cutting. Keep part-in-part off. Import restores exact coastlines, water holes and drilling, then reruns the full-resolution DRC before any manufacturing export.</small>
           </div>

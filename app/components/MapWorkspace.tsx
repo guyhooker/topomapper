@@ -4907,9 +4907,9 @@ export function MapWorkspace() {
     }
   }
 
-  async function downloadLayoutGuidePdf() {
+  async function requestLayoutGuidePdf() {
     const populatedSheets = Array.from({ length: sheetCount }, (_, index) => index).filter((index) => sheetPlacements.some((placement) => placement.sheetIndex === index));
-    if (!populatedSheets.length) { setSheetExportStatus("There are no placed parts for a layout guide."); return; }
+    if (!populatedSheets.length) throw new Error("There are no placed parts for an assembly guide.");
     const partMap = new Map(layoutParts.map((part) => [part.id, part]));
     const sheets = populatedSheets.map((sheetIndex) => ({
       index: sheetIndex,
@@ -4927,22 +4927,27 @@ export function MapWorkspace() {
         }];
       }),
     }));
-    setSheetExportStatus("Creating the printable layout and orientation guide…");
+    const response = await fetch(`${PROCESSOR_ENDPOINT}/layout-guide`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ project_name: projectName || "Topomapper project", sheet_width_mm: sheetRules.width, sheet_height_mm: sheetRules.height, edge_margin_mm: sheetRules.edgeMargin, sheets }),
+    });
+    if (!response.ok) {
+      const detail = await response.json().catch(() => ({})) as { error?: string };
+      throw new Error(detail.error || `The assembly guide service returned ${response.status}.`);
+    }
+    return { blob: await response.blob(), sheetCount: populatedSheets.length };
+  }
+
+  async function downloadLayoutGuidePdf() {
+    setSheetExportStatus("Creating the printable assembly and orientation guide…");
     try {
-      const response = await fetch(`${PROCESSOR_ENDPOINT}/layout-guide`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ project_name: projectName || "Topomapper project", sheet_width_mm: sheetRules.width, sheet_height_mm: sheetRules.height, edge_margin_mm: sheetRules.edgeMargin, sheets }),
-      });
-      if (!response.ok) {
-        const detail = await response.json().catch(() => ({})) as { error?: string };
-        throw new Error(detail.error || `The layout guide service returned ${response.status}.`);
-      }
+      const result = await requestLayoutGuidePdf();
       const stem = projectFilename(projectName || "topomapper-project").replace(/\.topomapper$/i, "");
-      downloadFile(await response.blob(), "application/pdf", `${stem}-layout-guide.pdf`);
-      setSheetExportStatus(`Printable guide downloaded for ${populatedSheets.length} sheet${populatedSheets.length === 1 ? "" : "s"}, with part IDs, rotations and assembly-north arrows.`);
+      downloadFile(result.blob, "application/pdf", `${stem}-assembly-guide.pdf`);
+      setSheetExportStatus(`Assembly guide downloaded for ${result.sheetCount} sheet${result.sheetCount === 1 ? "" : "s"}, with part IDs, rotations and assembly-north arrows.`);
     } catch (error) {
-      setSheetExportStatus(`${error instanceof Error ? error.message : "The printable guide could not be created."} Restart Topomapper if its local processor was already running before this update.`);
+      setSheetExportStatus(`${error instanceof Error ? error.message : "The assembly guide could not be created."} Restart Topomapper if its local processor was already running before this update.`);
     }
   }
 
@@ -5010,10 +5015,12 @@ export function MapWorkspace() {
       return;
     }
     setManufacturingPackageBuilding(true);
-    setManufacturingPackageStatus("Creating paired sheet files and the painting guide…");
+    setManufacturingPackageStatus("Creating paired sheet files, assembly guide and painting guide…");
     try {
       await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
-      const paintPdf = new Uint8Array(await (await requestColourChartPdf()).arrayBuffer());
+      const [paintBlob, assemblyGuide] = await Promise.all([requestColourChartPdf(), requestLayoutGuidePdf()]);
+      const paintPdf = new Uint8Array(await paintBlob.arrayBuffer());
+      const assemblyPdf = new Uint8Array(await assemblyGuide.blob.arrayBuffer());
       const files: { name: string; contents: string | Uint8Array }[] = [];
       const manifestFiles: string[] = [];
       populatedSheets.forEach((sheetIndex) => {
@@ -5057,8 +5064,9 @@ export function MapWorkspace() {
         ...assemblyPlan.warnings.map((warning) => `ASSEMBLY WARNING: ${warning}`),
       ].join("\n");
       files.push({ name: "Machining Info.txt", contents: machiningInfo });
+      files.push({ name: "Assembly Guide.pdf", contents: assemblyPdf });
       files.push({ name: "Painting Guide.pdf", contents: paintPdf });
-      manifestFiles.push("Machining Info.txt — stock, tool, border, spacing and face-flip instructions", "Painting Guide.pdf — paint buying and layer schedule");
+      manifestFiles.push("Machining Info.txt — stock, tool, border, spacing and face-flip instructions", "Assembly Guide.pdf — sheet placement, part IDs, rotations and north orientation", "Painting Guide.pdf — paint buying and layer schedule");
       files.push({
         name: "MANIFEST.txt",
         contents: [
@@ -5075,7 +5083,7 @@ export function MapWorkspace() {
       });
       const stem = projectFilename(projectName || "topomapper-project").replace(/\.topomapper$/i, "");
       downloadFile(createZipArchive(files), "application/zip", `${stem}-manufacturing-package.zip`);
-      setManufacturingPackageStatus(`Manufacturing package downloaded: ${populatedSheets.length} paired sheet set${populatedSheets.length === 1 ? "" : "s"}, machining information and painting guide.`);
+      setManufacturingPackageStatus(`Manufacturing package downloaded: ${populatedSheets.length} paired sheet set${populatedSheets.length === 1 ? "" : "s"}, machining information, assembly guide and painting guide.`);
     } catch (error) {
       setManufacturingPackageStatus(`${error instanceof Error ? error.message : "The manufacturing package could not be created."} Restart Topomapper if the local PDF service is not responding.`);
     } finally {
@@ -5627,6 +5635,7 @@ export function MapWorkspace() {
               <li>Sheet 1 Side 1.svg + Side 2.svg</li>
               <li>One matching pair for every additional sheet</li>
               <li>Machining Info.txt</li>
+              <li>Assembly Guide.pdf</li>
               <li>Painting Guide.pdf</li>
               <li>MANIFEST.txt</li>
             </ul>

@@ -297,8 +297,8 @@ controller/postprocessor are specified.
 - Gate design-to-manufacturing handover on a DRC-clear layout, complete part
   placement, valid underside IDs and a paint plan. Export one ZIP containing a
   separate Side 1 engraving SVG and Side 2 cut/drill SVG for every populated
-  sheet, machining information, painting-guide PDF and manifest. Do not include
-  Side 1 engraving paths in the packaged Side 2 files.
+  sheet, machining information, assembly-guide PDF, painting-guide PDF and
+  manifest. Do not include Side 1 engraving paths in the packaged Side 2 files.
 - Present the external SVGnest round trip as a visually consistent, indented
   three-step group with large step numbers: Export, Process and Import.
 

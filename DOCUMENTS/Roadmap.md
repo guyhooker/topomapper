@@ -373,7 +373,8 @@ chart preserves readable swatches, product names, layer numbers, and elevations.
   future alignment holes may use the existing border zone.
 - A single checked manufacturing handover ZIP with paired Side 1 and Side 2 SVGs
   for every populated stock sheet, machining/setup information, the painting
-  guide and a manifest. Package creation is blocked by sheet DRC or missing IDs.
+  guide, assembly/orientation guide and a manifest. Package creation is blocked
+  by sheet DRC or missing IDs.
 
 ### Acceptance Test
 

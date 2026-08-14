@@ -926,6 +926,6 @@
   DRC-clear sheet layout, every valid underside ID and a generated paint plan.
 - Added one manufacturing ZIP containing paired finished-size Side 1 ID and pure
   Side 2 cut/drill SVGs for every populated sheet, a machining-information text
-  file, binary painting-guide PDF and manifest.
+  file, binary assembly-guide and painting-guide PDFs, and manifest.
 - Extended the small built-in ZIP writer to carry binary PDF data as well as
   UTF-8 text/SVG content. Existing text-only sheet archives remain compatible.

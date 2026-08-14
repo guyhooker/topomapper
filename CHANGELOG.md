@@ -7,8 +7,8 @@ still change their project or manufacturing formats.
 ## [Unreleased]
 
 - Added a strict design-to-manufacturing handover ZIP containing paired Side 1
-  and Side 2 SVGs for every sheet, machining information, painting-guide PDF and
-  manifest.
+  and Side 2 SVGs for every sheet, machining information, assembly-guide and
+  painting-guide PDFs, and manifest.
 
 ## [0.2.0] - 2026-08-14
 

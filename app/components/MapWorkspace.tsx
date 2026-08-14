@@ -186,6 +186,7 @@ const ID_FLAG_WIDTH_MM = 8;
 const ID_FLAG_LENGTH_MM = 12;
 const ID_FLAG_NECK_MM = 3;
 const ID_FLAG_STALK_MM = 6;
+const TOPOMAPPER_VERSION = "0.2.0";
 
 type SheetPlacement = {
   id: string;
@@ -1697,7 +1698,7 @@ function buildUndersideIdGroups(placements: SheetPlacement[], partMap: Map<strin
   }).join("\n      ");
 }
 
-function buildSheetSvg(projectName: string, sheetIndex: number, rules: SheetRules, allParts: LayoutPart[], allPlacements: SheetPlacement[], holeDiameter: number) {
+function buildSheetSvg(projectName: string, sheetIndex: number, rules: SheetRules, allParts: LayoutPart[], allPlacements: SheetPlacement[], holeDiameter: number, includeUndersideIds = true) {
   const placements = allPlacements.filter((placement) => placement.sheetIndex === sheetIndex);
   const partMap = new Map(allParts.map((part) => [part.id, part]));
   const cuts = placements.map((placement) => {
@@ -1720,15 +1721,15 @@ function buildSheetSvg(projectName: string, sheetIndex: number, rules: SheetRule
   const svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" width="${svgNumber(rules.width)}mm" height="${svgNumber(rules.height)}mm" viewBox="0 0 ${svgNumber(rules.width)} ${svgNumber(rules.height)}">
   <title>${xmlText(projectName)} · Sheet ${sheetIndex + 1}</title>
-  <desc>Finished-size sheet layout. SIDE_1_UNDERSIDE_IDS is engraved before the long-axis board flip. CUT_OUTLINES and DRILL_HOLES are machined on side 2.</desc>
+  <desc>${includeUndersideIds ? "Combined finished-size sheet layout. SIDE_1_UNDERSIDE_IDS is engraved before the long-axis board flip; CUT_OUTLINES and DRILL_HOLES are machined on Side 2." : "Finished-size Side 2 cutting layout. DRILL_HOLES and CUT_OUTLINES are machined after the documented long-axis stock flip."}</desc>
   <metadata>${xmlText(metadata)}</metadata>
   <g id="SHEET_REFERENCE" inkscape:groupmode="layer" inkscape:label="REFERENCE — DO NOT MACHINE" data-operation="reference" fill="none" stroke="#8a8174" stroke-width="0.2" stroke-dasharray="4 3">
     <rect x="0" y="0" width="${svgNumber(rules.width)}" height="${svgNumber(rules.height)}" />
     <rect x="${svgNumber(rules.edgeMargin)}" y="${svgNumber(rules.edgeMargin)}" width="${svgNumber(rules.width - rules.edgeMargin * 2)}" height="${svgNumber(rules.height - rules.edgeMargin * 2)}" />
   </g>
-  <g id="SIDE_1_UNDERSIDE_IDS" inkscape:groupmode="layer" inkscape:label="SIDE 1 — ENGRAVE IDS BEFORE LONG-AXIS FLIP" data-operation="engrave-underside" data-depth-mm="0.5" transform="translate(0 ${svgNumber(rules.height)}) scale(1 -1)" fill="none" stroke="#214f3d" stroke-width="0.35" stroke-linecap="round" stroke-linejoin="round">
+  ${includeUndersideIds ? `<g id="SIDE_1_UNDERSIDE_IDS" inkscape:groupmode="layer" inkscape:label="SIDE 1 — ENGRAVE IDS BEFORE LONG-AXIS FLIP" data-operation="engrave-underside" data-depth-mm="0.5" transform="translate(0 ${svgNumber(rules.height)}) scale(1 -1)" fill="none" stroke="#214f3d" stroke-width="0.35" stroke-linecap="round" stroke-linejoin="round">
     ${undersideIds}
-  </g>
+  </g>` : ""}
   <g id="DRILL_HOLES" inkscape:groupmode="layer" inkscape:label="DRILL — THROUGH" data-operation="drill-through" data-depth-mm="${svgNumber(rules.thickness)}" fill="none" stroke="#187c91" stroke-width="0.2">
     ${drills}
   </g>
@@ -2394,7 +2395,7 @@ function crc32(data: Uint8Array) {
   return (crc ^ 0xffffffff) >>> 0;
 }
 
-function createZipArchive(files: { name: string; contents: string }[]) {
+function createZipArchive(files: { name: string; contents: string | Uint8Array }[]) {
   const encoder = new TextEncoder();
   const localParts: Uint8Array[] = [];
   const centralParts: Uint8Array[] = [];
@@ -2403,7 +2404,7 @@ function createZipArchive(files: { name: string; contents: string }[]) {
   const write32 = (view: DataView, offset: number, value: number) => view.setUint32(offset, value, true);
   files.forEach((file) => {
     const name = encoder.encode(file.name);
-    const data = encoder.encode(file.contents);
+    const data = typeof file.contents === "string" ? encoder.encode(file.contents) : file.contents;
     const checksum = crc32(data);
     const local = new Uint8Array(30 + name.length + data.length);
     const localView = new DataView(local.buffer);
@@ -3136,6 +3137,8 @@ export function MapWorkspace() {
   const [exportStatus, setExportStatus] = useState("Manufacturing files are ready to inspect.");
   const [sheetExportStatus, setSheetExportStatus] = useState("Export a finished-size SVG after arranging the parts.");
   const [idMarkingStatus, setIdMarkingStatus] = useState("The underside marks are ready to preview or export.");
+  const [manufacturingPackageStatus, setManufacturingPackageStatus] = useState("Complete the checked design before creating the workshop package.");
+  const [manufacturingPackageBuilding, setManufacturingPackageBuilding] = useState(false);
   const [colourChartStatus, setColourChartStatus] = useState("Download a workshop-ready PDF or print this chart from the browser.");
   const [smoothingLayerIndex, setSmoothingLayerIndex] = useState(0);
   const [smoothingLevels, setSmoothingLevels] = useState<Record<number, number>>({});
@@ -3182,6 +3185,7 @@ export function MapWorkspace() {
   const [smoothingStageOpen, setSmoothingStageOpen] = useState(false);
   const [sheetStageOpen, setSheetStageOpen] = useState(false);
   const [idMarkingStageOpen, setIdMarkingStageOpen] = useState(false);
+  const [manufacturingPackageStageOpen, setManufacturingPackageStageOpen] = useState(false);
   const [showIdMarkingOverlay, setShowIdMarkingOverlay] = useState(false);
   const workflowDrawerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const smoothingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -4208,6 +4212,7 @@ export function MapWorkspace() {
     paint,
     assignments: colourAssignments.filter((assignment) => assignment.paint.id === paint.id),
   })).filter((group) => group.assignments.length > 0), [colourAssignments]);
+  const manufacturingPackageReady = sheetLayoutComplete && idMarkingReady && Boolean(fabricationPreview) && colourAssignments.length > 0;
 
   function updatePaintNote(paintId: string, note: string) {
     setPaintNotes((current) => ({ ...current, [paintId]: note }));
@@ -4941,11 +4946,8 @@ export function MapWorkspace() {
     }
   }
 
-  async function downloadColourChartPdf() {
-    if (!fabricationPreview || !colourAssignments.length) {
-      setColourChartStatus("Generate terrain layers before downloading a colour chart.");
-      return;
-    }
+  async function requestColourChartPdf() {
+    if (!fabricationPreview || !colourAssignments.length) throw new Error("Generate terrain layers before creating a colour chart.");
     const paints = colourGroups.map(({ paint, assignments }) => ({
       manufacturer: paint.manufacturer,
       code: paint.code,
@@ -4967,28 +4969,117 @@ export function MapWorkspace() {
       note: paintNotes[paint.id] ?? "",
     }));
     const snowMode = snowCapMode === "off" ? "none" : `${snowLevelCount} white top layer${snowLevelCount === 1 ? "" : "s"}`;
+    const response = await fetch(`${PROCESSOR_ENDPOINT}/colour-guide`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        project_name: projectName || "Topomapper project",
+        material_thickness_mm: materialThicknessMm,
+        snow_mode: snowMode,
+        paints,
+        layers,
+      }),
+    });
+    if (!response.ok) {
+      const detail = await response.json().catch(() => ({})) as { error?: string };
+      throw new Error(detail.error || `The colour chart service returned ${response.status}.`);
+    }
+    return response.blob();
+  }
+
+  async function downloadColourChartPdf() {
     setColourChartStatus("Creating the printable colour chart…");
     try {
-      const response = await fetch(`${PROCESSOR_ENDPOINT}/colour-guide`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          project_name: projectName || "Topomapper project",
-          material_thickness_mm: materialThicknessMm,
-          snow_mode: snowMode,
-          paints,
-          layers,
-        }),
-      });
-      if (!response.ok) {
-        const detail = await response.json().catch(() => ({})) as { error?: string };
-        throw new Error(detail.error || `The colour chart service returned ${response.status}.`);
-      }
       const stem = projectFilename(projectName || "topomapper-project").replace(/\.topomapper$/i, "");
-      downloadFile(await response.blob(), "application/pdf", `${stem}-colour-chart.pdf`);
+      downloadFile(await requestColourChartPdf(), "application/pdf", `${stem}-colour-chart.pdf`);
       setColourChartStatus("Colour chart PDF downloaded with paint swatches, buying names and every layer assignment.");
     } catch (error) {
       setColourChartStatus(`${error instanceof Error ? error.message : "The colour chart could not be created."} Restart Topomapper if its local processor was already running before this update.`);
+    }
+  }
+
+  async function downloadWorkshopPackage() {
+    if (!manufacturingPackageReady || !fabricationPreview || !assemblyPlan) {
+      setManufacturingPackageStatus("The package requires a DRC-clear layout, every underside ID, and a complete paint plan.");
+      return;
+    }
+    const populatedSheets = Array.from({ length: sheetCount }, (_, index) => index)
+      .filter((index) => sheetPlacements.some((placement) => placement.sheetIndex === index));
+    if (!populatedSheets.length) {
+      setManufacturingPackageStatus("There are no populated material sheets to package.");
+      return;
+    }
+    setManufacturingPackageBuilding(true);
+    setManufacturingPackageStatus("Creating paired sheet files and the painting guide…");
+    try {
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+      const paintPdf = new Uint8Array(await (await requestColourChartPdf()).arrayBuffer());
+      const files: { name: string; contents: string | Uint8Array }[] = [];
+      const manifestFiles: string[] = [];
+      populatedSheets.forEach((sheetIndex) => {
+        const sideOneName = `Sheet ${sheetIndex + 1} - Side 1 - IDs.svg`;
+        const sideTwoName = `Sheet ${sheetIndex + 1} - Side 2 - Cut and Drill.svg`;
+        const sideOne = idMarkingSvgExport(sheetIndex);
+        const sideTwo = buildSheetSvg(projectName || "Topomapper project", sheetIndex, sheetRules, layoutParts, sheetPlacements, holeDiameterMm, false);
+        files.push({ name: sideOneName, contents: sideOne.svg }, { name: sideTwoName, contents: sideTwo.svg });
+        manifestFiles.push(`${sideOneName} — ${sideOne.markedParts} underside IDs`, `${sideTwoName} — ${sideTwo.partCount} placed parts`);
+      });
+      const machiningInfo = [
+        `TOPOMAPPER ${TOPOMAPPER_VERSION} — MACHINING INFORMATION`,
+        "",
+        `Project: ${projectName || "Unnamed project"}`,
+        `Package created: ${new Date().toLocaleString("en-NZ")}`,
+        `Finished model: ${previewDimensions.width.toFixed(1)} x ${previewDimensions.height.toFixed(1)} mm`,
+        `Physical terrain layers: ${fabricationPreview.layers.length}`,
+        `Material sheets: ${populatedSheets.length}`,
+        "",
+        "STOCK AND TOOL",
+        `Sheet size: ${sheetRules.width.toFixed(1)} x ${sheetRules.height.toFixed(1)} mm`,
+        `Stock thickness: ${sheetRules.thickness.toFixed(1)} mm`,
+        `Profile cutter diameter: ${sheetRules.cutterDiameter.toFixed(1)} mm`,
+        `Finished registration-hole diameter: ${holeDiameterMm.toFixed(1)} mm`,
+        `Sheet-edge no-cut border: ${sheetRules.edgeMargin.toFixed(1)} mm`,
+        `Minimum cut-edge part spacing: ${sheetRules.partSpacing.toFixed(1)} mm`,
+        `Geometry tolerance: ${sheetRules.geometryTolerance.toFixed(2)} mm`,
+        "",
+        "FACE AND OPERATION ORDER",
+        "1. SIDE 1: V-engrave the part IDs first with the stock lightly clamped.",
+        "2. Remove the engraving cutter and stop the machine.",
+        "3. Flip the stock on its LONG AXIS and relocate it against the fixed edge stops.",
+        "4. SIDE 2: drill registration holes and internal openings before profile cutting.",
+        "5. CUT_OUTLINES are exact part profiles. Cutter compensation, depth passes and holding tabs must be added by CAM until Topomapper direct G-code is validated.",
+        "",
+        "SVG UNITS",
+        "Every sheet SVG declares width and height in millimetres and uses the same millimetre viewBox.",
+        "SHEET_REFERENCE is visual only and must not be machined.",
+        "",
+        ...populatedSheets.map((sheetIndex) => `Sheet ${sheetIndex + 1}: ${sheetPlacements.filter((placement) => placement.sheetIndex === sheetIndex).length} parts`),
+        ...assemblyPlan.warnings.map((warning) => `ASSEMBLY WARNING: ${warning}`),
+      ].join("\n");
+      files.push({ name: "Machining Info.txt", contents: machiningInfo });
+      files.push({ name: "Painting Guide.pdf", contents: paintPdf });
+      manifestFiles.push("Machining Info.txt — stock, tool, border, spacing and face-flip instructions", "Painting Guide.pdf — paint buying and layer schedule");
+      files.push({
+        name: "MANIFEST.txt",
+        contents: [
+          `TOPOMAPPER ${TOPOMAPPER_VERSION} — DESIGN TO MANUFACTURING HANDOVER`,
+          `Project: ${projectName || "Unnamed project"}`,
+          "",
+          "This package was produced only after Sheet Layout DRC passed and every placed part had a valid underside ID.",
+          "Side 1 files contain only V-cutter identification marks plus non-machining reference geometry.",
+          "Side 2 files contain drilling and exact profile geometry plus non-machining reference geometry.",
+          "",
+          "FILES",
+          ...manifestFiles,
+        ].join("\n"),
+      });
+      const stem = projectFilename(projectName || "topomapper-project").replace(/\.topomapper$/i, "");
+      downloadFile(createZipArchive(files), "application/zip", `${stem}-manufacturing-package.zip`);
+      setManufacturingPackageStatus(`Manufacturing package downloaded: ${populatedSheets.length} paired sheet set${populatedSheets.length === 1 ? "" : "s"}, machining information and painting guide.`);
+    } catch (error) {
+      setManufacturingPackageStatus(`${error instanceof Error ? error.message : "The manufacturing package could not be created."} Restart Topomapper if the local PDF service is not responding.`);
+    } finally {
+      setManufacturingPackageBuilding(false);
     }
   }
 
@@ -4999,7 +5090,7 @@ export function MapWorkspace() {
     setExportStatus(`${layerName} downloaded at ${previewDimensions.width.toFixed(1)} × ${previewDimensions.height.toFixed(1)} mm.`);
   }
 
-  function downloadManufacturingPackage() {
+  function downloadLayerGeometryPackage() {
     if (!fabricationPreview || !assemblyPlan) return;
     const files = fabricationPreview.layers.map((layer) => ({
       name: `layers/topomapper-L${String(layer.index + 1).padStart(2, "0")}.svg`,
@@ -5120,7 +5211,7 @@ export function MapWorkspace() {
                 <><button onClick={downloadSvgNestJob}>Download SVGnest proxy</button><button onClick={downloadActiveSheetSvg}>Download active sheet SVG</button><button onClick={downloadAllSheetSvgs}>Download all sheet SVGs</button><button onClick={() => void downloadLayoutGuidePdf()}>Download layout guide PDF</button></>
               )}
               {workspaceView === "manufacturing" && (
-                <><button onClick={downloadSelectedLayerSvg}>Download selected layer SVG</button><button onClick={downloadManufacturingPackage}>Download all manufacturing SVGs</button></>
+                <><button onClick={downloadSelectedLayerSvg}>Download selected layer SVG</button><button onClick={downloadLayerGeometryPackage}>Download all manufacturing SVGs</button></>
               )}
               {!(["colour-chart", "sheet-layout", "manufacturing"] as WorkspaceView[]).includes(workspaceView) && <p>Print and download options for this view will appear here when available.</p>}
             </div>
@@ -5522,6 +5613,27 @@ export function MapWorkspace() {
             <p role="status">{idMarkingReady ? idMarkingStatus : idMarkingAvailable ? `${unmarkedPartCount} exceptional part${unmarkedPartCount === 1 ? " is" : "s are"} omitted from the marking file; preview and export remain available.` : unmarkedPartCount ? `${unmarkedPartCount} part${unmarkedPartCount === 1 ? " does" : "s do"} not yet have a safe ID location.` : "Place every part on a sheet first."}</p>
           </div>
         </details>
+
+        <details className="workflow-stage manufacturing-package-stage" open={manufacturingPackageStageOpen} onToggle={(event) => setManufacturingPackageStageOpen(event.currentTarget.open)}>
+          <summary className="workflow-stage-summary">
+            <span><strong>10) Manufacturing Package</strong></span>
+            <em>{manufacturingPackageReady ? "Complete" : "Incomplete"}</em>
+            <i className={`stage-status-led ${manufacturingPackageReady ? "complete" : "incomplete"}`} aria-hidden="true" />
+            <b aria-hidden="true">{manufacturingPackageStageOpen ? "−" : "+"}</b>
+          </summary>
+          <div className="workflow-stage-body part-id-settings">
+            <p>One checked ZIP hands the finished design to the workshop.</p>
+            <ul>
+              <li>Sheet 1 Side 1.svg + Side 2.svg</li>
+              <li>One matching pair for every additional sheet</li>
+              <li>Machining Info.txt</li>
+              <li>Painting Guide.pdf</li>
+              <li>MANIFEST.txt</li>
+            </ul>
+            <button disabled={!manufacturingPackageReady || manufacturingPackageBuilding} onClick={() => void downloadWorkshopPackage()}>{manufacturingPackageBuilding ? "Building manufacturing package…" : "Download manufacturing package"}</button>
+            <p role="status">{manufacturingPackageReady ? manufacturingPackageStatus : !sheetLayoutComplete ? "Clear every Sheet Layout DRC warning first." : !idMarkingReady ? "Complete every Side 1 ID mark first." : "Complete the terrain paint plan first."}</p>
+          </div>
+        </details>
         </aside>
       </div>
 
@@ -5821,7 +5933,7 @@ export function MapWorkspace() {
               <button onClick={() => setAssemblyLayerIndex(Math.min(filledLayerPreview.layers.length - 1, assemblyLayerIndex + 1))} disabled={assemblyLayerIndex === filledLayerPreview.layers.length - 1} aria-label="Next manufacturing layer">→</button>
             </div>
             <button className="download-layer-button" onClick={downloadSelectedLayerSvg}>Download L{String(assemblyLayerIndex + 1).padStart(2, "0")} SVG</button>
-            <button className="download-package-button" onClick={downloadManufacturingPackage}>Download all SVGs</button>
+            <button className="download-package-button" onClick={downloadLayerGeometryPackage}>Download all SVGs</button>
           </div>
 
           <div className="manufacturing-workspace">

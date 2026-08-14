@@ -294,6 +294,11 @@ controller/postprocessor are specified.
 - Treat Sheet Layout as a Side 2 cutting-face view. Display the transparent
   Side 1 ID overlay mirrored, and put persistent Side 2 and mirrored Side 1 face
   labels inside opposite sheet borders as non-machining references.
+- Gate design-to-manufacturing handover on a DRC-clear layout, complete part
+  placement, valid underside IDs and a paint plan. Export one ZIP containing a
+  separate Side 1 engraving SVG and Side 2 cut/drill SVG for every populated
+  sheet, machining information, painting-guide PDF and manifest. Do not include
+  Side 1 engraving paths in the packaged Side 2 files.
 - Present the external SVGnest round trip as a visually consistent, indented
   three-step group with large step numbers: Export, Process and Import.
 

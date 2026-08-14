@@ -334,6 +334,8 @@ chart preserves readable swatches, product names, layer numbers, and elevations.
 
 ## Stage 13 — Machining SVG Sheet Preparation
 
+**Status: In progress — paired face handover package implemented; tabs and depth-operation layers pending**
+
 ### Adds
 
 - A registered Side 1 SVG containing text, part IDs, assembly-north arrows and
@@ -369,6 +371,9 @@ chart preserves readable swatches, product names, layer numbers, and elevations.
 - A prominent flip diagram and matching sheet datum/origin on both faces. The
   first workflow uses accurately sized stock relocated against fixed edge stops;
   future alignment holes may use the existing border zone.
+- A single checked manufacturing handover ZIP with paired Side 1 and Side 2 SVGs
+  for every populated stock sheet, machining/setup information, the painting
+  guide and a manifest. Package creation is blocked by sheet DRC or missing IDs.
 
 ### Acceptance Test
 

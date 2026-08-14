@@ -4,6 +4,12 @@ Topomapper uses semantic versioning while it develops toward the first proven
 Mac fabrication release. Versions below 1.0 are working prototypes and may
 still change their project or manufacturing formats.
 
+## [Unreleased]
+
+- Added a strict design-to-manufacturing handover ZIP containing paired Side 1
+  and Side 2 SVGs for every sheet, machining information, painting-guide PDF and
+  manifest.
+
 ## [0.2.0] - 2026-08-14
 
 ### Manufacturing Layout Prototype

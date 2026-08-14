@@ -919,3 +919,13 @@
 - Added a root changelog describing the working terrain-to-nested-sheet toolchain
   and the remaining nesting, machining, physical-test and packaging work before
   the planned 1.0 release.
+
+### Design-to-manufacturing handover
+
+- Added Setup Section 10 as the formal design-complete gate. It requires a
+  DRC-clear sheet layout, every valid underside ID and a generated paint plan.
+- Added one manufacturing ZIP containing paired finished-size Side 1 ID and pure
+  Side 2 cut/drill SVGs for every populated sheet, a machining-information text
+  file, binary painting-guide PDF and manifest.
+- Extended the small built-in ZIP writer to carry binary PDF data as well as
+  UTF-8 text/SVG content. Existing text-only sheet archives remain compatible.

@@ -267,6 +267,13 @@ Side 1 overlay is therefore mirrored as though seen through the stock. Normal
 Side 2 and mirrored Side 1 captions in the sheet borders make the current view
 explicit; these captions are screen references and are not machining paths.
 
+Once Sheet Layout is DRC-clear and every part has an underside ID, Section 10
+downloads one manufacturing handover ZIP. It contains a separate Side 1 ID SVG
+and pure Side 2 cut/drill SVG for every populated sheet, `Machining Info.txt`,
+`Painting Guide.pdf`, and a package manifest. The Side 2 files deliberately omit
+the Side 1 engraving layer so a CAM operator cannot select the wrong face by
+accident.
+
 The manual SVGnest handoff is displayed as one indented triplet with matching
 button colours and prominent numbered badges: 1 Export to SVGnest, 2 Process in
 SVGnest, and 3 Import nest result.

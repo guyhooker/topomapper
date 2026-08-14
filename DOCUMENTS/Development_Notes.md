@@ -473,8 +473,9 @@
   best valid editable result found so far.
 - Retained the quick conservative Auto layout for immediate simple placement;
   the longer optimiser is an explicit separate action with a Stop control.
-- Deferred machine engraving and simplified stock-sheet SVG/ZIP output to
-  `CUT_OUTLINES`, `DRILL_HOLES`, and the non-machining `SHEET_REFERENCE`.
+- Stock-sheet SVG/ZIP output now includes `PROFILE_TO_TAB_HEIGHT`,
+  `PROFILE_FULL_DEPTH_EXCEPT_TABS`, `DRILL_HOLES`, `INTERNAL_OPENINGS`, and the
+  non-machining `SHEET_REFERENCE`.
 - Added a local ReportLab PDF endpoint and a Sheet Layout download control. The
   A4 landscape guide contains one scaled labelled overview per populated sheet,
   collision-aware leaders, true assembly-north arrows after arbitrary nesting
@@ -970,16 +971,17 @@
 ### Lightweighting and glue zones
 
 - Added optional Setup Section 7 after Smoothing and before Part ID.
-- Default controls are 75 mm grid spacing, 12 mm ribs, 15 mm contour margin and
+- Default controls are 75 mm grid spacing, 6 mm ribs, 15 mm contour margin and
   30 mm minimum opening. Settings are explicitly applied and persist in both
   named projects and standalone sheet-layout backups.
 - A candidate opening is accepted only when dense physical-space samples remain
   inside one current part and one covering part on the next layer. Clearance is
   measured from both contours and their existing holes.
-- The globally aligned grid preserves predictable ribs. Candidate openings are
-  reduced in size when a full grid opening would approach a contour. Only
-  terminal peak-vent label points are reserved; regular assembly holes are
-  subsequently placed in the retained ribs and contour margins.
+- The globally aligned grid preserves predictable ribs. If a full-pitch cell
+  cannot fit, it is divided into four half-pitch cells; this removes buried
+  material from narrower shapes while retaining the same rib width.
+- Separate alignment holes and peak vents are omitted while lightweighting is
+  active because the repeated lattice itself supplies visible alignment.
 - Lightweight openings become ordinary inner manufacturing rings and therefore
   flow through 3D, Assembly, Part ID safety checks, exact sheet SVG and the
   manufacturing package. SVGnest still receives the exterior outline only.
@@ -989,3 +991,6 @@
 - Assembly now hatches retained material covered by the next layer as the bare
   glue zone. The actual openings remain transparent; glue belongs on the ribs
   and contour margins, not in the removed areas.
+- Sheet SVGs now split each external profile into a complete closed cut to the
+  tab floor and open full-depth segments. Defaults are 3 mm tab width, 40 mm
+  maximum spacing and a 1 mm remaining bridge, all persisted with sheet rules.

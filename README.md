@@ -244,11 +244,18 @@ clears an obsolete sheet placement because the part outlines may have changed.
 
 An optional Lightweighting stage now sits between Smoothing and Part ID.
 Topomapper identifies material fully covered by the layer above, keeps a solid
-contour margin and a configurable structural grid, protects alignment-grid and
-peak-vent locations, and adds only safe rectangular internal cut-outs. The
+contour margin and a configurable structural grid, and adds safe rectangular
+internal cut-outs. Full-pitch cells are used first; narrower buried regions
+automatically use a half-pitch lattice. The lattice replaces separate alignment
+drilling while lightweighting is active. The
 Assembly view hatches the retained covered material as a bare/glue zone, while
 the openings remain transparent. Applied settings and the resulting downstream
 manufacturing state are saved in the named project.
+
+Sheet SVGs also include separate complete profiles to tab height and open
+full-depth profile segments. Their omitted 3 mm gaps leave 1 mm holding bridges
+at no more than 40 mm spacing by default, keeping CNC-cut parts attached until
+the user cuts the tabs manually.
 
 Flag placement evaluates a continuous 3 mm coastline section rather than an
 individual source segment. It favours a nearly straight, north-facing section

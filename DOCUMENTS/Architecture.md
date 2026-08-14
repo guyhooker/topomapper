@@ -82,15 +82,19 @@ original source files remain external and are only needed for regeneration.
   cached files only to the localhost interface.
 - GeoPackage or GeoJSON for intermediate polygons.
 - Finished-size SVG as the inspectable manufacturing-geometry source, with
-  separate profile and drilling groups. Stock-sheet SVG currently uses
-  Inkscape-compatible `CUT_OUTLINES`, `DRILL_HOLES`, and non-machining
-  `SHEET_REFERENCE` layers. Part engraving is deliberately deferred.
+  separate profile and drilling groups. Stock-sheet SVG uses Inkscape-compatible
+  `PROFILE_TO_TAB_HEIGHT`, `PROFILE_FULL_DEPTH_EXCEPT_TABS`, `DRILL_HOLES`,
+  `INTERNAL_OPENINGS`, and non-machining `SHEET_REFERENCE` layers.
 - Optional lightweighting is a deterministic transformation after smoothing
   and before part identification. A globally aligned grid adds internal
   openings only where the next physical layer covers the current part. Contour
-  margins, grid ribs, registration-grid locations and peak-label locations are
-  retained as structural and gluing material; the resulting inner rings flow
-  through part IDs, DRC, SVG and manufacturing outputs.
+  margins and grid ribs are retained as structural and gluing material.
+  Half-pitch cells fill buried areas that cannot accept the primary grid. The
+  lattice replaces registration drilling while active; the resulting inner
+  rings flow through part IDs, DRC, SVG and manufacturing outputs.
+- Sheet SVG profile geometry is divided into a closed cut to tab height and
+  open full-depth segments. Evenly spaced omitted segments form configurable
+  holding bridges that keep every part attached to the stock.
 - ReportLab in the localhost Python processor generates an A4 landscape PDF
   layout guide. The browser supplies final transformed polygons, label anchors,
   and assembly-north vectors; the PDF adds collision-aware readable labels,

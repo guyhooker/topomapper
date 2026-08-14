@@ -190,7 +190,7 @@ type LightweightingSettings = {
 const DEFAULT_LIGHTWEIGHTING: LightweightingSettings = {
   enabled: false,
   gridPitchMm: 75,
-  ribWidthMm: 12,
+  ribWidthMm: 6,
   contourMarginMm: 15,
   minimumOpeningMm: 30,
   applied: false,
@@ -224,9 +224,12 @@ type SheetRules = {
   partSpacing: number;
   cutterDiameter: number;
   geometryTolerance: number;
+  tabWidth: number;
+  tabSpacing: number;
+  tabBridgeHeight: number;
 };
 
-const DEFAULT_SHEET_RULES: SheetRules = { width: 1200, height: 600, thickness: 3, edgeMargin: 15, partSpacing: 3, cutterDiameter: 3, geometryTolerance: .25 };
+const DEFAULT_SHEET_RULES: SheetRules = { width: 1200, height: 600, thickness: 3, edgeMargin: 15, partSpacing: 3, cutterDiameter: 3, geometryTolerance: .25, tabWidth: 3, tabSpacing: 40, tabBridgeHeight: 1 };
 
 function normalizedSheetRules(rules?: Partial<SheetRules>): SheetRules {
   return { ...DEFAULT_SHEET_RULES, ...(rules ?? {}) };
@@ -824,22 +827,20 @@ function applyLightweighting(
     const lastColumn = Math.ceil(east / pitch);
     const firstRow = Math.floor(north / pitch);
     const lastRow = Math.ceil(south / pitch);
-    for (let row = firstRow; row < lastRow; row += 1) {
-      for (let column = firstColumn; column < lastColumn; column += 1) {
-        const centreX = (column + .5) * pitch;
-        const centreY = (row + .5) * pitch;
-        if (centreX <= 0 || centreY <= 0 || centreX >= modelWidth || centreY >= modelHeight) continue;
+    const minimumOpening = Math.max(5, settings.minimumOpeningMm);
+    const tryCell = (cellLeft: number, cellTop: number, cellPitch: number): boolean => {
+      const cellRib = Math.max(3, rib * cellPitch / pitch);
+      const candidateSize = cellPitch - cellRib;
+      const centreX = cellLeft + cellPitch / 2;
+      const centreY = cellTop + cellPitch / 2;
+      if (candidateSize >= minimumOpening && centreX > 0 && centreY > 0 && centreX < modelWidth && centreY < modelHeight) {
+        const left = centreX - candidateSize / 2;
+        const top = centreY - candidateSize / 2;
+        const right = centreX + candidateSize / 2;
+        const bottom = centreY + candidateSize / 2;
         const centre = geographicPoint(preview, modelWidth, modelHeight, centreX, centreY);
         const covering = coveringFeatures.find((candidate) => pointInFeature(centre, candidate));
-        if (!covering) continue;
-        const minimumOpening = Math.max(5, settings.minimumOpeningMm);
-        const sizeStep = Math.max(2, Math.min(5, rib / 2));
-        for (let candidateSize = opening; candidateSize >= minimumOpening; candidateSize -= sizeStep) {
-          const left = centreX - candidateSize / 2;
-          const top = centreY - candidateSize / 2;
-          const right = centreX + candidateSize / 2;
-          const bottom = centreY + candidateSize / 2;
-          if (left < 0 || top < 0 || right > modelWidth || bottom > modelHeight) continue;
+        if (covering && left >= 0 && top >= 0 && right <= modelWidth && bottom <= modelHeight) {
           const overlapsProtectedPoint = protectedPoints.some((point) => {
             const nearestX = Math.max(left, Math.min(point.x, right));
             const nearestY = Math.max(top, Math.min(point.y, bottom));
@@ -847,9 +848,8 @@ function applyLightweighting(
             const geographic = geographicPoint(preview, modelWidth, modelHeight, point.x, point.y);
             return pointInFeature(geographic, feature) && pointInFeature(geographic, covering);
           });
-          if (overlapsProtectedPoint) continue;
           const divisions = Math.max(3, Math.ceil(candidateSize / 4));
-          let safe = true;
+          let safe = !overlapsProtectedPoint;
           for (let sampleRow = 0; sampleRow <= divisions && safe; sampleRow += 1) {
             for (let sampleColumn = 0; sampleColumn <= divisions; sampleColumn += 1) {
               const x = left + candidateSize * sampleColumn / divisions;
@@ -858,26 +858,41 @@ function applyLightweighting(
               if (!pointInFeature(point, feature) || !pointInFeature(point, covering)) { safe = false; break; }
             }
           }
-          if (!safe) continue;
           const clearanceSamples = [
             [left, top], [right, top], [right, bottom], [left, bottom],
             [(left + right) / 2, top], [right, (top + bottom) / 2],
             [(left + right) / 2, bottom], [left, (top + bottom) / 2],
           ];
-          if (clearanceSamples.some(([x, y]) => {
+          if (safe && clearanceSamples.every(([x, y]) => {
             const point = geographicPoint(preview, modelWidth, modelHeight, x, y);
-            return featureClearanceMm(preview, feature, modelWidth, modelHeight, point) < margin
-              || featureClearanceMm(preview, covering, modelWidth, modelHeight, point) < margin;
-          })) continue;
-          holes.push([
-            geographicPoint(preview, modelWidth, modelHeight, left, top),
-            geographicPoint(preview, modelWidth, modelHeight, left, bottom),
-            geographicPoint(preview, modelWidth, modelHeight, right, bottom),
-            geographicPoint(preview, modelWidth, modelHeight, right, top),
-            geographicPoint(preview, modelWidth, modelHeight, left, top),
-          ]);
-          break;
+            return featureClearanceMm(preview, feature, modelWidth, modelHeight, point) >= margin
+              && featureClearanceMm(preview, covering, modelWidth, modelHeight, point) >= margin;
+          })) {
+            holes.push([
+              geographicPoint(preview, modelWidth, modelHeight, left, top),
+              geographicPoint(preview, modelWidth, modelHeight, left, bottom),
+              geographicPoint(preview, modelWidth, modelHeight, right, bottom),
+              geographicPoint(preview, modelWidth, modelHeight, right, top),
+              geographicPoint(preview, modelWidth, modelHeight, left, top),
+            ]);
+            return true;
+          }
         }
+      }
+      const halfPitch = cellPitch / 2;
+      const halfRib = Math.max(3, rib * halfPitch / pitch);
+      if (halfPitch - halfRib < minimumOpening) return false;
+      let placed = false;
+      for (let childRow = 0; childRow < 2; childRow += 1) {
+        for (let childColumn = 0; childColumn < 2; childColumn += 1) {
+          placed = tryCell(cellLeft + childColumn * halfPitch, cellTop + childRow * halfPitch, halfPitch) || placed;
+        }
+      }
+      return placed;
+    };
+    for (let row = firstRow; row < lastRow; row += 1) {
+      for (let column = firstColumn; column < lastColumn; column += 1) {
+        tryCell(column * pitch, row * pitch, pitch);
       }
     }
     if (!holes.length) return feature;
@@ -997,10 +1012,18 @@ function buildAssemblyPlan(
   gridPitch: number,
   holeDiameter: number,
   edgeClearance: number,
+  includeAlignmentHoles = true,
 ): AssemblyPlan {
   const parts = buildPhysicalParts(preview, modelWidth, modelHeight);
   const partsByLayer = preview.layers.map((layer) => parts.filter((part) => part.layerIndex === layer.index));
   const requiredClearance = holeDiameter / 2 + edgeClearance;
+  if (!includeAlignmentHoles) {
+    const warnings: string[] = [];
+    if (parts.some((part) => Number(part.displayId.slice(1)) > 99)) warnings.push("At least one layer has more than 99 parts. Increase smoothing until every A1–Z99 identifier is unique.");
+    const unlabelled = parts.filter((part) => !part.machineLabel).length;
+    if (unlabelled) warnings.push(`${unlabelled} part${unlabelled === 1 ? " requires" : "s require"} a north-pointing ID flag because an 8 × 12 mm engraving area does not fit.`);
+    return { parts, holes: [], ventComplete: false, warnings };
+  }
 
   const validateHole = (
     xMm: number,
@@ -1754,6 +1777,52 @@ function layoutRingSvgPath(ring: { x: number; y: number }[]) {
   return ring.map((point, index) => `${index === 0 ? "M" : "L"}${svgNumber(point.x)} ${svgNumber(point.y)}`).join(" ") + " Z";
 }
 
+function layoutRingSvgPathExceptTabs(ring: { x: number; y: number }[], tabWidth: number, maximumSpacing: number) {
+  const closed = ring.length > 1 && Math.hypot(ring[0].x - ring[ring.length - 1].x, ring[0].y - ring[ring.length - 1].y) < 1e-7;
+  const points = closed ? ring.slice(0, -1) : [...ring];
+  if (points.length < 3 || tabWidth <= 0) return layoutRingSvgPath(ring);
+  const segments = points.map((start, index) => {
+    const end = points[(index + 1) % points.length];
+    return { start, end, length: Math.hypot(end.x - start.x, end.y - start.y) };
+  });
+  const total = segments.reduce((sum, segment) => sum + segment.length, 0);
+  if (total <= tabWidth * 3) return "";
+  const tabCount = Math.max(3, Math.ceil(total / Math.max(10, maximumSpacing)));
+  const halfTab = Math.min(tabWidth / 2, total / tabCount * .35);
+  const centres = Array.from({ length: tabCount }, (_, index) => total * (index + .5) / tabCount);
+  let cumulativeLength = 0;
+  const segmentBoundaries = segments.slice(0, -1).map((segment) => {
+    cumulativeLength += segment.length;
+    return cumulativeLength;
+  });
+  const circularDistance = (left: number, right: number) => Math.min(Math.abs(left - right), total - Math.abs(left - right));
+  const isTab = (distance: number) => centres.some((centre) => circularDistance(distance, centre) <= halfTab);
+  const boundaries = [0, total, ...segmentBoundaries, ...centres.flatMap((centre) => [centre - halfTab, centre + halfTab].map((value) => (value + total) % total))]
+    .sort((left, right) => left - right)
+    .filter((value, index, values) => index === 0 || Math.abs(value - values[index - 1]) > 1e-7);
+  const pointAt = (distance: number) => {
+    let traversed = 0;
+    for (const segment of segments) {
+      if (distance <= traversed + segment.length || segment === segments[segments.length - 1]) {
+        const position = segment.length ? Math.max(0, Math.min(1, (distance - traversed) / segment.length)) : 0;
+        return { x: segment.start.x + (segment.end.x - segment.start.x) * position, y: segment.start.y + (segment.end.y - segment.start.y) * position };
+      }
+      traversed += segment.length;
+    }
+    return points[0];
+  };
+  const commands: string[] = [];
+  for (let index = 1; index < boundaries.length; index += 1) {
+    const startDistance = boundaries[index - 1];
+    const endDistance = boundaries[index];
+    if (isTab((startDistance + endDistance) / 2)) continue;
+    const start = pointAt(startDistance);
+    const end = pointAt(endDistance);
+    commands.push(`M${svgNumber(start.x)} ${svgNumber(start.y)} L${svgNumber(end.x)} ${svgNumber(end.y)}`);
+  }
+  return commands.join(" ");
+}
+
 function sheetPlacementTransform(placement: SheetPlacement, part: LayoutPart) {
   const radians = placement.rotation * Math.PI / 180;
   const cosine = Math.cos(radians);
@@ -1861,6 +1930,13 @@ function buildSheetSvg(projectName: string, sheetIndex: number, rules: SheetRule
       <path d="${layoutRingSvgPath(part.rings[0])}" />
     </g>`;
   }).join("\n    ");
+  const profileFullDepthCuts = placements.map((placement) => {
+    const part = partMap.get(placement.partId);
+    if (!part) return "";
+    return `<g data-placement-id="${xmlText(placement.id)}" data-part-id="${xmlText(part.id)}" transform="${sheetPlacementTransform(placement, part)}">
+      <path d="${layoutRingSvgPathExceptTabs(part.rings[0], rules.tabWidth, rules.tabSpacing)}" />
+    </g>`;
+  }).join("\n    ");
   const internalCuts = placements.map((placement) => {
     const part = partMap.get(placement.partId);
     if (!part || part.rings.length < 2) return "";
@@ -1876,11 +1952,11 @@ function buildSheetSvg(projectName: string, sheetIndex: number, rules: SheetRule
     </g>`;
   }).join("\n    ");
   const undersideIds = buildUndersideIdGroups(placements, partMap);
-  const metadata = JSON.stringify({ project: projectName, sheet: sheetIndex + 1, sheet_width_mm: rules.width, sheet_height_mm: rules.height, material_thickness_mm: rules.thickness, part_instances: placements.length, labels: "See the separately generated printable layout guide." });
+  const metadata = JSON.stringify({ project: projectName, sheet: sheetIndex + 1, sheet_width_mm: rules.width, sheet_height_mm: rules.height, material_thickness_mm: rules.thickness, part_instances: placements.length, holding_tabs: { width_mm: rules.tabWidth, maximum_spacing_mm: rules.tabSpacing, bridge_height_mm: rules.tabBridgeHeight }, labels: "See the separately generated printable layout guide." });
   const svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" width="${svgNumber(rules.width)}mm" height="${svgNumber(rules.height)}mm" viewBox="0 0 ${svgNumber(rules.width)} ${svgNumber(rules.height)}">
   <title>${xmlText(projectName)} · Sheet ${sheetIndex + 1}</title>
-  <desc>${includeUndersideIds ? "Combined finished-size sheet layout. SIDE_1_UNDERSIDE_IDS is engraved before the long-axis board flip; CUT_OUTLINES and DRILL_HOLES are machined on Side 2." : "Finished-size Side 2 cutting layout. DRILL_HOLES and CUT_OUTLINES are machined after the documented long-axis stock flip."}</desc>
+  <desc>${includeUndersideIds ? "Combined finished-size sheet layout. SIDE_1_UNDERSIDE_IDS is engraved before the long-axis board flip. On Side 2, cut internal openings first, then profiles to tab height, then the open full-depth profile segments." : "Finished-size Side 2 cutting layout. Cut internal openings first, then profiles to tab height, then the open full-depth profile segments."}</desc>
   <metadata>${xmlText(metadata)}</metadata>
   <g id="SHEET_REFERENCE" inkscape:groupmode="layer" inkscape:label="REFERENCE — DO NOT MACHINE" data-operation="reference" fill="none" stroke="#8a8174" stroke-width="0.2" stroke-dasharray="4 3">
     <rect x="0" y="0" width="${svgNumber(rules.width)}" height="${svgNumber(rules.height)}" />
@@ -1895,8 +1971,11 @@ function buildSheetSvg(projectName: string, sheetIndex: number, rules: SheetRule
   <g id="INTERNAL_OPENINGS" inkscape:groupmode="layer" inkscape:label="CUT — INTERNAL OPENINGS THROUGH (RUN BEFORE PROFILES)" data-operation="internal-cut-through" data-depth-mm="${svgNumber(rules.thickness)}" fill="none" stroke="#a86f20" stroke-width="0.2">
     ${internalCuts}
   </g>
-  <g id="CUT_OUTLINES" inkscape:groupmode="layer" inkscape:label="CUT — PROFILE THROUGH (RUN LAST)" data-operation="profile-cut" data-depth-mm="${svgNumber(rules.thickness)}" fill="none" stroke="#c9492a" stroke-width="0.2">
+  <g id="PROFILE_TO_TAB_HEIGHT" inkscape:groupmode="layer" inkscape:label="CUT — COMPLETE PROFILES TO TAB HEIGHT" data-operation="profile-to-tab-height" data-depth-mm="${svgNumber(Math.max(0, rules.thickness - rules.tabBridgeHeight))}" data-remaining-bridge-mm="${svgNumber(rules.tabBridgeHeight)}" fill="none" stroke="#c9492a" stroke-width="0.2">
     ${profileCuts}
+  </g>
+  <g id="PROFILE_FULL_DEPTH_EXCEPT_TABS" inkscape:groupmode="layer" inkscape:label="CUT — OPEN PROFILE SEGMENTS TO FULL DEPTH (RUN LAST)" data-operation="profile-full-depth-except-tabs" data-depth-mm="${svgNumber(rules.thickness)}" data-tab-width-mm="${svgNumber(rules.tabWidth)}" data-maximum-tab-spacing-mm="${svgNumber(rules.tabSpacing)}" fill="none" stroke="#8f2f76" stroke-width="0.2">
+    ${profileFullDepthCuts}
   </g>
 </svg>`;
   return { svg, partCount: placements.length };
@@ -3394,7 +3473,7 @@ export function MapWorkspace() {
   const [partIdentificationDraft, setPartIdentificationDraft] = useState({ addIdsToUnderside: true, useFlagsForSmallParts: true });
   const [partIdStageOpen, setPartIdStageOpen] = useState(false);
   const [sheetRules, setSheetRules] = useState<SheetRules>(DEFAULT_SHEET_RULES);
-  const [sheetRuleDraft, setSheetRuleDraft] = useState({ width: 1200, height: 600, edgeMargin: 15, partSpacing: 3, cutterDiameter: 3, geometryTolerance: .25 });
+  const [sheetRuleDraft, setSheetRuleDraft] = useState({ width: 1200, height: 600, edgeMargin: 15, partSpacing: 3, cutterDiameter: 3, geometryTolerance: .25, tabWidth: 3, tabSpacing: 40, tabBridgeHeight: 1 });
   const [sheetRulesCalculating, setSheetRulesCalculating] = useState(false);
   const [sheetCount, setSheetCount] = useState(1);
   const [activeSheetIndex, setActiveSheetIndex] = useState(0);
@@ -3472,6 +3551,9 @@ export function MapWorkspace() {
       && sheetRuleDraft.partSpacing === sheetRules.partSpacing
       && sheetRuleDraft.cutterDiameter === sheetRules.cutterDiameter
       && sheetRuleDraft.geometryTolerance === sheetRules.geometryTolerance
+      && sheetRuleDraft.tabWidth === sheetRules.tabWidth
+      && sheetRuleDraft.tabSpacing === sheetRules.tabSpacing
+      && sheetRuleDraft.tabBridgeHeight === sheetRules.tabBridgeHeight
       && rotationStepDraft === rotationStepDeg;
     if (unchanged) {
       setSheetRulesCalculating(false);
@@ -3488,7 +3570,7 @@ export function MapWorkspace() {
     return () => {
       if (sheetRulesTimerRef.current) clearTimeout(sheetRulesTimerRef.current);
     };
-  }, [sheetRuleDraft.width, sheetRuleDraft.height, sheetRuleDraft.edgeMargin, sheetRuleDraft.partSpacing, sheetRuleDraft.cutterDiameter, sheetRuleDraft.geometryTolerance, rotationStepDraft]);
+  }, [sheetRuleDraft.width, sheetRuleDraft.height, sheetRuleDraft.edgeMargin, sheetRuleDraft.partSpacing, sheetRuleDraft.cutterDiameter, sheetRuleDraft.geometryTolerance, sheetRuleDraft.tabWidth, sheetRuleDraft.tabSpacing, sheetRuleDraft.tabBridgeHeight, rotationStepDraft]);
   useEffect(() => {
     if (!optimizerWorkerRef.current) return;
     optimizerWorkerRef.current.terminate();
@@ -4139,11 +4221,11 @@ export function MapWorkspace() {
     setSheetRuleDraft((rules) => ({ ...rules, [axis]: Math.max(100, value) }));
   }
 
-  function setSheetRuleDraftValue(axis: "edgeMargin" | "partSpacing" | "cutterDiameter" | "geometryTolerance", value: number) {
+  function setSheetRuleDraftValue(axis: "edgeMargin" | "partSpacing" | "cutterDiameter" | "geometryTolerance" | "tabWidth" | "tabSpacing" | "tabBridgeHeight", value: number) {
     if (!Number.isFinite(value)) return;
     if (optimizerWorkerRef.current) stopNestingOptimiser();
-    const minimum = axis === "cutterDiameter" ? .1 : axis === "geometryTolerance" ? .01 : 0;
-    const bounded = axis === "geometryTolerance" ? Math.min(1, value) : value;
+    const minimum = axis === "cutterDiameter" ? .1 : axis === "geometryTolerance" ? .01 : axis === "tabSpacing" ? 10 : 0;
+    const bounded = axis === "geometryTolerance" ? Math.min(1, value) : axis === "tabBridgeHeight" ? Math.min(materialThicknessMm, value) : value;
     setSheetRuleDraft((rules) => ({ ...rules, [axis]: Math.max(minimum, bounded) }));
   }
 
@@ -4433,7 +4515,8 @@ export function MapWorkspace() {
     gridPitchMm,
     holeDiameterMm,
     holeEdgeClearanceMm,
-  ) : null, [fabricationPreview, previewDimensions.width, previewDimensions.height, gridPitchMm, holeDiameterMm, holeEdgeClearanceMm]);
+    !(lightweighting.enabled && lightweighting.applied),
+  ) : null, [fabricationPreview, previewDimensions.width, previewDimensions.height, gridPitchMm, holeDiameterMm, holeEdgeClearanceMm, lightweighting.enabled, lightweighting.applied]);
   const selectedAssemblyLayer = fabricationPreview?.layers[assemblyLayerIndex] ?? null;
   const selectedAssemblyParts = assemblyPlan?.parts.filter((part) => part.layerIndex === assemblyLayerIndex) ?? [];
   const selectedAssemblyHoles = assemblyPlan?.holes.filter((hole) => hole.drilledLayers.includes(assemblyLayerIndex)) ?? [];
@@ -4799,7 +4882,7 @@ export function MapWorkspace() {
     setPartIdentificationDraft({ addIdsToUnderside: restoredIdentification.addIdsToUnderside, useFlagsForSmallParts: restoredIdentification.useFlagsForSmallParts });
     const restoredSheetRules = normalizedSheetRules({ ...project.layout.sheetRules, thickness: restoredMaterialThickness });
     setSheetRules(restoredSheetRules);
-    setSheetRuleDraft({ width: restoredSheetRules.width, height: restoredSheetRules.height, edgeMargin: restoredSheetRules.edgeMargin, partSpacing: restoredSheetRules.partSpacing, cutterDiameter: restoredSheetRules.cutterDiameter, geometryTolerance: restoredSheetRules.geometryTolerance });
+    setSheetRuleDraft({ width: restoredSheetRules.width, height: restoredSheetRules.height, edgeMargin: restoredSheetRules.edgeMargin, partSpacing: restoredSheetRules.partSpacing, cutterDiameter: restoredSheetRules.cutterDiameter, geometryTolerance: restoredSheetRules.geometryTolerance, tabWidth: restoredSheetRules.tabWidth, tabSpacing: restoredSheetRules.tabSpacing, tabBridgeHeight: restoredSheetRules.tabBridgeHeight });
     setSheetCount(project.layout.sheetCount);
     setActiveSheetIndex(Math.min(project.layout.activeSheetIndex, Math.max(0, project.layout.sheetCount - 1)));
     setSheetPlacements(project.layout.placements);
@@ -4924,7 +5007,7 @@ export function MapWorkspace() {
     if (data.sheetRules) {
       const restoredRules = normalizedSheetRules(data.sheetRules);
       setSheetRules(restoredRules);
-      setSheetRuleDraft({ width: restoredRules.width, height: restoredRules.height, edgeMargin: restoredRules.edgeMargin, partSpacing: restoredRules.partSpacing, cutterDiameter: restoredRules.cutterDiameter, geometryTolerance: restoredRules.geometryTolerance });
+      setSheetRuleDraft({ width: restoredRules.width, height: restoredRules.height, edgeMargin: restoredRules.edgeMargin, partSpacing: restoredRules.partSpacing, cutterDiameter: restoredRules.cutterDiameter, geometryTolerance: restoredRules.geometryTolerance, tabWidth: restoredRules.tabWidth, tabSpacing: restoredRules.tabSpacing, tabBridgeHeight: restoredRules.tabBridgeHeight });
     }
     const count = Math.max(1, Math.round(data.sheetCount ?? 1));
     setSheetCount(count);
@@ -5184,7 +5267,8 @@ export function MapWorkspace() {
         `TOPOMAPPER SHEET EXPORT — ${projectName || "Unnamed project"}`,
         "",
         `Stock: ${sheetRules.width} x ${sheetRules.height} x ${sheetRules.thickness} mm`,
-        "CUT_OUTLINES: profile through the material",
+        `PROFILE_TO_TAB_HEIGHT: complete profile to ${Math.max(0, sheetRules.thickness - sheetRules.tabBridgeHeight).toFixed(1)} mm depth`,
+        `PROFILE_FULL_DEPTH_EXCEPT_TABS: final full-depth segments; leaves ${sheetRules.tabWidth.toFixed(1)} mm wide x ${sheetRules.tabBridgeHeight.toFixed(1)} mm high holding tabs`,
         "INTERNAL_OPENINGS: cut through before releasing the external profiles",
         "DRILL_HOLES: drill through the material",
         "SHEET_REFERENCE: visual reference only — do not machine",
@@ -5436,13 +5520,16 @@ export function MapWorkspace() {
         `Sheet-edge no-cut border: ${sheetRules.edgeMargin.toFixed(1)} mm`,
         `Minimum cut-edge part spacing: ${sheetRules.partSpacing.toFixed(1)} mm`,
         `Geometry tolerance: ${sheetRules.geometryTolerance.toFixed(2)} mm`,
+        `Holding tabs: ${sheetRules.tabWidth.toFixed(1)} mm wide, maximum ${sheetRules.tabSpacing.toFixed(1)} mm spacing, ${sheetRules.tabBridgeHeight.toFixed(1)} mm bridge height`,
         "",
         "FACE AND OPERATION ORDER",
         "1. SIDE 1: V-engrave the part IDs first with the stock lightly clamped.",
         "2. Remove the engraving cutter and stop the machine.",
         "3. Flip the stock on its LONG AXIS and relocate it against the fixed edge stops.",
-        "4. SIDE 2: drill registration holes and internal openings before profile cutting.",
-        "5. CUT_OUTLINES are exact part profiles. Cutter compensation, depth passes and holding tabs must be added by CAM until Topomapper direct G-code is validated.",
+        `4. SIDE 2: ${lightweighting.enabled ? "cut lightweighting and other internal openings" : "drill registration holes and cut internal openings"} before profile cutting.`,
+        "5. PROFILE_TO_TAB_HEIGHT is the complete closed profile cut leaving the stated bridge height.",
+        "6. PROFILE_FULL_DEPTH_EXCEPT_TABS contains open profile segments for the final full-depth pass; the omitted gaps are holding tabs to cut manually after machining.",
+        "7. Cutter-radius compensation and multiple depth passes must still be configured by CAM until Topomapper direct G-code is validated.",
         "",
         "SVG UNITS",
         "Every sheet SVG declares width and height in millimetres and uses the same millimetre viewBox.",
@@ -6014,7 +6101,7 @@ export function MapWorkspace() {
             <label><span>Contour margin</span><strong><input type="number" min="0" step="1" value={lightweightingDraft.contourMarginMm} disabled={!lightweightingDraft.enabled} onChange={(event) => setLightweightingDraft((current) => ({ ...current, contourMarginMm: Number(event.target.value) }))} /><em>mm</em></strong></label>
             <label><span>Minimum opening</span><strong><input type="number" min="5" step="5" value={lightweightingDraft.minimumOpeningMm} disabled={!lightweightingDraft.enabled} onChange={(event) => setLightweightingDraft((current) => ({ ...current, minimumOpeningMm: Number(event.target.value) }))} /><em>mm</em></strong></label>
             <button disabled={!smoothedPreview || lightweightingSettingsMatch && lightweightingComplete} onClick={applyLightweightingSettings}>{lightweightingDraft.enabled ? "Apply lightweighting" : "Continue without lightweighting"}</button>
-            <p>The area covered by the next layer is the bare glue zone. Openings are placed only inside it; retained ribs and contour margins provide the bonding surface.</p>
+            <p>The area covered by the next layer is the bare glue zone. Topomapper retains the contour margin and a regular lattice, then removes the buried cells. Narrow regions automatically use a half-pitch lattice. Alignment drilling is omitted while lightweighting is active.</p>
             {lightweighting.applied && lightweighting.enabled && lightweightingSettingsMatch && <dl className="plain-smoothing-stats">
               <div><dt>Weight-reduction openings:</dt><dd>{lightweightOpeningCount}</dd></div>
               <div><dt>Material area removed:</dt><dd>{Math.round(removedMaterialArea).toLocaleString("en-NZ")} mm²</dd></div>
@@ -6054,6 +6141,9 @@ export function MapWorkspace() {
             <label><span>Part Spacing</span><strong><input type="number" min="0" step="0.1" value={sheetRuleDraft.partSpacing} onChange={(event) => setSheetRuleDraftValue("partSpacing", Number(event.target.value))} /><em>mm</em></strong></label>
             <label><span>Cutter Diameter</span><strong><input type="number" min="0.1" step="0.1" value={sheetRuleDraft.cutterDiameter} onChange={(event) => setSheetRuleDraftValue("cutterDiameter", Number(event.target.value))} /><em>mm</em></strong></label>
             <label><span>Geometry Tolerance</span><strong><input type="number" min="0.01" max="1" step="0.05" value={sheetRuleDraft.geometryTolerance} onChange={(event) => setSheetRuleDraftValue("geometryTolerance", Number(event.target.value))} /><em>mm</em></strong></label>
+            <label><span>Holding Tab Width</span><strong><input type="number" min="0" step="0.5" value={sheetRuleDraft.tabWidth} onChange={(event) => setSheetRuleDraftValue("tabWidth", Number(event.target.value))} /><em>mm</em></strong></label>
+            <label><span>Maximum Tab Spacing</span><strong><input type="number" min="10" step="5" value={sheetRuleDraft.tabSpacing} onChange={(event) => setSheetRuleDraftValue("tabSpacing", Number(event.target.value))} /><em>mm</em></strong></label>
+            <label><span>Tab Bridge Height</span><strong><input type="number" min="0" max={materialThicknessMm} step="0.1" value={sheetRuleDraft.tabBridgeHeight} onChange={(event) => setSheetRuleDraftValue("tabBridgeHeight", Number(event.target.value))} /><em>mm</em></strong></label>
             <label><span>Min Rotation</span><strong><input type="number" min="1" max="90" step="1" value={rotationStepDraft} onChange={(event) => setRotationStepDraftValue(Number(event.target.value))} /><em>deg</em></strong></label>
             {sheetRulesCalculating && <p className="sheet-rules-calculating" role="status"><i aria-hidden="true" /> Rechecking sheet layout…</p>}
             <div className="drawer-placement-actions">
@@ -6210,7 +6300,7 @@ export function MapWorkspace() {
                 <span><small>Parts</small><strong>{selectedAssemblyParts.length}</strong></span>
                 <span><small>Drill holes</small><strong>{selectedAssemblyHoles.length}</strong></span>
               </div>
-              <p>Hatched areas are covered by the next layer: leave their retained ribs and margins bare for glue. Orange peak vents pass through every supporting layer; white holes provide extra alignment.</p>
+              <p>{lightweighting.enabled ? "Hatched areas are covered by the next layer: leave their retained lattice ribs and margins bare for glue. The repeated lattice replaces separate alignment drilling." : "Hatched areas are covered by the next layer: leave them bare for glue. Orange peak vents pass through every supporting layer; white holes provide extra alignment."}</p>
               <ol className="assembly-part-list">
                 {selectedAssemblyParts.map((part) => {
                   const partHoles = assemblyPlan.holes.filter((hole) => hole.partIds.includes(part.id)).length;
@@ -6219,8 +6309,7 @@ export function MapWorkspace() {
               </ol>
               <div className="assembly-plan-summary">
                 <span><strong>{assemblyPlan.parts.length}</strong> named parts</span>
-                <span><strong>{assemblyPlan.holes.filter((hole) => hole.kind === "grid").length}</strong> buried grid holes</span>
-                <span><strong>{assemblyPlan.holes.filter((hole) => hole.kind === "vent").length}</strong> peak-to-base vents</span>
+                {lightweighting.enabled ? <span><strong>{lightweightOpeningCount}</strong> lattice openings</span> : <><span><strong>{assemblyPlan.holes.filter((hole) => hole.kind === "grid").length}</strong> buried grid holes</span><span><strong>{assemblyPlan.holes.filter((hole) => hole.kind === "vent").length}</strong> peak-to-base vents</span></>}
               </div>
               {(holeDiameterMm <= dowelDiameterMm || assemblyPlan.warnings.length > 0) && (
                 <div className="assembly-warnings" role="status">

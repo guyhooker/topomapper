@@ -210,8 +210,10 @@ that topomapper must own it.
 
 - Optional buried-material removal after smoothing and before Part ID.
 - Configurable grid pitch, rib width, contour margin and minimum opening.
-- Openings require complete coverage by the next physical layer and preserve
-  material around the alignment grid and likely peak-vent locations.
+- Openings require complete coverage by the next physical layer. Full-pitch
+  cells are tried first and half-pitch cells fill narrower buried regions.
+- The retained lattice replaces separate alignment holes while lightweighting
+  is enabled.
 - Assembly preview hatches retained covered surfaces as bare/glue zones.
 - Internal openings propagate into exact manufacturing paths while nesting
   continues to use only the external part outline.
@@ -344,7 +346,7 @@ chart preserves readable swatches, product names, layer numbers, and elevations.
 
 ## Stage 13 — Machining SVG Sheet Preparation
 
-**Status: In progress — paired face handover package implemented; tabs and depth-operation layers pending**
+**Status: In progress — paired face handover and automatic holding-tab depth layers implemented**
 
 ### Adds
 
@@ -358,10 +360,9 @@ chart preserves readable swatches, product names, layer numbers, and elevations.
 - A final release layer containing only the outer-profile segments that descend
   to full depth; configured bridge segments are deliberately omitted so every
   part remains attached to the parent sheet.
-- Configurable bridge width, remaining thickness and count, plus automatic
-  placement away from corners, narrow necks, label tails, holes and fragile
-  coastline features. Show every bridge in the sheet preview and permit manual
-  addition, movement and removal.
+- Configurable bridge width, remaining thickness and maximum spacing, with
+  automatic even placement around every profile. Future work should show every
+  bridge in the sheet preview and permit manual addition, movement and removal.
 - Initial machining settings for stock thickness (1–12 mm), horizontal cutting
   speed (mm/min), maximum cut depth per pass (mm), and remaining bridge height
   (mm), plus cut-through allowance (mm, default 0.2). Validate that bridge height

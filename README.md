@@ -256,6 +256,9 @@ disabling preview or export of the other marks.
 Engraved marks insert a period between the layer letter and part number, for
 example `B.1`, as an extra orientation cue. Internal and on-screen part IDs
 remain the compact `B1` form.
+Final ID placement checks the complete dotted text and north arrow against both
+the coastline and drilled registration holes. If that safe area does not exist,
+the part receives a north-pointing ID flag instead.
 
 The manual SVGnest handoff is displayed as one indented triplet with matching
 button colours and prominent numbered badges: 1 Export to SVGnest, 2 Process in

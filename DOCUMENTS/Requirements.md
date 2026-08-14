@@ -288,6 +288,9 @@ controller/postprocessor are specified.
   show an amber warning and keep preview/export available for the valid marks.
 - Engrave a separator between the layer letter and part number (`B.1`) to make
   upside-down workshop reading unambiguous. Use an angular, open CNC-friendly B.
+- Choose on-part ID positions using the final dotted identifier, north arrow and
+  registration-hole locations. Use a flag when the complete marking cannot fit
+  on uninterrupted land with cutter clearance.
 - Present the external SVGnest round trip as a visually consistent, indented
   three-step group with large step numbers: Export, Process and Import.
 

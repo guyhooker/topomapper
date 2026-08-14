@@ -1099,24 +1099,61 @@ function identifiedPartGeometry(
   modelWidth: number,
   modelHeight: number,
   identification: PartIdentificationSettings,
+  registrationHoles: { x: number; y: number; kind: "grid" | "vent" }[],
+  holeDiameter: number,
 ) {
   const rings = part.feature.geometry.coordinates.map((ring) => ring.map((point) => physicalPoint(preview, modelWidth, modelHeight, point)));
   const ordinaryLabel = physicalPoint(preview, modelWidth, modelHeight, part.idPoint ?? part.labelPoint);
-  if (identification.applied && identification.addIdsToUnderside && identification.useFlagsForSmallParts && !part.machineLabel) {
+  if (!identification.applied || !identification.addIdsToUnderside) return { rings, labelPoint: ordinaryLabel, machineLabel: false, hasIdFlag: false };
+
+  const outer = rings[0];
+  const west = Math.min(...outer.map((point) => point.x));
+  const east = Math.max(...outer.map((point) => point.x));
+  const north = Math.min(...outer.map((point) => point.y));
+  const south = Math.max(...outer.map((point) => point.y));
+  const engravedWidth = vectorTextWidth(engravedPartId(part.displayId), 3.8);
+  const halfWidth = engravedWidth / 2 + .45;
+  const topExtent = 6.1; // north arrow tip plus stroke clearance
+  const bottomExtent = 3.5; // dotted text below the label origin
+  const insidePart = (x: number, y: number) => pointInRing([x, y], outer.map((point) => [point.x, point.y]))
+    && !rings.slice(1).some((ring) => pointInRing([x, y], ring.map((point) => [point.x, point.y])));
+  const holeRadius = holeDiameter / 2 + .5;
+  const overlapsHole = (x: number, y: number) => registrationHoles.some((hole) => {
+    const nearestX = Math.max(x - halfWidth, Math.min(hole.x, x + halfWidth));
+    const nearestY = Math.max(y - topExtent, Math.min(hole.y, y + bottomExtent));
+    return Math.hypot(hole.x - nearestX, hole.y - nearestY) < holeRadius;
+  });
+  let safeLabel: { x: number; y: number; score: number } | null = null;
+  if (east - west >= halfWidth * 2 && south - north >= topExtent + bottomExtent) {
+    for (let row = 0; row < 23; row += 1) {
+      for (let column = 0; column < 23; column += 1) {
+        const x = west + (east - west) * (column + .5) / 23;
+        const y = north + (south - north) * (row + .5) / 23;
+        const fits = [-topExtent, -topExtent / 2, 0, bottomExtent].every((offsetY) => (
+          [-halfWidth, -halfWidth / 2, 0, halfWidth / 2, halfWidth].every((offsetX) => insidePart(x + offsetX, y + offsetY))
+        ));
+        if (!fits || overlapsHole(x, y)) continue;
+        const edgeClearance = Math.min(...rings.flatMap((ring) => ring.slice(1).map((end, index) => distanceToSegment({ x, y }, ring[index], end))));
+        const holeClearance = registrationHoles.length
+          ? Math.min(...registrationHoles.map((hole) => Math.hypot(hole.x - x, hole.y - y) - holeRadius))
+          : 1000;
+        const score = Math.min(edgeClearance, holeClearance);
+        if (!safeLabel || score > safeLabel.score) safeLabel = { x, y, score };
+      }
+    }
+  }
+  if (safeLabel) return { rings, labelPoint: safeLabel, machineLabel: true, hasIdFlag: false };
+  if (identification.useFlagsForSmallParts) {
     const flagged = appendNorthIdFlag(rings[0]);
     if (flagged) return { rings: [flagged.ring, ...rings.slice(1)], labelPoint: flagged.labelPoint, machineLabel: true, hasIdFlag: true };
   }
-  return {
-    rings,
-    labelPoint: ordinaryLabel,
-    machineLabel: identification.applied && identification.addIdsToUnderside && part.machineLabel,
-    hasIdFlag: false,
-  };
+  return { rings, labelPoint: ordinaryLabel, machineLabel: false, hasIdFlag: false };
 }
 
-function buildLayoutParts(preview: FilledLayerPreview, plan: AssemblyPlan, modelWidth: number, modelHeight: number, identification: PartIdentificationSettings): LayoutPart[] {
+function buildLayoutParts(preview: FilledLayerPreview, plan: AssemblyPlan, modelWidth: number, modelHeight: number, identification: PartIdentificationSettings, holeDiameter: number): LayoutPart[] {
   return plan.parts.map((part) => {
-    const identified = identifiedPartGeometry(preview, part, modelWidth, modelHeight, identification);
+    const registrationHoles = plan.holes.filter((hole) => hole.partIds.includes(part.id)).map((hole) => ({ x: hole.xMm, y: hole.yMm, kind: hole.kind }));
+    const identified = identifiedPartGeometry(preview, part, modelWidth, modelHeight, identification, registrationHoles, holeDiameter);
     const physicalRings = identified.rings;
     const points = physicalRings.flat();
     const minimumX = Math.min(...points.map((point) => point.x));
@@ -1135,7 +1172,7 @@ function buildLayoutParts(preview: FilledLayerPreview, plan: AssemblyPlan, model
       machineLabel: identified.machineLabel,
       hasIdFlag: identified.hasIdFlag,
       rings: physicalRings.map((ring) => ring.map((point) => ({ x: point.x - minimumX, y: point.y - minimumY }))),
-      holes: plan.holes.filter((hole) => hole.partIds.includes(part.id)).map((hole) => ({ x: hole.xMm - minimumX, y: hole.yMm - minimumY, kind: hole.kind })),
+      holes: registrationHoles.map((hole) => ({ x: hole.x - minimumX, y: hole.y - minimumY, kind: hole.kind })),
     };
   });
 }
@@ -4106,7 +4143,7 @@ export function MapWorkspace() {
     && partIdentification.applied
     && partIdentification.addIdsToUnderside === partIdentificationDraft.addIdsToUnderside
     && partIdentification.useFlagsForSmallParts === (partIdentificationDraft.addIdsToUnderside && partIdentificationDraft.useFlagsForSmallParts));
-  const layoutParts = useMemo(() => fabricationPreview && assemblyPlan ? buildLayoutParts(fabricationPreview, assemblyPlan, previewDimensions.width, previewDimensions.height, partIdentification) : [], [fabricationPreview, assemblyPlan, previewDimensions.width, previewDimensions.height, partIdentification]);
+  const layoutParts = useMemo(() => fabricationPreview && assemblyPlan ? buildLayoutParts(fabricationPreview, assemblyPlan, previewDimensions.width, previewDimensions.height, partIdentification, holeDiameterMm) : [], [fabricationPreview, assemblyPlan, previewDimensions.width, previewDimensions.height, partIdentification, holeDiameterMm]);
   const flaggedPartCount = layoutParts.filter((part) => part.hasIdFlag).length;
   const engravedPartCount = layoutParts.filter((part) => part.machineLabel).length;
   const layoutPartIds = useMemo(() => new Set(layoutParts.map((part) => part.id)), [layoutParts]);

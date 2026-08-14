@@ -902,3 +902,6 @@
 - Changed underside engraving notation from `B1` to `B.1` without changing the
   project part ID. Replaced the malformed B with an angular two-lobed vector
   glyph and added a dedicated period stroke.
+- Moved safe ID placement to the final layout geometry stage. The search now
+  measures the actual dotted ID and arrow and excludes registration-hole discs;
+  longer IDs such as `C.11` receive flags when their full marking cannot fit.

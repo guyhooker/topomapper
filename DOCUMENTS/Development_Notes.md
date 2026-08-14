@@ -29,6 +29,10 @@
   bathymetry GeoTIFF has been analysed.
 - WGS84 bounds derived from national bathymetry are normalised across the date
   line so EPSG:3994 coverage remains continuous from roughly 157°E eastward.
+- At tidal margins the 8 m land DEM remains authoritative. Valid national
+  bathymetry outside that footprint is treated as marine and capped at 0 m when
+  its coarse interpolation is positive. Water polygons cut land layers but not
+  the supporting subsea stack beneath them.
 - Layers are intended for plywood or similar material cut on a CNC machine,
   painted, aligned, and bonded into a wall hanging.
 - A glass sheet may represent sea level.

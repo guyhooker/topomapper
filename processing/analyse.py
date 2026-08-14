@@ -328,6 +328,37 @@ def _validate_boundaries(values: Iterable[object]) -> list[float]:
     return boundaries
 
 
+def _merge_land_and_bathymetry(
+    land_mosaic: np.ndarray,
+    land_valid_mask: np.ndarray,
+    bathymetry_mosaic: np.ndarray,
+    bathymetry_valid_mask: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Fill cells outside the precise land DEM with a continuous marine surface."""
+    marine_fill = bathymetry_valid_mask & ~land_valid_mask
+    mosaic = land_mosaic.copy()
+    # The national 250 m raster can interpolate slightly positive cells across
+    # tidal margins. Once the 8 m bare-earth DEM has ended, those valid cells are
+    # marine for fabrication purposes and must not leave a gap in the stack.
+    mosaic[marine_fill] = np.minimum(bathymetry_mosaic[marine_fill], 0)
+    return mosaic, land_valid_mask | marine_fill, marine_fill
+
+
+def _cumulative_layer_mask(
+    valid_mask: np.ndarray,
+    mosaic: np.ndarray,
+    lower: float,
+    water_mask: np.ndarray,
+) -> np.ndarray:
+    cumulative = valid_mask & (mosaic >= lower)
+    # Lakes, lagoons and retained rivers are holes in the visible land layers.
+    # Subsea layers remain below them as the blue physical support and prevent
+    # tidal polygons from becoming holes through the entire model.
+    if lower >= 0:
+        cumulative &= ~water_mask
+    return cumulative
+
+
 def _geojson_crs(value: dict[str, Any]) -> str:
     crs = value.get("crs")
     if not isinstance(crs, dict):
@@ -446,12 +477,14 @@ def generate_filled_layers(
                 raise AnalysisError("Choose a bathymetry GeoTIFF before generating undersea layers.")
             bathymetry_mosaic, bathymetry_valid_mask, _ = _layer_mosaic(prepared_bathymetry, selection)
             # The 8 m land DEM remains authoritative wherever it has a value.
-            # Bathymetry fills only its missing (normally marine) cells, avoiding
-            # any lower-resolution onshore representation in a seabed product.
-            marine_fill = bathymetry_valid_mask & ~land_valid_mask & (bathymetry_mosaic <= 0)
-            mosaic = land_mosaic.copy()
-            mosaic[marine_fill] = bathymetry_mosaic[marine_fill]
-            valid_mask = land_valid_mask | marine_fill
+            # Bathymetry fills its missing, normally marine, cells. Coarse tidal
+            # cells are capped at sea level so land and seabed meet continuously.
+            mosaic, valid_mask, marine_fill = _merge_land_and_bathymetry(
+                land_mosaic,
+                land_valid_mask,
+                bathymetry_mosaic,
+                bathymetry_valid_mask,
+            )
             bathymetry_filenames = [filename for _path, filename in prepared_bathymetry]
             if not marine_fill.any():
                 raise AnalysisError("The selected bathymetry contains no usable sub-sea cells outside the land DEM coverage.")
@@ -471,7 +504,7 @@ def generate_filled_layers(
         features: list[dict[str, Any]] = []
         layers: list[dict[str, Any]] = []
         for index, (lower, upper) in enumerate(zip(boundaries, boundaries[1:])):
-            cumulative_mask = valid_mask & (mosaic >= lower) & ~water_mask
+            cumulative_mask = _cumulative_layer_mask(valid_mask, mosaic, lower, water_mask)
             piece_count = 0
             hole_count = 0
             for geometry, raster_value in shapes(

@@ -6,6 +6,8 @@ still change their project or manufacturing formats.
 
 ## [Unreleased]
 
+- Closed tidal gaps between the 8 m land DEM and coarse national bathymetry;
+  water polygons now cut visible land while retaining blue subsea support.
 - Fixed nationwide bathymetry rasters that cross the international date line
   being incorrectly rejected as outside a New Zealand selection.
 - Made Undersea Layers selectable before bathymetry is loaded; enabling it now

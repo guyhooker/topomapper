@@ -1511,24 +1511,31 @@ const VECTOR_SEGMENTS: Record<string, [number, number, number, number]> = {
   a: [0, 0, 1, 0], b: [1, 0, 1, .5], c: [1, .5, 1, 1], d: [0, 1, 1, 1], e: [0, .5, 0, 1], f: [0, 0, 0, .5],
   g1: [0, .5, .5, .5], g2: [.5, .5, 1, .5], h: [0, 0, .5, .5], i: [1, 0, .5, .5], j: [0, 1, .5, .5], k: [.5, .5, 1, 1],
   l: [.5, 0, .5, .5], m: [.5, .5, .5, 1],
+  b1: [0, 0, .7, 0], b2: [.7, 0, 1, .17], b3: [1, .17, 1, .33], b4: [1, .33, .7, .5],
+  b5: [.7, .5, 1, .67], b6: [1, .67, 1, .83], b7: [1, .83, .7, 1], b8: [.7, 1, 0, 1], b9: [0, .5, .7, .5],
+  dot: [.42, .9, .58, .9],
 };
 
 const VECTOR_GLYPHS: Record<string, string[]> = {
   "0": ["a", "b", "c", "d", "e", "f"], "1": ["b", "c"], "2": ["a", "b", "g1", "g2", "e", "d"],
   "3": ["a", "b", "c", "d", "g1", "g2"], "4": ["f", "g1", "g2", "b", "c"], "5": ["a", "f", "g1", "g2", "c", "d"],
   "6": ["a", "f", "e", "d", "c", "g1", "g2"], "7": ["a", "b", "c"], "8": ["a", "b", "c", "d", "e", "f", "g1", "g2"],
-  "9": ["a", "b", "c", "d", "f", "g1", "g2"], A: ["a", "b", "c", "e", "f", "g1", "g2"], B: ["f", "e", "d", "c", "g1", "g2", "l", "m"],
+  "9": ["a", "b", "c", "d", "f", "g1", "g2"], A: ["a", "b", "c", "e", "f", "g1", "g2"], B: ["f", "e", "b1", "b2", "b3", "b4", "b5", "b6", "b7", "b8", "b9"],
   C: ["a", "f", "e", "d"], D: ["a", "b", "c", "d", "e", "f"], E: ["a", "f", "e", "d", "g1", "g2"], F: ["a", "f", "e", "g1", "g2"],
   G: ["a", "f", "e", "d", "c", "g2"], H: ["f", "e", "b", "c", "g1", "g2"], I: ["a", "d", "l", "m"], J: ["b", "c", "d", "e"],
   K: ["f", "e", "i", "k"], L: ["f", "e", "d"], M: ["f", "b", "h", "i"], N: ["f", "e", "b", "c", "h", "k"],
   O: ["a", "b", "c", "d", "e", "f"], P: ["a", "b", "f", "e", "g1", "g2"], Q: ["a", "b", "c", "d", "e", "f", "k"],
   R: ["a", "b", "f", "e", "g1", "g2", "k"], S: ["a", "f", "g1", "g2", "c", "d"], T: ["a", "l", "m"],
   U: ["f", "e", "d", "c", "b"], V: ["f", "j", "k", "b"], W: ["f", "e", "b", "c", "j", "k"], X: ["h", "i", "j", "k"],
-  Y: ["h", "i", "m"], Z: ["a", "i", "j", "d"], "-": ["g1", "g2"],
+  Y: ["h", "i", "m"], Z: ["a", "i", "j", "d"], "-": ["g1", "g2"], ".": ["dot"],
 };
 
 function abbreviatedPartId(partId: string) {
   return partId.replace(/^L0*/i, "") || partId;
+}
+
+function engravedPartId(displayId: string) {
+  return displayId.replace(/^([A-Z])(\d+)$/i, "$1.$2").toUpperCase();
 }
 
 function vectorTextWidth(text: string, height: number) {
@@ -1638,13 +1645,14 @@ function buildUndersideIdGroups(placements: SheetPlacement[], partMap: Map<strin
     const part = partMap.get(placement.partId);
     if (!part || !part.machineLabel) return "";
     const label = part.labelPoint;
+    const engravedId = engravedPartId(part.displayId);
     if (part.hasIdFlag) {
-      const text = vectorTextPath(part.displayId, 0, 0, 4);
+      const text = vectorTextPath(engravedId, 0, 0, 4);
       return `<g data-placement-id="${xmlText(placement.id)}" data-part-id="${xmlText(part.id)}" data-display-id="${xmlText(part.displayId)}" data-mark-location="flag" transform="${sheetPlacementTransform(placement, part)}">
         <g transform="translate(${svgNumber(label.x)} ${svgNumber(label.y)}) rotate(90)"><path d="${text}" /></g>
       </g>`;
     }
-    const text = vectorTextPath(part.displayId, label.x, label.y + 1.3, 4.5);
+    const text = vectorTextPath(engravedId, label.x, label.y + 1.3, 3.8);
     const north = `M${svgNumber(label.x)} ${svgNumber(label.y - 1.5)} L${svgNumber(label.x)} ${svgNumber(label.y - 5.5)} M${svgNumber(label.x)} ${svgNumber(label.y - 5.5)} L${svgNumber(label.x - 1.4)} ${svgNumber(label.y - 3.7)} M${svgNumber(label.x)} ${svgNumber(label.y - 5.5)} L${svgNumber(label.x + 1.4)} ${svgNumber(label.y - 3.7)}`;
     return `<g data-placement-id="${xmlText(placement.id)}" data-part-id="${xmlText(part.id)}" data-display-id="${xmlText(part.displayId)}" data-mark-location="part" transform="${sheetPlacementTransform(placement, part)}">
       <path d="${text} ${north}" />
@@ -2928,10 +2936,10 @@ function SheetLayoutCanvas({
           context.fillStyle = "#713c89";
           context.strokeStyle = "#713c89";
           context.lineWidth = Math.max(1, .35 * scale);
-          context.font = `800 ${Math.max(7, (part.hasIdFlag ? 4 : 4.5) * scale)}px Inter, sans-serif`;
+          context.font = `800 ${Math.max(7, (part.hasIdFlag ? 4 : 3.8) * scale)}px Inter, sans-serif`;
           context.textAlign = "center";
           context.textBaseline = "middle";
-          context.fillText(part.displayId, 0, part.hasIdFlag ? 0 : 1.3 * scale);
+          context.fillText(engravedPartId(part.displayId), 0, part.hasIdFlag ? 0 : 1.3 * scale);
           if (!part.hasIdFlag) {
             context.beginPath();
             context.moveTo(0, -1.5 * scale);

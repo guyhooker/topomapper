@@ -286,6 +286,8 @@ controller/postprocessor are specified.
 - Try a perpendicular side-edge stalk when a narrow part has no usable
   north-facing flag attachment. If an exceptional part still cannot be marked,
   show an amber warning and keep preview/export available for the valid marks.
+- Engrave a separator between the layer letter and part number (`B.1`) to make
+  upside-down workshop reading unambiguous. Use an angular, open CNC-friendly B.
 - Present the external SVGnest round trip as a visually consistent, indented
   three-step group with large step numbers: Export, Process and Import.
 

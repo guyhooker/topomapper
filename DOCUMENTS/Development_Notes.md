@@ -899,3 +899,6 @@
 - Added a second-pass ID flag placer for narrow ridges which uses a perpendicular
   side-edge stalk while keeping the flag point facing north. Partial marking is
   now an amber warning instead of silently disabling preview and downloads.
+- Changed underside engraving notation from `B1` to `B.1` without changing the
+  project part ID. Replaced the malformed B with an angular two-lobed vector
+  glyph and added a dedicated period stroke.

@@ -253,6 +253,9 @@ For narrow ridges without a north-facing attachment edge, Topomapper may connect
 the upright north-pointing flag by a perpendicular stalk from a side edge. Any
 remaining exceptional unmarked part is reported as an amber warning without
 disabling preview or export of the other marks.
+Engraved marks insert a period between the layer letter and part number, for
+example `B.1`, as an extra orientation cue. Internal and on-screen part IDs
+remain the compact `B1` form.
 
 The manual SVGnest handoff is displayed as one indented triplet with matching
 button colours and prominent numbered badges: 1 Export to SVGnest, 2 Process in

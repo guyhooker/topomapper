@@ -4578,15 +4578,10 @@ export function MapWorkspace() {
     };
     setLightweighting(next);
     setLightweightingDraft(next);
-    setPartIdentification((current) => ({ ...current, applied: false }));
-    setSheetPlacements([]);
-    setSheetCount(1);
-    setActiveSheetIndex(0);
-    setSelectedPlacementId(null);
     setSelectedViolationIndex(null);
     setOptimizerStatus(next.enabled
-      ? "Lightweighting changed the internal cuts and available ID areas. Add IDs again, then run Quick Placement."
-      : "Lightweighting was removed. Add IDs again, then run Quick Placement.");
+      ? "Lightweighting added internal cuts. Existing sheet placements were preserved and the DRC has been rechecked."
+      : "Lightweighting was removed. Existing sheet placements were preserved and the DRC has been rechecked.");
   }
 
   function applyPartIdentification() {

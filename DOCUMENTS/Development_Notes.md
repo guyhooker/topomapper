@@ -982,8 +982,9 @@
 - Lightweight openings become ordinary inner manufacturing rings and therefore
   flow through 3D, Assembly, Part ID safety checks, exact sheet SVG and the
   manufacturing package. SVGnest still receives the exterior outline only.
-- Applying or removing lightweighting clears downstream ID/layout state because
-  available engraving areas may have changed.
+- Applying or removing lightweighting preserves existing sheet placements.
+  Underside IDs and flags are derived again from the changed geometry, and the
+  normal sheet DRC reports any placement that now needs attention.
 - Assembly now hatches retained material covered by the next layer as the bare
   glue zone. The actual openings remain transparent; glue belongs on the ribs
   and contour margins, not in the removed areas.

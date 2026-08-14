@@ -24,6 +24,9 @@
 - User selects a location and area on an interactive map.
 - Application analyses maximum land elevation and minimum seabed elevation.
 - User defines independent, non-linear land and subsea elevation bands.
+- Undersea Layers can be selected before bathymetry is loaded; the selection
+  opens Stage 3 Manual Download and layer generation remains guarded until a
+  bathymetry GeoTIFF has been analysed.
 - Layers are intended for plywood or similar material cut on a CNC machine,
   painted, aligned, and bonded into a wall hanging.
 - A glass sheet may represent sea level.

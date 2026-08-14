@@ -6,6 +6,8 @@ still change their project or manufacturing formats.
 
 ## [Unreleased]
 
+- Made Undersea Layers selectable before bathymetry is loaded; enabling it now
+  opens the Stage 3 manual-data controls and explains the required analysis.
 - Added a strict design-to-manufacturing handover ZIP containing paired Side 1
   and Side 2 SVGs for every sheet, machining information, assembly-guide and
   painting-guide PDFs, and manifest.

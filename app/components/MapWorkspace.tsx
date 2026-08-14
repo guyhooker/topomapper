@@ -3215,6 +3215,7 @@ export function MapWorkspace() {
   const [frameStageOpen, setFrameStageOpen] = useState(true);
   const [areaStageOpen, setAreaStageOpen] = useState(true);
   const [elevationStageOpen, setElevationStageOpen] = useState(true);
+  const [manualDataImportOpen, setManualDataImportOpen] = useState(false);
   const [layerStageOpen, setLayerStageOpen] = useState(true);
   const [filledStageOpen, setFilledStageOpen] = useState(false);
   const [smoothingStageOpen, setSmoothingStageOpen] = useState(false);
@@ -5454,7 +5455,7 @@ export function MapWorkspace() {
             </button>
           </div>
 
-          <details className="advanced-data-import">
+          <details className="advanced-data-import" open={manualDataImportOpen} onToggle={(event) => setManualDataImportOpen(event.currentTarget.open)}>
             <summary>Manual Download</summary>
             <div className="manual-import-label"><span>LOCAL TERRAIN FILES</span></div>
             <form className="elevation-form" onSubmit={analyseElevation}>
@@ -5606,8 +5607,14 @@ export function MapWorkspace() {
               </label>
               <label className="layer-distribution-toggle">
                 <span>Undersea Layers</span>
-                <input type="checkbox" checked={bathymetryEnabled} disabled={!bathymetryDataComplete} onChange={(event) => {
-                  setBathymetryEnabled(event.target.checked);
+                <input type="checkbox" checked={bathymetryEnabled} onChange={(event) => {
+                  const enabled = event.target.checked;
+                  setBathymetryEnabled(enabled);
+                  if (enabled && !bathymetryDataComplete) {
+                    setElevationStageOpen(true);
+                    setManualDataImportOpen(true);
+                    setBathymetryStatus("Undersea layers selected. In Stage 3, choose a bathymetry GeoTIFF under Manual Download, then analyse it.");
+                  }
                   if (filledLayerPreview) invalidateFilledLayerPreview("The undersea layer plan changed. Regenerate the layer build.");
                 }} />
                 <i aria-hidden="true"><b /></i>

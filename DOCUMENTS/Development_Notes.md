@@ -890,3 +890,9 @@
   agreed long-axis stock flip and records its operation intent in SVG metadata.
 - Kept waste-board labels out of this stage. Updated printable layout guides to
   show the compact workshop ID rather than the internal stable part key.
+- Added a transparent purple Sheet Layout overlay which shows Side 1 IDs and
+  north arrows aligned through the stock like a two-sided PCB display. Marking
+  download readiness now depends on complete placement and valid ID locations,
+  not on an unrelated DRC-clear state.
+- Restyled the SVGnest Export, Process and Import controls as one indented green
+  triplet with equal dimensions and large bold circular 1, 2 and 3 badges.

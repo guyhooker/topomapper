@@ -280,6 +280,11 @@ controller/postprocessor are specified.
   populated sheet. Put A1–Z99 on the back of a flag when present; otherwise put
   the ID and a north arrow on the back of the part. Mirror the marks for the
   long-axis sheet flip and omit waste-board labels for now.
+- Preview Side 1 marks as a transparent, through-board overlay on the sheet
+  layout before export. Permit preview/export once every part is placed and has
+  a valid mark; keep any DRC warnings visible without disabling the marking file.
+- Present the external SVGnest round trip as a visually consistent, indented
+  three-step group with large step numbers: Export, Process and Import.
 
 ## Quality and Safety
 

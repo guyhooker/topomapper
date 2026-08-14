@@ -244,3 +244,12 @@ marked on the back of the flag, whose pointed end already shows north. Unflagged
 parts are marked on their underside with both the ID and a north arrow. The
 whole marking layer is mirrored for the established long-axis stock flip;
 waste-board labels remain deferred.
+The marking section also provides a transparent purple overlay in Sheet Layout,
+aligned through the material like a two-sided PCB view. This lets the user check
+every ID and north mark before downloading. Marking previews and downloads need
+all parts placed with valid marks; DRC warnings remain visible but do not block
+inspection or export.
+
+The manual SVGnest handoff is displayed as one indented triplet with matching
+button colours and prominent numbered badges: 1 Export to SVGnest, 2 Process in
+SVGnest, and 3 Import nest result.

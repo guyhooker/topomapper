@@ -2744,6 +2744,7 @@ function SheetLayoutCanvas({
   onMove,
   onPan,
   onDragStateChange,
+  showIdMarking,
 }: {
   rules: SheetRules;
   parts: LayoutPart[];
@@ -2758,6 +2759,7 @@ function SheetLayoutCanvas({
   onMove: (id: string, x: number, y: number) => void;
   onPan: (centre: { x: number; y: number }) => void;
   onDragStateChange: (dragging: boolean) => void;
+  showIdMarking: boolean;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const transformRef = useRef({ scale: 1, offsetX: 0, offsetY: 0 });
@@ -2841,11 +2843,37 @@ function SheetLayoutCanvas({
           const point = rotateLayoutPoint(hole, part, placement.rotation);
           context.beginPath(); context.arc(point.x * scale, point.y * scale, Math.max(2, 2.1 * scale), 0, Math.PI * 2); context.stroke();
         });
-        const size = placementSize(placement, part);
-        context.fillStyle = "#173c2f";
-        context.font = "700 10px Inter, sans-serif";
-        context.textAlign = "center";
-        context.fillText(`${part.displayId} · ${placement.rotation}°`, size.width * scale / 2, size.height * scale / 2);
+        if (showIdMarking && part.machineLabel) {
+          const label = rotateLayoutPoint(part.labelPoint, part, placement.rotation);
+          context.save();
+          context.translate(label.x * scale, label.y * scale);
+          context.rotate((placement.rotation + (part.hasIdFlag ? 90 : 0)) * Math.PI / 180);
+          context.globalAlpha = .82;
+          context.fillStyle = "#713c89";
+          context.strokeStyle = "#713c89";
+          context.lineWidth = Math.max(1, .35 * scale);
+          context.font = `800 ${Math.max(7, (part.hasIdFlag ? 4 : 4.5) * scale)}px Inter, sans-serif`;
+          context.textAlign = "center";
+          context.textBaseline = "middle";
+          context.fillText(part.displayId, 0, part.hasIdFlag ? 0 : 1.3 * scale);
+          if (!part.hasIdFlag) {
+            context.beginPath();
+            context.moveTo(0, -1.5 * scale);
+            context.lineTo(0, -5.5 * scale);
+            context.moveTo(0, -5.5 * scale);
+            context.lineTo(-1.4 * scale, -3.7 * scale);
+            context.moveTo(0, -5.5 * scale);
+            context.lineTo(1.4 * scale, -3.7 * scale);
+            context.stroke();
+          }
+          context.restore();
+        } else {
+          const size = placementSize(placement, part);
+          context.fillStyle = "#173c2f";
+          context.font = "700 10px Inter, sans-serif";
+          context.textAlign = "center";
+          context.fillText(`${part.displayId} · ${placement.rotation}°`, size.width * scale / 2, size.height * scale / 2);
+        }
         context.restore();
       });
       context.strokeStyle = "#6e4d2f";
@@ -2856,7 +2884,7 @@ function SheetLayoutCanvas({
     const observer = new ResizeObserver(draw);
     observer.observe(canvas);
     return () => observer.disconnect();
-  }, [rules, partMap, sheetPlacements, selectedId, violations, highlightedIds, zoom, viewCenter]);
+  }, [rules, partMap, sheetPlacements, selectedId, violations, highlightedIds, zoom, viewCenter, showIdMarking]);
 
   const sheetPoint = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const rectangle = event.currentTarget.getBoundingClientRect();
@@ -2968,7 +2996,7 @@ export function MapWorkspace() {
   const [holeEdgeClearanceMm, setHoleEdgeClearanceMm] = useState(6);
   const [exportStatus, setExportStatus] = useState("Manufacturing files are ready to inspect.");
   const [sheetExportStatus, setSheetExportStatus] = useState("Export a finished-size SVG after arranging the parts.");
-  const [idMarkingStatus, setIdMarkingStatus] = useState("Complete a DRC-clear sheet layout before exporting underside marks.");
+  const [idMarkingStatus, setIdMarkingStatus] = useState("The underside marks are ready to preview or export.");
   const [colourChartStatus, setColourChartStatus] = useState("Download a workshop-ready PDF or print this chart from the browser.");
   const [smoothingLayerIndex, setSmoothingLayerIndex] = useState(0);
   const [smoothingLevels, setSmoothingLevels] = useState<Record<number, number>>({});
@@ -3015,6 +3043,7 @@ export function MapWorkspace() {
   const [smoothingStageOpen, setSmoothingStageOpen] = useState(false);
   const [sheetStageOpen, setSheetStageOpen] = useState(false);
   const [idMarkingStageOpen, setIdMarkingStageOpen] = useState(false);
+  const [showIdMarkingOverlay, setShowIdMarkingOverlay] = useState(false);
   const workflowDrawerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const smoothingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sheetRulesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -4022,7 +4051,7 @@ export function MapWorkspace() {
   const sheetLayoutStatus = sheetLayoutComplete ? "Complete" : allLayoutPartsPlaced ? "Warnings" : "Incomplete";
   const sheetLayoutStatusClass = sheetLayoutComplete ? "complete" : allLayoutPartsPlaced ? "warning" : "incomplete";
   const unmarkedPartCount = layoutParts.filter((part) => !part.machineLabel).length;
-  const idMarkingReady = sheetLayoutComplete
+  const idMarkingReady = allLayoutPartsPlaced
     && partIdentification.addIdsToUnderside
     && unmarkedPartCount === 0;
   const highlightedPlacementIds = selectedViolationIndex !== null ? (layoutViolations[selectedViolationIndex]?.placementIds ?? []) : [];
@@ -5324,9 +5353,9 @@ export function MapWorkspace() {
               <p>Topomapper enlarges every green proxy to include its machining clearance.</p>
               <label>Part rotations<select value={svgNestRotations} onChange={(event) => setSvgNestRotations(Number(event.target.value))}><option value={4}>4 · 90°</option><option value={8}>8 · 45°</option><option value={12}>12 · 30°</option><option value={24}>24 · 15°</option></select></label>
               <ol>
-                <li><button disabled={!layoutParts.length || !partIdentificationComplete} onClick={downloadSvgNestJob}>1 · Download nest file</button></li>
-                <li><a href="https://svgnest.com/" target="_blank" rel="noreferrer">2 · Process in SVGnest ↗</a></li>
-                <li><label className={`drawer-svgnest-import ${!layoutParts.length || !partIdentificationComplete ? "disabled" : ""}`}>3 · Import nest result<input disabled={!layoutParts.length || !partIdentificationComplete} type="file" accept=".svg,image/svg+xml" onChange={(event) => void importSvgNestResult(event)} /></label></li>
+                <li><button disabled={!layoutParts.length || !partIdentificationComplete} onClick={downloadSvgNestJob}><span>1</span><b>Export to SVGnest</b></button></li>
+                <li><a href="https://svgnest.com/" target="_blank" rel="noreferrer"><span>2</span><b>Process in SVGnest ↗</b></a></li>
+                <li><label className={`drawer-svgnest-import ${!layoutParts.length || !partIdentificationComplete ? "disabled" : ""}`}><span>3</span><b>Import nest result</b><input disabled={!layoutParts.length || !partIdentificationComplete} type="file" accept=".svg,image/svg+xml" onChange={(event) => void importSvgNestResult(event)} /></label></li>
               </ol>
               <p className="drawer-svgnest-spacing">SVGnest Space between parts: <b>{lastSvgNestSpacing === null ? "0 (after the next download)" : `${lastSvgNestSpacing.toFixed(0)}`}</b>. The downloaded green shapes already contain the clearance halo; press Save Settings after entering zero.</p>
               <details><summary>Diagnostic test file</summary><button disabled={!layoutParts.length || !partIdentificationComplete} onClick={downloadSvgNestDiagnosticJob}>Download 20% diagnostic</button></details>
@@ -5345,9 +5374,10 @@ export function MapWorkspace() {
           <div className="workflow-stage-body part-id-settings">
             <p>Side 1 uses vector strokes for a V-shaped cutter. Flag IDs need no arrow because the pointed flag end is north. IDs engraved directly on parts include a north arrow.</p>
             <dl className="plain-smoothing-stats"><div><dt>Part IDs:</dt><dd>{engravedPartCount}</dd></div><div><dt>On flags:</dt><dd>{flaggedPartCount}</dd></div><div><dt>Without marks:</dt><dd>{unmarkedPartCount}</dd></div></dl>
+            <button disabled={!idMarkingReady} onClick={() => { setShowIdMarkingOverlay((current) => !current); setWorkspaceView("sheet-layout"); }}>{showIdMarkingOverlay ? "Hide ID marking overlay" : "Show ID marking overlay"}</button>
             <button disabled={!idMarkingReady || !sheetPlacements.some((placement) => placement.sheetIndex === activeSheetIndex)} onClick={downloadActiveIdMarkingSvg}>Download Sheet {activeSheetIndex + 1} ID SVG</button>
             <button disabled={!idMarkingReady} onClick={downloadAllIdMarkingSvgs}>Download all ID SVGs</button>
-            <p role="status">{idMarkingReady ? idMarkingStatus : unmarkedPartCount ? `${unmarkedPartCount} part${unmarkedPartCount === 1 ? " does" : "s do"} not yet have a safe ID location.` : "Complete a DRC-clear sheet layout first."}</p>
+            <p role="status">{idMarkingReady ? idMarkingStatus : unmarkedPartCount ? `${unmarkedPartCount} part${unmarkedPartCount === 1 ? " does" : "s do"} not yet have a safe ID location.` : "Place every part on a sheet first."}</p>
           </div>
         </details>
         </aside>
@@ -5541,8 +5571,9 @@ export function MapWorkspace() {
                 onMove={(id, x, y) => { setSelectedViolationIndex(null); updateSheetPlacement(id, { x: Math.round(x * 2) / 2, y: Math.round(y * 2) / 2 }); }}
                 onPan={setSheetViewCenter}
                 onDragStateChange={setSheetPartDragging}
+                showIdMarking={showIdMarkingOverlay}
               />
-              <div className="sheet-scale-note">{sheetRules.width} × {sheetRules.height} mm · {sheetZoom}× view · drag empty sheet to pan · each halo extends {(sheetRules.partSpacing / 2).toFixed(2)} mm outside its cut edge · touching halos = {sheetRules.partSpacing.toFixed(2)} mm edge-to-edge</div>
+              <div className="sheet-scale-note">{sheetRules.width} × {sheetRules.height} mm · {sheetZoom}× view · drag empty sheet to pan · each halo extends {(sheetRules.partSpacing / 2).toFixed(2)} mm outside its cut edge · touching halos = {sheetRules.partSpacing.toFixed(2)} mm edge-to-edge{showIdMarkingOverlay ? " · purple marks show Side 1 through the sheet, aligned with their final parts" : ""}</div>
             </div>
             <aside className="sheet-layout-details">
               <div className="sheet-layout-metrics"><span><small>Sheets</small><strong>{sheetCount}</strong></span><span><small>Instances</small><strong>{sheetPlacements.length}</strong></span><span><small>Area use</small><strong>{sheetUtilisation.toFixed(1)}%</strong></span></div>

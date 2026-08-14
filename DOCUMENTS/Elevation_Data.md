@@ -63,6 +63,28 @@ grid. Transparent gaps are missing coverage, not zero elevation.
 An absent vertical datum is reported as unknown. It is never silently assumed,
 because later land and bathymetry datasets may use different height references.
 
+## Bathymetry
+
+Undersea layers use a separate bathymetry GeoTIFF; they are never inferred from
+missing land DEM cells. The initial nationwide source is the ESNZ/NIWA New
+Zealand Regional Bathymetry (2016) 250 m raster. Finer regional rasters can be
+selected through the same manual control when available.
+
+- [ESNZ/NIWA bathymetry downloads](https://niwa.co.nz/environmental-information/download-bathymetry-data?sid=10363)
+- [NZ Bathymetry 250 m raster metadata](https://www.arcgis.com/home/item.html?id=a2582b1eb3584237a3b50418f379ca84)
+
+Topomapper analyses the selected bathymetry separately and requires a real
+negative depth before enabling Undersea Layers. At generation time the 8 m land
+DEM wins wherever it contains valid data; negative bathymetry fills only cells
+outside that land coverage. The physical stack begins at the analysed minimum
+depth, then follows the independent −200, −100, −50, −20, −10 and 0 m contour
+sequence. Contours deeper than the selected area's minimum are omitted.
+
+The 250 m nationwide raster is visibly identified as coarse model-making data.
+It is not navigation data. Its horizontal resolution and vertical datum must be
+checked before fabrication, especially when it is combined with a land DEM
+whose heights use a different vertical reference.
+
 ## Synthetic regression fixture
 
 The first Stage 3 start generates `fixtures/taranaki-stage3-synthetic.tif`.

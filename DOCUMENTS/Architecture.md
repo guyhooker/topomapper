@@ -23,7 +23,8 @@ Swift.
 - MapLibre GL JS for the interactive map, hillshade, and terrain preview.
 - Terra Draw or an equivalent MapLibre control for rectangular and polygonal
   area selection.
-- A calculated Log/Linear land-layer plan, with separate subsea controls later.
+- A calculated Log/Linear land-layer plan plus an independent fixed-contour
+  subsea plan driven by a separately analysed bathymetry raster.
 
 ### Processing Engine
 
@@ -139,6 +140,11 @@ Use a source hierarchy rather than assuming one dataset is adequate everywhere:
 3. Higher-resolution regional bathymetry where available.
 4. New Zealand 250 m bathymetry as a broad-area fallback, with a visible quality
    warning.
+
+The first implementation imports a manually cropped bathymetry GeoTIFF. Both
+rasters are reprojected onto the same bounded preview grid; detailed valid land
+cells win and negative bathymetry fills only missing marine cells. Automatic
+spatial-window retrieval remains a subsequent data-service integration.
 
 The system must inspect coverage and metadata before downloading large files.
 Cloud Optimised GeoTIFF sources should be read by spatial window where possible,

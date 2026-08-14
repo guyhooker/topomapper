@@ -6,7 +6,7 @@
 elevation data into layered shapes suitable for CNC-cut wall maps.
 
 The user selects an area on an interactive map, analyses its elevation range,
-chooses a calculated land-layer plan (with future separate subsea controls), previews the resulting stacked
+chooses calculated land layers and an optional independent subsea plan, previews the resulting stacked
 model, and exports cut-ready geometry. Direct CNC G-code is a later goal after
 the geometry workflow is proven.
 
@@ -68,10 +68,12 @@ GeoTIFF and water-file controls remain available as a fallback.
 Stage 4 calculates a land-elevation plan between sea level and the analysed
 maximum. A Log Layering switch and a 5–30 layer entry determine the altitude
 bands; sheet thickness, optional snow coverage, and 1–5 white snow levels are
-set alongside them. The resulting levels, colours, and altitude bands are shown
-as a read-only list before geometry generation.
+set alongside them. An analysed bathymetry GeoTIFF enables an independent
+subsea stack using the −200, −100, −50, −20, −10 and 0 m contours plus a deep
+base at the selected area's lowest seabed value. The resulting levels, colours,
+and altitude bands are shown before geometry generation.
 
-Stage 5 turns those boundaries into cumulative filled land polygons and draws a
+Stage 5 turns those boundaries into cumulative filled land and seabed polygons and draws a
 colour-coded 2D stack over the shaded terrain map. Its drawer section is one
 generation action followed by total and per-layer part counts. Reopened
 projects restore the required terrain files from the local LINZ cache when that
@@ -81,6 +83,12 @@ action is pressed. Smoothing statistics and sheet dimensions follow in Sections
 Optional cropped LINZ lake, lagoon, and river polygons can be loaded as WGS84
 GeoJSON or KML before Stage 5 generation. Topomapper cuts those polygons through
 the affected terrain layers, producing holes for separately made water inserts.
+
+The first bathymetry path is manual GeoTIFF import. It accepts the nationwide
+ESNZ/NIWA 250 m raster or finer regional bathymetry and records the source
+resolution in the project. Land data remains authoritative wherever both
+rasters contain a value. Bathymetry is for model-making only and must never be
+used for navigation.
 
 Stage 6 adds an early finished-format choice with aspect-locked ground cropping,
 then displays the geometry as an equal-thickness physical stack. The preview can

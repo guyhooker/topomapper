@@ -153,6 +153,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             bounds = json.loads(bounds_field.value)
             boundaries = None
             water_inputs: list[tuple[bytes, str]] = []
+            bathymetry_uploads = []
             if request_path == "/layers":
                 boundaries_field = form["boundaries"] if "boundaries" in form else None
                 if boundaries_field is None:
@@ -172,7 +173,12 @@ class RequestHandler(BaseHTTPRequestHandler):
                     if len(contents) > MAX_GUIDE_BYTES:
                         raise AnalysisError(f"{filename} is larger than the 64 MB water-file limit.")
                     water_inputs.append((contents, filename))
+                bathymetry_value = form["bathymetry"] if "bathymetry" in form else None
+                bathymetry_uploads = bathymetry_value if isinstance(bathymetry_value, list) else [bathymetry_value] if bathymetry_value is not None else []
+                if len(bathymetry_uploads) > 12:
+                    raise AnalysisError("Choose no more than 12 bathymetry GeoTIFFs at once.")
             inputs: list[tuple[Path, str]] = []
+            bathymetry_inputs: list[tuple[Path, str]] = []
             for upload in uploads:
                 filename = Path(getattr(upload, "filename", "elevation.tif") or "elevation.tif").name
                 if Path(filename).suffix.lower() not in {".tif", ".tiff"}:
@@ -182,7 +188,18 @@ class RequestHandler(BaseHTTPRequestHandler):
                     temporary_paths.append(temporary_path)
                     shutil.copyfileobj(upload.file, target, length=1024 * 1024)
                 inputs.append((temporary_path, filename))
-            result = (generate_filled_layers(inputs, bounds, boundaries, water_inputs)
+            for upload in bathymetry_uploads:
+                if not getattr(upload, "file", None):
+                    raise AnalysisError("A selected bathymetry file could not be read.")
+                filename = Path(getattr(upload, "filename", "bathymetry.tif") or "bathymetry.tif").name
+                if Path(filename).suffix.lower() not in {".tif", ".tiff"}:
+                    raise AnalysisError("Bathymetry files must be .tif or .tiff GeoTIFF rasters.")
+                with tempfile.NamedTemporaryFile(prefix="topomapper-bathymetry-", suffix=Path(filename).suffix, delete=False) as target:
+                    temporary_path = Path(target.name)
+                    temporary_paths.append(temporary_path)
+                    shutil.copyfileobj(upload.file, target, length=1024 * 1024)
+                bathymetry_inputs.append((temporary_path, filename))
+            result = (generate_filled_layers(inputs, bounds, boundaries, water_inputs, bathymetry_inputs)
                       if request_path == "/layers" else analyse_geotiffs(inputs, bounds))
             self._send_json(200, result)
         except AnalysisError as error:

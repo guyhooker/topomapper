@@ -121,6 +121,7 @@ type FilledLayerPreview = {
   boundaries: number[];
   grid: { width: number; height: number };
   water?: { source_filenames: string[]; polygon_count: number; cell_count: number };
+  bathymetry?: { source_filenames: string[]; cell_count: number; minimum_elevation: number };
   layers: FilledLayer[];
   feature_collection: { type: "FeatureCollection"; features: FilledLayerFeature[] };
 };
@@ -237,8 +238,10 @@ type TopomapperProject = {
   query: string;
   elevation: {
     sourceFilenames: string[];
+    bathymetrySourceFilenames?: string[];
     waterSourceFilenames?: string[];
     analysis: ElevationAnalysis | null;
+    bathymetryAnalysis?: ElevationAnalysis | null;
     filledLayerPreview: FilledLayerPreview | null;
     visibleLayerIndices: number[];
   };
@@ -253,6 +256,8 @@ type TopomapperProject = {
     distribution: LayerDistribution;
     count: number;
     boundaries: LayerBoundary[];
+    bathymetryEnabled?: boolean;
+    bathymetryBoundaries?: number[];
   };
   model: {
     stackView: StackView;
@@ -319,6 +324,7 @@ const PROJECT_DB_NAME = "topomapper-projects";
 const PROJECT_STORE_NAME = "projects";
 const ACTIVE_PROJECT_KEY = "topomapper:active-project";
 const DEFAULT_LAYER_COUNT = 10;
+const DEFAULT_BATHYMETRY_BOUNDARIES = [-200, -100, -50, -20, -10, 0];
 const MIN_LAYER_COUNT = 5;
 const MAX_LAYER_COUNT = 26;
 const DEFAULT_SNOW_LAYERS = 1;
@@ -346,6 +352,14 @@ const MOLOTOW_TERRAIN_PALETTE: PaintColour[] = [
   { id: "molotow-212", manufacturer: "Molotow Premium", code: "#212", name: "stone grey middle", hex: "#827b75" },
 ];
 const MOLOTOW_SNOW: PaintColour = { id: "molotow-231", manufacturer: "Molotow Premium", code: "#231", name: "signal white", hex: "#f1efe8" };
+const BATHYMETRY_PALETTE: PaintColour[] = [
+  { id: "bathymetry-base", manufacturer: "User-selected", code: "Sea 6", name: "abyss blue", hex: "#062f65" },
+  { id: "bathymetry-deep", manufacturer: "User-selected", code: "Sea 5", name: "deep ocean blue", hex: "#084984" },
+  { id: "bathymetry-100", manufacturer: "User-selected", code: "Sea 4", name: "ocean blue", hex: "#076aa8" },
+  { id: "bathymetry-50", manufacturer: "User-selected", code: "Sea 3", name: "marine blue", hex: "#078fc2" },
+  { id: "bathymetry-20", manufacturer: "User-selected", code: "Sea 2", name: "coastal blue", hex: "#08b5d2" },
+  { id: "bathymetry-10", manufacturer: "User-selected", code: "Sea 1", name: "shallow turquoise", hex: "#35cfdf" },
+];
 
 function openProjectDatabase() {
   return new Promise<IDBDatabase>((resolve, reject) => {
@@ -601,6 +615,17 @@ function paintForLayer(layerIndex: number, layerCount: number, snowMode: SnowCap
   if (snowLayers && layerIndex >= terrainLayers) return MOLOTOW_SNOW;
   const paletteIndex = Math.min(MOLOTOW_TERRAIN_PALETTE.length - 1, Math.floor(layerIndex * MOLOTOW_TERRAIN_PALETTE.length / terrainLayers));
   return MOLOTOW_TERRAIN_PALETTE[paletteIndex];
+}
+
+function paintForPhysicalLayer(layer: FilledLayer, layers: FilledLayer[], snowMode: SnowCapMode, requestedSnowLayers = DEFAULT_SNOW_LAYERS) {
+  if (layer.lower_elevation < 0) {
+    const subseaLayers = layers.filter((candidate) => candidate.lower_elevation < 0);
+    const subseaIndex = Math.max(0, subseaLayers.findIndex((candidate) => candidate.index === layer.index));
+    return BATHYMETRY_PALETTE[Math.min(BATHYMETRY_PALETTE.length - 1, subseaIndex)];
+  }
+  const landLayers = layers.filter((candidate) => candidate.lower_elevation >= 0);
+  const landIndex = Math.max(0, landLayers.findIndex((candidate) => candidate.index === layer.index));
+  return paintForLayer(landIndex, landLayers.length, snowMode, requestedSnowLayers);
 }
 
 function darkenColour(colour: string, amount = 0.7) {
@@ -2578,7 +2603,7 @@ function StackPreviewCanvas({
         if (!visibleSet.has(layer.index)) return;
         const bottom = layer.index * materialThickness;
         const top = bottom + materialThickness;
-        const colour = paintForLayer(layer.index, preview.layers.length, snowCapMode, snowLevelCount).hex;
+        const colour = paintForPhysicalLayer(layer, preview.layers, snowCapMode, snowLevelCount).hex;
         const features = preview.feature_collection.features.filter((feature) => feature.properties.layer_index === layer.index);
         features.forEach((feature) => {
           feature.geometry.coordinates.forEach((ring) => {
@@ -2725,7 +2750,7 @@ function AssemblyPreviewCanvas({
           });
           context.closePath();
         });
-        context.fillStyle = paintForLayer(layer.index, preview.layers.length, snowCapMode, snowLevelCount).hex;
+        context.fillStyle = paintForPhysicalLayer(layer, preview.layers, snowCapMode, snowLevelCount).hex;
         context.fill("evenodd");
         context.strokeStyle = "rgba(28,49,40,.72)";
         context.lineWidth = 1;
@@ -3101,6 +3126,11 @@ export function MapWorkspace() {
   const [selectionStatus, setSelectionStatus] = useState("Find a place, then draw the area you want to model.");
   const [processorStatus, setProcessorStatus] = useState<ProcessorStatus>("checking");
   const [elevationFiles, setElevationFiles] = useState<File[]>([]);
+  const [bathymetryFiles, setBathymetryFiles] = useState<File[]>([]);
+  const [bathymetrySourceFilenames, setBathymetrySourceFilenames] = useState<string[]>([]);
+  const [bathymetryAnalysis, setBathymetryAnalysis] = useState<ElevationAnalysis | null>(null);
+  const [bathymetryAnalysing, setBathymetryAnalysing] = useState(false);
+  const [bathymetryStatus, setBathymetryStatus] = useState("Optional: add an ESNZ/NIWA bathymetry GeoTIFF for undersea layers.");
   const [waterFiles, setWaterFiles] = useState<File[]>([]);
   const [waterSourceFilenames, setWaterSourceFilenames] = useState<string[]>([]);
   const [linzApiKey, setLinzApiKey] = useState("");
@@ -3114,6 +3144,8 @@ export function MapWorkspace() {
   const [layerBoundaries, setLayerBoundaries] = useState<LayerBoundary[]>([]);
   const [layerDistribution, setLayerDistribution] = useState<LayerDistribution>("log");
   const [layerCount, setLayerCount] = useState(DEFAULT_LAYER_COUNT);
+  const [bathymetryEnabled, setBathymetryEnabled] = useState(false);
+  const [bathymetryBoundaries, setBathymetryBoundaries] = useState(DEFAULT_BATHYMETRY_BOUNDARIES);
   const [layerStatus, setLayerStatus] = useState("Analyse elevation data to begin a layer plan.");
   const [filledLayerPreview, setFilledLayerPreview] = useState<FilledLayerPreview | null>(null);
   const [visibleLayerIndices, setVisibleLayerIndices] = useState<number[]>([]);
@@ -3298,7 +3330,7 @@ export function MapWorkspace() {
     setProjectStatus("Changes waiting to autosave…");
     projectAutosaveTimerRef.current = setTimeout(() => { void saveCurrentProject(true); }, 1500);
     return () => { if (projectAutosaveTimerRef.current) clearTimeout(projectAutosaveTimerRef.current); };
-  }, [projectId, projectName, selection, query, analysis, filledLayerPreview, visibleLayerIndices, waterSourceFilenames, outputFormat, outputOrientation, customWidthMm, customHeightMm, materialThicknessMm, layerDistribution, layerCount, layerBoundaries, stackView, stackYaw, stackPitch, showTrueElevation, smoothingLevels, partIdentification, gridPitchMm, dowelDiameterMm, holeDiameterMm, holeEdgeClearanceMm, sheetRules, sheetCount, activeSheetIndex, sheetPlacements, rotationStepDeg, snowCapMode, snowLevelCount, paintNotes, workspaceView, assemblyLayerIndex, smoothingLayerIndex]);
+  }, [projectId, projectName, selection, query, analysis, bathymetryAnalysis, bathymetrySourceFilenames, bathymetryEnabled, bathymetryBoundaries, filledLayerPreview, visibleLayerIndices, waterSourceFilenames, outputFormat, outputOrientation, customWidthMm, customHeightMm, materialThicknessMm, layerDistribution, layerCount, layerBoundaries, stackView, stackYaw, stackPitch, showTrueElevation, smoothingLevels, partIdentification, gridPitchMm, dowelDiameterMm, holeDiameterMm, holeEdgeClearanceMm, sheetRules, sheetCount, activeSheetIndex, sheetPlacements, rotationStepDeg, snowCapMode, snowLevelCount, paintNotes, workspaceView, assemblyLayerIndex, smoothingLayerIndex]);
   const elevationDataComplete = hasUsableElevationAnalysis(analysis, selection);
   const chosenOutput = outputDimensions(outputFormat, outputOrientation, customWidthMm, customHeightMm);
   const selectedFramePreset = chosenOutput
@@ -3386,7 +3418,7 @@ export function MapWorkspace() {
           ...feature,
           properties: {
             ...feature.properties,
-            colour: paintForLayer(feature.properties.layer_index, result.layers.length, mode, snowLevels).hex,
+            colour: paintForPhysicalLayer(result.layers[feature.properties.layer_index], result.layers, mode, snowLevels).hex,
           },
         })),
     };
@@ -3475,6 +3507,9 @@ export function MapWorkspace() {
       analysisRef.current = null;
       setAnalysis(null);
       setAnalysisStatus("The area changed. Analyse the GeoTIFF again for the new bounds.");
+      setBathymetryAnalysis(null);
+      setBathymetryEnabled(false);
+      setBathymetryStatus("The area changed. Analyse the bathymetry again for the new bounds.");
       setLayerBoundaries([]);
       setLayerStatus("Analyse the changed area before editing its layer plan.");
     }
@@ -3931,6 +3966,41 @@ export function MapWorkspace() {
       : "No water boundaries selected. Layer generation will use terrain elevation only.");
   }
 
+  function chooseBathymetryFiles(files: File[]) {
+    setBathymetryFiles(files);
+    setBathymetrySourceFilenames(files.map((file) => file.name));
+    setBathymetryAnalysis(null);
+    setBathymetryEnabled(false);
+    if (filledLayerPreview) invalidateFilledLayerPreview("The bathymetry changed. Regenerate the layer build before manufacture.");
+    setBathymetryStatus(files.length
+      ? `${files.length} bathymetry GeoTIFF${files.length === 1 ? " is" : "s are"} ready to analyse.`
+      : "Optional: add an ESNZ/NIWA bathymetry GeoTIFF for undersea layers.");
+  }
+
+  async function analyseBathymetry() {
+    if (!selection || !bathymetryFiles.length || bathymetryAnalysing) return;
+    setBathymetryAnalysing(true);
+    setBathymetryStatus("Clipping the bathymetry and checking its depth coverage…");
+    const form = new FormData();
+    bathymetryFiles.forEach((file) => form.append("geotiff", file));
+    form.append("bounds", JSON.stringify(selection));
+    try {
+      const response = await fetch(`${PROCESSOR_ENDPOINT}/analyze`, { method: "POST", body: form });
+      const payload = await response.json() as ElevationAnalysis | { error?: string };
+      if (!response.ok || !("minimum" in payload)) throw new Error("error" in payload && payload.error ? payload.error : "The bathymetry could not be analysed.");
+      if (!selectionRef.current || !sameBounds(selectionRef.current, payload.selection)) throw new Error("The map area changed during bathymetry analysis. Run it again.");
+      if (payload.minimum.elevation >= 0) throw new Error("This raster contains no depths below sea level in the selected area.");
+      setBathymetryAnalysis(payload);
+      setBathymetryEnabled(true);
+      setBathymetryStatus(`Bathymetry ready: ${formatElevation(payload.minimum.elevation)} deepest point, ${payload.coverage.valid_data_percent.toFixed(1)}% raster coverage. The nationwide source is nominally 250 m resolution.`);
+    } catch (error) {
+      setBathymetryAnalysis(null);
+      setBathymetryStatus(error instanceof Error ? error.message : "The bathymetry could not be analysed.");
+    } finally {
+      setBathymetryAnalysing(false);
+    }
+  }
+
   async function retryProcessor() {
     setProcessorStatus("checking");
     try {
@@ -4043,9 +4113,9 @@ export function MapWorkspace() {
   }
 
   async function generateFilledLayerPreview() {
-    if (!analysis || !selection || layerValidation || generatingLayers) return;
+    if (!analysis || !selection || layerValidation || generatingLayers || (bathymetryEnabled && !bathymetryDataComplete)) return;
     setGeneratingLayers(true);
-    setLayerGenerationStatus(`Generating ${layerBoundaries.length - 1} cumulative polygon layers…`);
+    setLayerGenerationStatus(`Generating ${physicalLayerCount} cumulative land and seabed polygon layers…`);
 
     try {
       let terrain = elevationFiles;
@@ -4061,13 +4131,14 @@ export function MapWorkspace() {
         setWaterFiles(water);
         setWaterSourceFilenames(water.map((file) => file.name));
         setLinzDownloadStatus(`${restored.payload.dataset} ${restored.payload.cached ? "loaded from this Mac's cache" : "downloaded again"} for layer generation.`);
-        setLayerGenerationStatus(`Terrain restored. Generating ${layerBoundaries.length - 1} cumulative polygon layers…`);
+        setLayerGenerationStatus(`Terrain restored. Generating ${physicalLayerCount} cumulative polygon layers…`);
       }
       const form = new FormData();
       terrain.forEach((file) => form.append("geotiff", file));
+      if (bathymetryEnabled) bathymetryFiles.forEach((file) => form.append("bathymetry", file));
       water.forEach((file) => form.append("water", file));
       form.append("bounds", JSON.stringify(selection));
-      form.append("boundaries", JSON.stringify(layerBoundaries.map(parseBoundary)));
+      form.append("boundaries", JSON.stringify(physicalBoundaryValues));
       const response = await fetch(`${PROCESSOR_ENDPOINT}/layers`, { method: "POST", body: form });
       const payload = await response.json() as FilledLayerPreview | { error?: string };
       if (!response.ok || !("feature_collection" in payload)) {
@@ -4102,14 +4173,27 @@ export function MapWorkspace() {
   const measurements = selection ? selectionMeasurements(selection) : null;
   const layerMaximum = analysis?.maximum.elevation ?? 0;
   const layerValidation = analysis && layerBoundaries.length ? validateLayerBoundaries(layerBoundaries, layerMaximum) : "";
-  const layerPlanComplete = Boolean(analysis && layerBoundaries.length === layerCount + 1 && !layerValidation);
-  const filledStageComplete = Boolean(filledLayerPreview && filledLayerPreview.layers.length === layerCount);
+  const bathymetryDataComplete = hasUsableElevationAnalysis(bathymetryAnalysis, selection);
+  const activeBathymetryBoundaries = bathymetryEnabled && bathymetryAnalysis
+    ? [
+      Math.floor(bathymetryAnalysis.minimum.elevation),
+      ...bathymetryBoundaries.filter((value) => value > Math.floor(bathymetryAnalysis.minimum.elevation)),
+    ]
+    : bathymetryBoundaries;
+  const physicalBoundaryValues = [
+    ...(bathymetryEnabled ? activeBathymetryBoundaries.slice(0, -1) : []),
+    ...layerBoundaries.map(parseBoundary),
+  ];
+  const bathymetryLayerCount = bathymetryEnabled ? activeBathymetryBoundaries.length - 1 : 0;
+  const physicalLayerCount = layerCount + bathymetryLayerCount;
+  const layerPlanComplete = Boolean(analysis && layerBoundaries.length === layerCount + 1 && !layerValidation && (!bathymetryEnabled || bathymetryDataComplete));
+  const filledStageComplete = Boolean(filledLayerPreview && filledLayerPreview.layers.length === physicalLayerCount);
   const previewDimensions = chosenOutput ?? {
     width: 600,
     height: measurements && measurements.width > 0 ? 600 * measurements.height / measurements.width : 400,
     label: "Free preview",
   };
-  const physicalStackHeight = (filledLayerPreview?.layers.length ?? layerCount) * materialThicknessMm;
+  const physicalStackHeight = (filledLayerPreview?.layers.length ?? physicalLayerCount) * materialThicknessMm;
   const trueScaledHeight = measurements && measurements.width > 0 ? layerMaximum * previewDimensions.width / measurements.width : 0;
   const verticalExaggeration = trueScaledHeight > 0 ? physicalStackHeight / trueScaledHeight : 0;
   const fabricationPreview = useMemo(() => filledLayerPreview ? applySmoothing(
@@ -4206,9 +4290,9 @@ export function MapWorkspace() {
   const sheetUtilisation = sheetCount > 0 ? placedArea / (sheetRules.width * sheetRules.height * sheetCount) * 100 : 0;
   const colourAssignments = useMemo(() => fabricationPreview?.layers.map((layer) => ({
     layer,
-    paint: paintForLayer(layer.index, fabricationPreview.layers.length, snowCapMode, snowLevelCount),
+    paint: paintForPhysicalLayer(layer, fabricationPreview.layers, snowCapMode, snowLevelCount),
   })) ?? [], [fabricationPreview, snowCapMode, snowLevelCount]);
-  const colourGroups = useMemo(() => [...MOLOTOW_TERRAIN_PALETTE, MOLOTOW_SNOW].map((paint) => ({
+  const colourGroups = useMemo(() => [...BATHYMETRY_PALETTE, ...MOLOTOW_TERRAIN_PALETTE, MOLOTOW_SNOW].map((paint) => ({
     paint,
     assignments: colourAssignments.filter((assignment) => assignment.paint.id === paint.id),
   })).filter((group) => group.assignments.length > 0), [colourAssignments]);
@@ -4261,9 +4345,9 @@ export function MapWorkspace() {
       modifiedAt: now,
       selection: null,
       query: "",
-      elevation: { sourceFilenames: [], waterSourceFilenames: [], analysis: null, filledLayerPreview: null, visibleLayerIndices: [] },
+      elevation: { sourceFilenames: [], bathymetrySourceFilenames: [], waterSourceFilenames: [], analysis: null, bathymetryAnalysis: null, filledLayerPreview: null, visibleLayerIndices: [] },
       output: { format: "free", orientation: "landscape", customWidthMm: 600, customHeightMm: 400, materialThicknessMm: 3 },
-      layers: { distribution: "log", count: DEFAULT_LAYER_COUNT, boundaries: [] },
+      layers: { distribution: "log", count: DEFAULT_LAYER_COUNT, boundaries: [], bathymetryEnabled: false, bathymetryBoundaries: DEFAULT_BATHYMETRY_BOUNDARIES },
       model: { stackView: "three-dimensional", stackYaw: 0, stackPitch: 34, showTrueElevation: true, smoothingLevels: {} },
       assembly: { gridPitchMm: 100, dowelDiameterMm: 4, holeDiameterMm: 4.2, holeEdgeClearanceMm: 6 },
       identification: DEFAULT_PART_IDENTIFICATION,
@@ -4335,13 +4419,15 @@ export function MapWorkspace() {
       query,
       elevation: {
         sourceFilenames: elevationFiles.length ? elevationFiles.map((file) => file.name) : (analysis?.datasets.map((dataset) => dataset.filename) ?? []),
+        bathymetrySourceFilenames,
         waterSourceFilenames,
         analysis,
+        bathymetryAnalysis,
         filledLayerPreview,
         visibleLayerIndices,
       },
       output: { format: outputFormat, orientation: outputOrientation, customWidthMm, customHeightMm, materialThicknessMm },
-      layers: { distribution: layerDistribution, count: layerCount, boundaries: layerBoundaries },
+      layers: { distribution: layerDistribution, count: layerCount, boundaries: layerBoundaries, bathymetryEnabled, bathymetryBoundaries },
       model: { stackView, stackYaw, stackPitch, showTrueElevation, smoothingLevels },
       assembly: { gridPitchMm, dowelDiameterMm, holeDiameterMm, holeEdgeClearanceMm },
       identification: partIdentification,
@@ -4381,6 +4467,7 @@ export function MapWorkspace() {
     setSearchMessage(project.query ? `Project location: ${project.query}` : "Search for a New Zealand place");
     setSelectionStatus(project.selection ? "The project's selected area has been restored." : "Find a place, then draw the area you want to model.");
     setElevationFiles([]);
+    setBathymetryFiles([]);
     setWaterFiles([]);
     setWaterSourceFilenames(project.elevation.waterSourceFilenames ?? project.elevation.filledLayerPreview?.water?.source_filenames ?? []);
     setWaterStatus((project.elevation.waterSourceFilenames?.length ?? project.elevation.filledLayerPreview?.water?.source_filenames.length ?? 0)
@@ -4389,6 +4476,13 @@ export function MapWorkspace() {
     const restoredAnalysis = hasUsableElevationAnalysis(project.elevation.analysis, project.selection) ? project.elevation.analysis : null;
     analysisRef.current = restoredAnalysis;
     setAnalysis(restoredAnalysis);
+    const restoredBathymetry = hasUsableElevationAnalysis(project.elevation.bathymetryAnalysis ?? null, project.selection) ? project.elevation.bathymetryAnalysis ?? null : null;
+    const restoredBathymetryNames = project.elevation.bathymetrySourceFilenames ?? project.elevation.filledLayerPreview?.bathymetry?.source_filenames ?? [];
+    setBathymetryAnalysis(restoredBathymetry);
+    setBathymetrySourceFilenames(restoredBathymetryNames);
+    setBathymetryStatus(restoredBathymetry
+      ? `Saved bathymetry restored (${formatElevation(restoredBathymetry.minimum.elevation)} minimum). Reload ${restoredBathymetryNames.join(", ")} only to regenerate layers.`
+      : "Optional: add an ESNZ/NIWA bathymetry GeoTIFF for undersea layers.");
     setAnalysisStatus(restoredAnalysis
       ? "Saved elevation data and map preview restored. Reload the named GeoTIFF files only if you need to regenerate layers."
       : project.elevation.analysis ? "The saved elevation record is incomplete. Download or analyse the terrain again."
@@ -4411,6 +4505,8 @@ export function MapWorkspace() {
     setLayerDistribution(project.layers.distribution);
     setLayerCount(restoredLayerCount);
     setLayerBoundaries(restoredBoundaries);
+    setBathymetryEnabled(Boolean(project.layers.bathymetryEnabled));
+    setBathymetryBoundaries(project.layers.bathymetryBoundaries?.length ? project.layers.bathymetryBoundaries : DEFAULT_BATHYMETRY_BOUNDARIES);
     setLayerStatus(restoredBoundaries.length ? `${restoredLayerCount} saved terrain levels restored.` : "Analyse elevation data to begin a layer plan.");
     setLayerGenerationStatus(project.elevation.filledLayerPreview ? `${project.elevation.filledLayerPreview.layers.length} processed terrain layers restored from the project.` : "Choose valid boundaries, then generate the filled 2D preview.");
     setStackView(project.model.stackView);
@@ -5038,6 +5134,10 @@ export function MapWorkspace() {
         `Package created: ${new Date().toLocaleString("en-NZ")}`,
         `Finished model: ${previewDimensions.width.toFixed(1)} x ${previewDimensions.height.toFixed(1)} mm`,
         `Physical terrain layers: ${fabricationPreview.layers.length}`,
+        `Land layers: ${fabricationPreview.layers.filter((layer) => layer.lower_elevation >= 0).length}`,
+        `Undersea layers: ${fabricationPreview.layers.filter((layer) => layer.lower_elevation < 0).length}`,
+        `Bathymetry source: ${fabricationPreview.bathymetry?.source_filenames.join(", ") || "none"}`,
+        "Bathymetry is model-making data and must not be used for navigation.",
         `Material sheets: ${populatedSheets.length}`,
         "",
         "STOCK AND TOOL",
@@ -5110,7 +5210,7 @@ export function MapWorkspace() {
         previewDimensions.height,
         holeDiameterMm,
         materialThicknessMm,
-        analysis?.datasets.map((dataset) => dataset.filename) ?? [],
+        [...(analysis?.datasets.map((dataset) => dataset.filename) ?? []), ...(bathymetryAnalysis?.datasets.map((dataset) => dataset.filename) ?? [])],
         partIdentification,
       ),
     }));
@@ -5129,6 +5229,7 @@ export function MapWorkspace() {
         `Dowel: ${dowelDiameterMm.toFixed(1)} mm`,
         `Finished holes: ${holeDiameterMm.toFixed(1)} mm`,
         `Elevation sources: ${analysis?.datasets.map((dataset) => dataset.filename).join(", ") || "not recorded"}`,
+        `Bathymetry sources: ${bathymetryAnalysis?.datasets.map((dataset) => dataset.filename).join(", ") || "none"}`,
         "North is at the top of every layer SVG.",
         "",
         "SVG GROUPS",
@@ -5384,6 +5485,28 @@ export function MapWorkspace() {
             <p className="water-status" role="status">{waterStatus}</p>
             <div className="water-source-links"><a href="https://data.linz.govt.nz/layer/50293-nz-lake-polygons-topo-150k/" target="_blank" rel="noreferrer">LINZ lakes ↗</a><a href="https://data.linz.govt.nz/layer/50328-nz-river-polygons-topo-150k/" target="_blank" rel="noreferrer">LINZ river polygons ↗</a></div>
             </div>
+
+            <div className="water-import bathymetry-import">
+            <span className="section-label">OPTIONAL · UNDERSEA TERRAIN</span>
+            <label className="file-picker">
+              <input type="file" accept=".tif,.tiff,image/tiff" multiple onChange={(event) => chooseBathymetryFiles(Array.from(event.target.files ?? []))} />
+              <span aria-hidden="true">＋</span>
+              <span><strong>{bathymetryFiles.length ? "Change bathymetry selection" : "Choose bathymetry GeoTIFF"}</strong><small>{bathymetryFiles.length ? bathymetryFiles.map((file) => file.name).join(", ") : bathymetrySourceFilenames.length ? `Reload ${bathymetrySourceFilenames.join(", ")} to regenerate` : "ESNZ/NIWA 250 m nationwide raster or finer regional data"}</small></span>
+            </label>
+            <button type="button" className="analyse-button" disabled={!selection || !bathymetryFiles.length || bathymetryAnalysing || processorStatus !== "ready"} onClick={() => { void analyseBathymetry(); }}>
+              {bathymetryAnalysing ? "Analysing bathymetry…" : "Analyse bathymetry"}
+            </button>
+            <p className="water-status" role="status">{bathymetryStatus}</p>
+            {bathymetryAnalysis && bathymetryDataComplete && (
+              <dl className="plain-elevation-stats">
+                <div><dt>Deepest Point:</dt><dd>{formatElevation(bathymetryAnalysis.minimum.elevation)}</dd></div>
+                <div><dt>Raster Coverage:</dt><dd>{bathymetryAnalysis.coverage.valid_data_percent.toFixed(1)}%</dd></div>
+                <div><dt>Cell Size:</dt><dd>{Array.from(new Set(bathymetryAnalysis.datasets.map((dataset) => `${dataset.resolution_x.toFixed(1)} × ${dataset.resolution_y.toFixed(1)} m`))).join(", ")}</dd></div>
+                <div><dt>Vertical Datum:</dt><dd>{Array.from(new Set(bathymetryAnalysis.datasets.map((dataset) => dataset.vertical_datum))).join(", ")}</dd></div>
+              </dl>
+            )}
+            <a className="linz-data-link" href="https://niwa.co.nz/environmental-information/download-bathymetry-data?sid=10363" target="_blank" rel="noreferrer">Open ESNZ/NIWA bathymetry downloads <span aria-hidden="true">↗</span></a>
+            </div>
           </details>
 
           <p className="linz-download-status" role="status">{linzDownloadStatus}</p>
@@ -5461,7 +5584,29 @@ export function MapWorkspace() {
                 <span>Snow levels</span>
                 <input type="number" min={MIN_SNOW_LAYERS} max={MAX_SNOW_LAYERS} step="1" value={snowLevelCount} disabled={snowCapMode === "off"} onChange={(event) => setSnowLevelCountFromEntry(Number(event.target.value))} />
               </label>
+              <label className="layer-distribution-toggle">
+                <span>Undersea Layers</span>
+                <input type="checkbox" checked={bathymetryEnabled} disabled={!bathymetryDataComplete} onChange={(event) => {
+                  setBathymetryEnabled(event.target.checked);
+                  if (filledLayerPreview) invalidateFilledLayerPreview("The undersea layer plan changed. Regenerate the layer build.");
+                }} />
+                <i aria-hidden="true"><b /></i>
+              </label>
             </div>
+
+            {bathymetryEnabled && (
+              <div className="bathymetry-plan">
+                <span className="section-label">INDEPENDENT SUBSEA PLAN · DEEPEST FIRST</span>
+                <ol className="layer-level-list" aria-label="Calculated undersea levels">
+                  {activeBathymetryBoundaries.slice(0, -1).map((lower, index) => {
+                    const upper = activeBathymetryBoundaries[index + 1];
+                    const paint = BATHYMETRY_PALETTE[Math.min(index, BATHYMETRY_PALETTE.length - 1)];
+                    return <li key={`bathymetry-${lower}`}><strong>{index === 0 ? "Deep base" : `Seabed ${index}`}</strong><span><i style={{ backgroundColor: paint.hex }} aria-hidden="true" />{paint.name}</span><em>{formatBoundaryValue(lower)}–{formatBoundaryValue(upper)} m</em></li>;
+                  })}
+                </ol>
+                <p className="stage-waiting-note">These five depth bands are independent of Log Layering above sea level. The national raster is nominally 250 m resolution and is for model-making, not navigation.</p>
+              </div>
+            )}
 
             <ol className="layer-level-list" aria-label="Calculated terrain levels">
               {Array.from({ length: layerBoundaries.length - 1 }, (_, index) => index).reverse().map((index) => {
@@ -5471,7 +5616,7 @@ export function MapWorkspace() {
                 const isTop = index === layerBoundaries.length - 2;
                 return (
                   <li key={`${layerBoundaries[index].id}-${index}`}>
-                    <strong>Level {index + 1}</strong>
+                    <strong>Level {index + bathymetryLayerCount + 1}</strong>
                     <span><i style={{ backgroundColor: paint.hex }} aria-hidden="true" />{paint === MOLOTOW_SNOW ? "White" : paint.name}</span>
                     <em>{isTop ? `${formatBoundaryValue(lower)} m+` : `${formatBoundaryValue(lower)}–${formatBoundaryValue(upper)} m`}</em>
                   </li>
@@ -5481,7 +5626,7 @@ export function MapWorkspace() {
 
             <p className={`layer-status ${layerValidation ? "warning" : ""}`} role="status">{layerValidation || layerStatus}</p>
             {!layerValidation && (
-              <div className="layer-summary"><strong>{layerBoundaries.length - 1}</strong><span>physical elevation bands ready for Stage 5 geometry</span></div>
+              <div className="layer-summary"><strong>{physicalLayerCount}</strong><span>{layerCount} land + {bathymetryLayerCount} undersea bands ready for Stage 5 geometry</span></div>
             )}
             </div>
           </details>
@@ -5508,9 +5653,9 @@ export function MapWorkspace() {
               className="generate-layers-button"
               title={layerGenerationStatus}
               onClick={generateFilledLayerPreview}
-              disabled={Boolean(layerValidation) || generatingLayers || processorStatus !== "ready"}
+              disabled={Boolean(layerValidation) || generatingLayers || processorStatus !== "ready" || (bathymetryEnabled && (!bathymetryDataComplete || !bathymetryFiles.length))}
             >
-              {generatingLayers ? "Generating filled polygons…" : filledLayerPreview ? "Regenerate 2D preview" : `Generate ${layerBoundaries.length - 1} filled layers`}
+              {generatingLayers ? "Generating filled polygons…" : filledLayerPreview ? "Regenerate 2D preview" : `Generate ${physicalLayerCount} filled layers`}
             </button>
             <p className={`drawer-generation-status ${layerGenerationStatus.includes("could not") || layerGenerationStatus.includes("first") ? "warning" : ""}`} role="status">{layerGenerationStatus}</p>
             {filledLayerPreview && !generatingLayers && (
@@ -5874,7 +6019,7 @@ export function MapWorkspace() {
         <section className="colour-chart-preview" aria-labelledby="colour-chart-heading">
           <div className="colour-chart-heading">
             <div>
-              <span className="section-label">PAINT PLAN · MOLOTOW PREMIUM</span>
+              <span className="section-label">PAINT PLAN · LAND AND BATHYMETRY</span>
               <strong id="colour-chart-heading">{projectName || "Topomapper project"} colour chart</strong>
               <p>{fabricationPreview.layers.length} physical layers · {materialThicknessMm.toFixed(1)} mm material · display swatches are buying guidance, not colour-critical proofs</p>
             </div>

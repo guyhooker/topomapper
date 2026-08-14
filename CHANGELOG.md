@@ -9,6 +9,9 @@ still change their project or manufacturing formats.
 - Added a strict design-to-manufacturing handover ZIP containing paired Side 1
   and Side 2 SVGs for every sheet, machining information, assembly-guide and
   painting-guide PDFs, and manifest.
+- Added manual ESNZ/NIWA bathymetry analysis and an independent deep-base,
+  −200/−100/−50/−20/−10/0 m subsea stack with blue paint assignments throughout
+  the design and manufacturing workflow.
 
 ## [0.2.0] - 2026-08-14
 

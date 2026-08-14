@@ -412,21 +412,24 @@ that identification survives cutting while the tail can be removed cleanly.
 
 ## Stage 15 — Coast and Bathymetry
 
-**Status: In progress — inland water polygon cutouts implemented**
+**Status: In progress — water cutouts and manual raster bathymetry implemented**
 
 ### Adds
 
-- Separate land and subsea boundary editors.
+- Separate land and subsea plans. The first subsea plan uses an analysed deep
+  base followed by −200, −100, −50, −20, −10 and 0 m contours independently of
+  the land Log/Linear rule.
 - Import lakes, lagoons, and significant river polygons and subtract each
   retained feature from every affected physical layer as a true hole.
 - Apply the same adjustable minimum-feature smoothing to water holes as to
   small terrain islands and peaks, while preserving islands inside lakes.
 - Export matching water-insert geometry for separately cut, blue-painted parts.
 - LINZ coastal elevation data where available.
-- NIWA/ESNZ bathymetry fallback with resolution warnings.
+- Manual NIWA/ESNZ bathymetry GeoTIFF import with resolution warnings; automate
+  selection-area retrieval after the public raster-service behaviour is proven.
 - Explicit land/bathymetry vertical-datum comparison.
 - Glass sea-level plane in the preview.
-- Blue subsea palette and downward layer stack.
+- Blue subsea palette and bottom-to-sea-level physical stack. **Implemented.**
 
 ### Acceptance Test
 

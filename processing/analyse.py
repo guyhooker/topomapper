@@ -314,8 +314,8 @@ def _validate_boundaries(values: Iterable[object]) -> list[float]:
         raise AnalysisError("The Stage 5 preview supports up to 40 physical layers.")
     if not all(math.isfinite(value) for value in boundaries):
         raise AnalysisError("Every layer boundary must be a finite elevation.")
-    if abs(boundaries[0]) > 0.001:
-        raise AnalysisError("The first land boundary must remain at sea level (0 m).")
+    if not any(abs(value) <= 0.001 for value in boundaries):
+        raise AnalysisError("The layer plan must include sea level (0 m).")
     if any(current <= previous for previous, current in zip(boundaries, boundaries[1:])):
         raise AnalysisError("Layer boundaries must rise without duplicates.")
     return boundaries
@@ -419,16 +419,35 @@ def generate_filled_layers(
     bounds_value: dict[str, Any],
     boundary_values: Iterable[object],
     water_inputs: Iterable[tuple[bytes, str]] = (),
+    bathymetry_inputs: Iterable[tuple[str | Path, str]] = (),
 ) -> dict[str, Any]:
-    """Polygonise cumulative land masks for a stackable 2D layer preview."""
+    """Polygonise cumulative land and seabed masks for a stackable 2D preview."""
     selection = Bounds.from_mapping(bounds_value)
     prepared = [(Path(path), filename) for path, filename in inputs]
+    prepared_bathymetry = [(Path(path), filename) for path, filename in bathymetry_inputs]
     if not prepared:
         raise AnalysisError("Choose at least one GeoTIFF elevation file.")
     boundaries = _validate_boundaries(boundary_values)
 
     try:
-        mosaic, valid_mask, transform_value = _layer_mosaic(prepared, selection)
+        land_mosaic, land_valid_mask, transform_value = _layer_mosaic(prepared, selection)
+        mosaic = land_mosaic
+        valid_mask = land_valid_mask
+        bathymetry_filenames: list[str] = []
+        if boundaries[0] < 0:
+            if not prepared_bathymetry:
+                raise AnalysisError("Choose a bathymetry GeoTIFF before generating undersea layers.")
+            bathymetry_mosaic, bathymetry_valid_mask, _ = _layer_mosaic(prepared_bathymetry, selection)
+            # The 8 m land DEM remains authoritative wherever it has a value.
+            # Bathymetry fills only its missing (normally marine) cells, avoiding
+            # any lower-resolution onshore representation in a seabed product.
+            marine_fill = bathymetry_valid_mask & ~land_valid_mask & (bathymetry_mosaic <= 0)
+            mosaic = land_mosaic.copy()
+            mosaic[marine_fill] = bathymetry_mosaic[marine_fill]
+            valid_mask = land_valid_mask | marine_fill
+            bathymetry_filenames = [filename for _path, filename in prepared_bathymetry]
+            if not marine_fill.any():
+                raise AnalysisError("The selected bathymetry contains no usable sub-sea cells outside the land DEM coverage.")
         water_geometries, water_filenames = _water_polygons(water_inputs)
         water_mask = np.zeros(valid_mask.shape, dtype=bool)
         if water_geometries:
@@ -485,6 +504,11 @@ def generate_filled_layers(
                 "source_filenames": water_filenames,
                 "polygon_count": len(water_geometries),
                 "cell_count": int(water_mask.sum()),
+            },
+            "bathymetry": {
+                "source_filenames": bathymetry_filenames,
+                "cell_count": int((valid_mask & (mosaic < 0)).sum()),
+                "minimum_elevation": float(np.nanmin(mosaic[valid_mask])),
             },
             "layers": layers,
             "feature_collection": {"type": "FeatureCollection", "features": features},

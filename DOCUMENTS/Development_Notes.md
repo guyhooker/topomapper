@@ -929,3 +929,23 @@
   file, binary assembly-guide and painting-guide PDFs, and manifest.
 - Extended the small built-in ZIP writer to carry binary PDF data as well as
   UTF-8 text/SVG content. Existing text-only sheet archives remain compatible.
+
+### Stage 15 — first bathymetry implementation
+
+- Added a separate manual bathymetry GeoTIFF input and analysis record. Undersea
+  modelling cannot be enabled unless the raster contains real negative depth
+  data for the current model rectangle.
+- Added an independent non-linear subsea plan: an analysed deep base followed by
+  the applicable −200, −100, −50, −20, −10 and 0 m boundaries. It does not alter
+  the land Log/Linear setting or land layer count.
+- Merged the rasters conservatively: valid 8 m land values remain authoritative;
+  negative bathymetry fills only missing marine cells. This prevents a coarse
+  seabed product from replacing the detailed land surface.
+- Extended filled-layer generation, project save/restore, 2D/3D/assembly views,
+  smoothing, part IDs, sheet layout and workshop exports to treat seabed bands
+  as ordinary physical layers below the land stack.
+- Added six deep-to-shallow blue swatches to the painting guide and recorded the
+  bathymetry source plus the non-navigation warning in manufacturing notes.
+- Chose ESNZ/NIWA's 2016 nationwide 250 m raster as the initial source and kept
+  the importer compatible with finer regional GeoTIFFs. Automatic cropping is
+  deferred until the public image-service download is verified end to end.

@@ -306,7 +306,12 @@ controller/postprocessor are specified.
 
 - Record the source, date, resolution, horizontal coordinate system, vertical
   datum, and licence for every elevation dataset.
-- Never silently combine incompatible land-height and bathymetric datums.
+- Never silently combine incompatible land-height and bathymetric datums. Keep
+  bathymetry as a separately analysed source; valid land DEM cells take priority
+  and negative seabed values may fill only missing marine coverage.
+- Provide an independent subsea layer plan, initially using a deep base and the
+  applicable −200, −100, −50, −20, −10 and 0 m contours, without changing the
+  land Log/Linear rule.
 - Clearly mark interpolated or low-resolution seabed areas.
 - Treat bathymetry as model-making data, not navigation data.
 - Preserve a reproducible project file containing selection, datasets, layer

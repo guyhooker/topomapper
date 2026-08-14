@@ -390,6 +390,10 @@ button { color: inherit; }
 .plain-elevation-stats div { display: grid; grid-template-columns: 1fr minmax(0, auto); gap: 14px; padding: 3px 0; }
 .plain-elevation-stats dt { color: var(--muted); }
 .plain-elevation-stats dd { max-width: 175px; margin: 0; overflow-wrap: anywhere; color: var(--ink); font-variant-numeric: tabular-nums; text-align: right; }
+.bathymetry-import { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.bathymetry-import .analyse-button { width: fit-content; margin-top: 8px; }
+.bathymetry-plan { margin-top: 12px; padding-top: 11px; border-top: 1px solid var(--line); }
+.bathymetry-plan .layer-level-list { margin-top: 7px; }
 .extrema-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
 .extrema-grid button { padding: 9px; border: 1px solid var(--line); border-radius: 9px; background: rgba(255,255,255,.7); text-align: left; cursor: pointer; }
 .extrema-grid button:hover { border-color: var(--forest-soft); background: #fff; }

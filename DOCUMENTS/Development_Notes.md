@@ -896,3 +896,6 @@
   not on an unrelated DRC-clear state.
 - Restyled the SVGnest Export, Process and Import controls as one indented green
   triplet with equal dimensions and large bold circular 1, 2 and 3 badges.
+- Added a second-pass ID flag placer for narrow ridges which uses a perpendicular
+  side-edge stalk while keeping the flag point facing north. Partial marking is
+  now an amber warning instead of silently disabling preview and downloads.

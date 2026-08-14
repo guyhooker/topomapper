@@ -972,7 +972,83 @@ function appendNorthIdFlag(outerRing: { x: number; y: number }[]) {
     const score = (1 - straightness) * 220 + horizontalPenalty * 45 + centre.y * .015 + (strict ? 0 : 80);
     if (!best || (strict && !best.strict) || strict === best.strict && score < best.score) best = { index, span, score, strict };
   });
-  if (!best) return null;
+  if (!best) {
+    // Some narrow ridges have no sufficiently horizontal north-facing edge.
+    // Attach a perpendicular stalk to a straight side edge instead, while
+    // keeping the flag itself upright so its point still indicates north.
+    let fallback: {
+      start: typeof samples[number];
+      end: typeof samples[number];
+      firstStalkEnd: { x: number; y: number };
+      secondStalkEnd: { x: number; y: number };
+      flagCentreX: number;
+      flagBottomY: number;
+      score: number;
+    } | null = null;
+    samples.forEach((start, index) => {
+      let span = 0;
+      let arc = 0;
+      while (span < samples.length - 1 && arc < 3.8) {
+        const current = samples[(index + span) % samples.length];
+        const next = samples[(index + span + 1) % samples.length];
+        arc += Math.hypot(next.x - current.x, next.y - current.y);
+        span += 1;
+      }
+      const end = samples[(index + span) % samples.length];
+      const dx = end.x - start.x;
+      const dy = end.y - start.y;
+      const chord = Math.hypot(dx, dy);
+      if (chord < ID_FLAG_NECK_MM || chord / Math.max(chord, arc) < .86) return;
+      const centre = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
+      const normals = [{ x: -dy / chord, y: dx / chord }, { x: dy / chord, y: -dx / chord }];
+      normals.forEach((outward) => {
+        if (pointInRing([centre.x + outward.x * .8, centre.y + outward.y * .8], numericRing)
+          || pointInRing([centre.x + outward.x * 2, centre.y + outward.y * 2], numericRing)) return;
+        for (const stalkLength of [ID_FLAG_STALK_MM, 10, 14, 20, 28]) {
+          const firstStalkEnd = { x: start.x + outward.x * stalkLength, y: start.y + outward.y * stalkLength };
+          const secondStalkEnd = { x: end.x + outward.x * stalkLength, y: end.y + outward.y * stalkLength };
+          const flagCentreX = (firstStalkEnd.x + secondStalkEnd.x) / 2;
+          const flagBottomY = (firstStalkEnd.y + secondStalkEnd.y) / 2;
+          const topY = flagBottomY - ID_FLAG_LENGTH_MM;
+          const probes = [firstStalkEnd, secondStalkEnd,
+            { x: flagCentreX - ID_FLAG_WIDTH_MM / 2, y: flagBottomY },
+            { x: flagCentreX + ID_FLAG_WIDTH_MM / 2, y: flagBottomY },
+            { x: flagCentreX - ID_FLAG_WIDTH_MM / 2, y: topY + 3 },
+            { x: flagCentreX + ID_FLAG_WIDTH_MM / 2, y: topY + 3 },
+            { x: flagCentreX, y: topY }];
+          if (probes.some((point) => pointInRing([point.x, point.y], numericRing))) continue;
+          const score = stalkLength * 5 + Math.max(0, outward.y) * 55 + Math.abs(dy / chord) * 8 + centre.y * .01;
+          if (!fallback || score < fallback.score) fallback = { start, end, firstStalkEnd, secondStalkEnd, flagCentreX, flagBottomY, score };
+          break;
+        }
+      });
+    });
+    if (!fallback) return null;
+    const { start, end, firstStalkEnd, secondStalkEnd, flagCentreX, flagBottomY } = fallback;
+    const topY = flagBottomY - ID_FLAG_LENGTH_MM;
+    const leftBottom = { x: flagCentreX - ID_FLAG_WIDTH_MM / 2, y: flagBottomY };
+    const rightBottom = { x: flagCentreX + ID_FLAG_WIDTH_MM / 2, y: flagBottomY };
+    const leftShoulder = { x: leftBottom.x, y: topY + 3 };
+    const rightShoulder = { x: rightBottom.x, y: topY + 3 };
+    const point = { x: flagCentreX, y: topY };
+    const direct = Math.hypot(firstStalkEnd.x - leftBottom.x, firstStalkEnd.y - leftBottom.y)
+      + Math.hypot(secondStalkEnd.x - rightBottom.x, secondStalkEnd.y - rightBottom.y)
+      <= Math.hypot(firstStalkEnd.x - rightBottom.x, firstStalkEnd.y - rightBottom.y)
+      + Math.hypot(secondStalkEnd.x - leftBottom.x, secondStalkEnd.y - leftBottom.y);
+    const flagPath = direct
+      ? [firstStalkEnd, leftBottom, leftShoulder, point, rightShoulder, rightBottom, secondStalkEnd]
+      : [firstStalkEnd, rightBottom, rightShoulder, point, leftShoulder, leftBottom, secondStalkEnd];
+    const remaining: { x: number; y: number }[] = [];
+    let sourceIndex = (end.sourceIndex + 1) % source.length;
+    while (sourceIndex !== start.sourceIndex) {
+      remaining.push(source[sourceIndex]);
+      sourceIndex = (sourceIndex + 1) % source.length;
+    }
+    remaining.push(source[start.sourceIndex]);
+    const result = [start, ...flagPath, end, ...remaining];
+    result.push({ ...result[0] });
+    return { ring: result, labelPoint: { x: flagCentreX, y: topY + 7.5 } };
+  }
 
   const start = samples[best.index];
   const end = samples[(best.index + best.span) % samples.length];
@@ -4051,9 +4127,12 @@ export function MapWorkspace() {
   const sheetLayoutStatus = sheetLayoutComplete ? "Complete" : allLayoutPartsPlaced ? "Warnings" : "Incomplete";
   const sheetLayoutStatusClass = sheetLayoutComplete ? "complete" : allLayoutPartsPlaced ? "warning" : "incomplete";
   const unmarkedPartCount = layoutParts.filter((part) => !part.machineLabel).length;
-  const idMarkingReady = allLayoutPartsPlaced
+  const idMarkingAvailable = allLayoutPartsPlaced
     && partIdentification.addIdsToUnderside
-    && unmarkedPartCount === 0;
+    && engravedPartCount > 0;
+  const idMarkingReady = idMarkingAvailable && unmarkedPartCount === 0;
+  const idMarkingStatusLabel = idMarkingReady ? "Complete" : idMarkingAvailable ? "Warnings" : "Incomplete";
+  const idMarkingStatusClass = idMarkingReady ? "complete" : idMarkingAvailable ? "warning" : "incomplete";
   const highlightedPlacementIds = selectedViolationIndex !== null ? (layoutViolations[selectedViolationIndex]?.placementIds ?? []) : [];
   const selectedPlacement = sheetPlacements.find((placement) => placement.id === selectedPlacementId) ?? null;
   const placedArea = sheetPlacements.reduce((total, placement) => total + (layoutParts.find((part) => part.id === placement.partId)?.areaMm2 ?? 0), 0);
@@ -5367,17 +5446,17 @@ export function MapWorkspace() {
         <details className="workflow-stage id-marking-stage" open={idMarkingStageOpen} onToggle={(event) => setIdMarkingStageOpen(event.currentTarget.open)}>
           <summary className="workflow-stage-summary">
             <span><strong>9) ID Marking</strong></span>
-            <em>{idMarkingReady ? "Complete" : "Incomplete"}</em>
-            <i className={`stage-status-led ${idMarkingReady ? "complete" : "incomplete"}`} aria-hidden="true" />
+            <em>{idMarkingStatusLabel}</em>
+            <i className={`stage-status-led ${idMarkingStatusClass}`} aria-hidden="true" />
             <b aria-hidden="true">{idMarkingStageOpen ? "−" : "+"}</b>
           </summary>
           <div className="workflow-stage-body part-id-settings">
             <p>Side 1 uses vector strokes for a V-shaped cutter. Flag IDs need no arrow because the pointed flag end is north. IDs engraved directly on parts include a north arrow.</p>
             <dl className="plain-smoothing-stats"><div><dt>Part IDs:</dt><dd>{engravedPartCount}</dd></div><div><dt>On flags:</dt><dd>{flaggedPartCount}</dd></div><div><dt>Without marks:</dt><dd>{unmarkedPartCount}</dd></div></dl>
-            <button disabled={!idMarkingReady} onClick={() => { setShowIdMarkingOverlay((current) => !current); setWorkspaceView("sheet-layout"); }}>{showIdMarkingOverlay ? "Hide ID marking overlay" : "Show ID marking overlay"}</button>
-            <button disabled={!idMarkingReady || !sheetPlacements.some((placement) => placement.sheetIndex === activeSheetIndex)} onClick={downloadActiveIdMarkingSvg}>Download Sheet {activeSheetIndex + 1} ID SVG</button>
-            <button disabled={!idMarkingReady} onClick={downloadAllIdMarkingSvgs}>Download all ID SVGs</button>
-            <p role="status">{idMarkingReady ? idMarkingStatus : unmarkedPartCount ? `${unmarkedPartCount} part${unmarkedPartCount === 1 ? " does" : "s do"} not yet have a safe ID location.` : "Place every part on a sheet first."}</p>
+            <button disabled={!idMarkingAvailable} onClick={() => { setShowIdMarkingOverlay((current) => !current); setWorkspaceView("sheet-layout"); }}>{showIdMarkingOverlay ? "Hide ID marking overlay" : "Show ID marking overlay"}</button>
+            <button disabled={!idMarkingAvailable || !sheetPlacements.some((placement) => placement.sheetIndex === activeSheetIndex)} onClick={downloadActiveIdMarkingSvg}>Download Sheet {activeSheetIndex + 1} ID SVG</button>
+            <button disabled={!idMarkingAvailable} onClick={downloadAllIdMarkingSvgs}>Download all ID SVGs</button>
+            <p role="status">{idMarkingReady ? idMarkingStatus : idMarkingAvailable ? `${unmarkedPartCount} exceptional part${unmarkedPartCount === 1 ? " is" : "s are"} omitted from the marking file; preview and export remain available.` : unmarkedPartCount ? `${unmarkedPartCount} part${unmarkedPartCount === 1 ? " does" : "s do"} not yet have a safe ID location.` : "Place every part on a sheet first."}</p>
           </div>
         </details>
         </aside>

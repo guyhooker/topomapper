@@ -283,6 +283,9 @@ controller/postprocessor are specified.
 - Preview Side 1 marks as a transparent, through-board overlay on the sheet
   layout before export. Permit preview/export once every part is placed and has
   a valid mark; keep any DRC warnings visible without disabling the marking file.
+- Try a perpendicular side-edge stalk when a narrow part has no usable
+  north-facing flag attachment. If an exceptional part still cannot be marked,
+  show an amber warning and keep preview/export available for the valid marks.
 - Present the external SVGnest round trip as a visually consistent, indented
   three-step group with large step numbers: Export, Process and Import.
 

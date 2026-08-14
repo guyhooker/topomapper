@@ -249,6 +249,10 @@ aligned through the material like a two-sided PCB view. This lets the user check
 every ID and north mark before downloading. Marking previews and downloads need
 all parts placed with valid marks; DRC warnings remain visible but do not block
 inspection or export.
+For narrow ridges without a north-facing attachment edge, Topomapper may connect
+the upright north-pointing flag by a perpendicular stalk from a side edge. Any
+remaining exceptional unmarked part is reported as an amber warning without
+disabling preview or export of the other marks.
 
 The manual SVGnest handoff is displayed as one indented triplet with matching
 button colours and prominent numbered badges: 1 Export to SVGnest, 2 Process in

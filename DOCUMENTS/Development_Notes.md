@@ -905,3 +905,6 @@
 - Moved safe ID placement to the final layout geometry stage. The search now
   measures the actual dotted ID and arrow and excludes registration-hole discs;
   longer IDs such as `C.11` receive flags when their full marking cannot fit.
+- Fixed the manufacturing-layer preview caller to pass its per-part hole list
+  into the new engraving-clearance calculation, with defensive empty defaults
+  so an older call path cannot crash project startup.

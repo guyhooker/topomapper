@@ -1099,8 +1099,8 @@ function identifiedPartGeometry(
   modelWidth: number,
   modelHeight: number,
   identification: PartIdentificationSettings,
-  registrationHoles: { x: number; y: number; kind: "grid" | "vent" }[],
-  holeDiameter: number,
+  registrationHoles: { x: number; y: number; kind: "grid" | "vent" }[] = [],
+  holeDiameter = 0,
 ) {
   const rings = part.feature.geometry.coordinates.map((ring) => ring.map((point) => physicalPoint(preview, modelWidth, modelHeight, point)));
   const ordinaryLabel = physicalPoint(preview, modelWidth, modelHeight, part.idPoint ?? part.labelPoint);
@@ -2280,7 +2280,10 @@ function buildLayerSvgBody(
 ) {
   const parts = plan.parts.filter((part) => part.layerIndex === layerIndex);
   const holes = plan.holes.filter((hole) => hole.drilledLayers.includes(layerIndex));
-  const designedParts = parts.map((part) => ({ part, geometry: identifiedPartGeometry(preview, part, modelWidth, modelHeight, identification) }));
+  const designedParts = parts.map((part) => {
+    const partHoles = holes.filter((hole) => hole.partIds.includes(part.id)).map((hole) => ({ x: hole.xMm, y: hole.yMm, kind: hole.kind }));
+    return { part, geometry: identifiedPartGeometry(preview, part, modelWidth, modelHeight, identification, partHoles, holeDiameter) };
+  });
   const wasteLabels = identification.applied ? [] : findWasteLabels(preview, plan, layerIndex, modelWidth, modelHeight);
   const cuts = designedParts.map(({ part, geometry }) => `<path data-part-id="${part.id}" data-display-id="${part.displayId}" d="${svgPathForPhysicalRings(geometry.rings)}" />`).join("\n    ");
   const drills = holes.map((hole) => `<circle data-hole-id="${hole.id}" data-hole-kind="${hole.kind}" cx="${svgNumber(hole.xMm)}" cy="${svgNumber(hole.yMm)}" r="${svgNumber(holeDiameter / 2)}" />`).join("\n    ");

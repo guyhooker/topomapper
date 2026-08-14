@@ -259,6 +259,10 @@ remain the compact `B1` form.
 Final ID placement checks the complete dotted text and north arrow against both
 the coastline and drilled registration holes. If that safe area does not exist,
 the part receives a north-pointing ID flag instead.
+Sheet Layout is always viewed from the Side 2 cutting face. Its optional purple
+Side 1 overlay is therefore mirrored as though seen through the stock. Normal
+Side 2 and mirrored Side 1 captions in the sheet borders make the current view
+explicit; these captions are screen references and are not machining paths.
 
 The manual SVGnest handoff is displayed as one indented triplet with matching
 button colours and prominent numbered badges: 1 Export to SVGnest, 2 Process in

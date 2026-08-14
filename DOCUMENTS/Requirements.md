@@ -291,6 +291,9 @@ controller/postprocessor are specified.
 - Choose on-part ID positions using the final dotted identifier, north arrow and
   registration-hole locations. Use a flag when the complete marking cannot fit
   on uninterrupted land with cutter clearance.
+- Treat Sheet Layout as a Side 2 cutting-face view. Display the transparent
+  Side 1 ID overlay mirrored, and put persistent Side 2 and mirrored Side 1 face
+  labels inside opposite sheet borders as non-machining references.
 - Present the external SVGnest round trip as a visually consistent, indented
   three-step group with large step numbers: Export, Process and Import.
 

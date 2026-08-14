@@ -2979,6 +2979,9 @@ function SheetLayoutCanvas({
           context.font = `800 ${Math.max(7, (part.hasIdFlag ? 4 : 3.8) * scale)}px Inter, sans-serif`;
           context.textAlign = "center";
           context.textBaseline = "middle";
+          // Sheet Layout is viewed from Side 2. Show underside engraving as it
+          // would appear through the material, so its lettering is mirrored.
+          context.scale(-1, 1);
           context.fillText(engravedPartId(part.displayId), 0, part.hasIdFlag ? 0 : 1.3 * scale);
           if (!part.hasIdFlag) {
             context.beginPath();
@@ -3003,6 +3006,18 @@ function SheetLayoutCanvas({
       context.strokeStyle = "#6e4d2f";
       context.lineWidth = 1.5;
       context.strokeRect(offsetX, offsetY, rules.width * scale, rules.height * scale);
+      const faceLabelSize = Math.max(8, Math.min(12, rules.edgeMargin * scale * .62));
+      context.font = `850 ${faceLabelSize}px Inter, sans-serif`;
+      context.textAlign = "center";
+      context.textBaseline = "middle";
+      context.fillStyle = "rgba(70,47,29,.78)";
+      context.fillText("SIDE 2 · CUT / DRILL", offsetX + rules.width * scale / 2, offsetY + Math.max(7, rules.edgeMargin * scale / 2));
+      context.save();
+      context.translate(offsetX + rules.width * scale / 2, offsetY + rules.height * scale - Math.max(7, rules.edgeMargin * scale / 2));
+      context.scale(-1, 1);
+      context.fillStyle = "rgba(113,60,137,.82)";
+      context.fillText("SIDE 1 · ID ENGRAVING", 0, 0);
+      context.restore();
     };
     draw();
     const observer = new ResizeObserver(draw);
@@ -5700,7 +5715,7 @@ export function MapWorkspace() {
                 onDragStateChange={setSheetPartDragging}
                 showIdMarking={showIdMarkingOverlay}
               />
-              <div className="sheet-scale-note">{sheetRules.width} × {sheetRules.height} mm · {sheetZoom}× view · drag empty sheet to pan · each halo extends {(sheetRules.partSpacing / 2).toFixed(2)} mm outside its cut edge · touching halos = {sheetRules.partSpacing.toFixed(2)} mm edge-to-edge{showIdMarkingOverlay ? " · purple marks show Side 1 through the sheet, aligned with their final parts" : ""}</div>
+              <div className="sheet-scale-note">{sheetRules.width} × {sheetRules.height} mm · {sheetZoom}× view · Side 2 is the cutting face · drag empty sheet to pan · each halo extends {(sheetRules.partSpacing / 2).toFixed(2)} mm outside its cut edge · touching halos = {sheetRules.partSpacing.toFixed(2)} mm edge-to-edge{showIdMarkingOverlay ? " · mirrored purple marks show Side 1 through the sheet" : ""}</div>
             </div>
             <aside className="sheet-layout-details">
               <div className="sheet-layout-metrics"><span><small>Sheets</small><strong>{sheetCount}</strong></span><span><small>Instances</small><strong>{sheetPlacements.length}</strong></span><span><small>Area use</small><strong>{sheetUtilisation.toFixed(1)}%</strong></span></div>

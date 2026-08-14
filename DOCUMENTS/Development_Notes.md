@@ -908,3 +908,6 @@
 - Fixed the manufacturing-layer preview caller to pass its per-part hole list
   into the new engraving-clearance calculation, with defensive empty defaults
   so an older call path cannot crash project startup.
+- Clarified the sheet-face convention: Sheet Layout is viewed from Side 2, the
+  transparent purple Side 1 marks are mirrored, and opposite border captions
+  show `SIDE 2 · CUT / DRILL` normally and `SIDE 1 · ID ENGRAVING` backwards.

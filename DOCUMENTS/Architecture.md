@@ -85,6 +85,12 @@ original source files remain external and are only needed for regeneration.
   separate profile and drilling groups. Stock-sheet SVG currently uses
   Inkscape-compatible `CUT_OUTLINES`, `DRILL_HOLES`, and non-machining
   `SHEET_REFERENCE` layers. Part engraving is deliberately deferred.
+- Optional lightweighting is a deterministic transformation after smoothing
+  and before part identification. A globally aligned grid adds internal
+  openings only where the next physical layer covers the current part. Contour
+  margins, grid ribs, registration-grid locations and peak-label locations are
+  retained as structural and gluing material; the resulting inner rings flow
+  through part IDs, DRC, SVG and manufacturing outputs.
 - ReportLab in the localhost Python processor generates an A4 landscape PDF
   layout guide. The browser supplies final transformed polygons, label anchors,
   and assembly-north vectors; the PDF adds collision-aware readable labels,

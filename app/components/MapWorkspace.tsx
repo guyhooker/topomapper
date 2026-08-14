@@ -178,6 +178,24 @@ type PartIdentificationSettings = {
   applied: boolean;
 };
 
+type LightweightingSettings = {
+  enabled: boolean;
+  gridPitchMm: number;
+  ribWidthMm: number;
+  contourMarginMm: number;
+  minimumOpeningMm: number;
+  applied: boolean;
+};
+
+const DEFAULT_LIGHTWEIGHTING: LightweightingSettings = {
+  enabled: false,
+  gridPitchMm: 75,
+  ribWidthMm: 12,
+  contourMarginMm: 15,
+  minimumOpeningMm: 30,
+  applied: false,
+};
+
 const DEFAULT_PART_IDENTIFICATION: PartIdentificationSettings = {
   addIdsToUnderside: true,
   useFlagsForSmallParts: true,
@@ -265,6 +283,7 @@ type TopomapperProject = {
     stackPitch: number;
     showTrueElevation: boolean;
     smoothingLevels: Record<number, number>;
+    lightweighting?: LightweightingSettings;
   };
   assembly: {
     gridPitchMm: number;
@@ -761,6 +780,106 @@ function applySmoothing(
       piece_count: layerFeatures.length,
       hole_count: layerFeatures.reduce((total, feature) => total + Math.max(0, feature.geometry.coordinates.length - 1), 0),
     };
+  });
+  return { ...preview, layers, feature_collection: { ...preview.feature_collection, features } };
+}
+
+function applyLightweighting(
+  preview: FilledLayerPreview,
+  settings: LightweightingSettings,
+  modelWidth: number,
+  modelHeight: number,
+  registrationPitchMm: number,
+  registrationHoleDiameterMm: number,
+  registrationEdgeClearanceMm: number,
+): FilledLayerPreview {
+  if (!settings.enabled || !settings.applied) return preview;
+  const pitch = Math.max(20, settings.gridPitchMm);
+  const rib = Math.max(3, Math.min(pitch - 2, settings.ribWidthMm));
+  const opening = pitch - rib;
+  const margin = Math.max(0, settings.contourMarginMm);
+  if (opening < Math.max(5, settings.minimumOpeningMm)) return preview;
+
+  const protectedRadius = registrationHoleDiameterMm / 2 + registrationEdgeClearanceMm;
+  const protectedPoints: { x: number; y: number }[] = [];
+  const registrationPitch = Math.max(20, registrationPitchMm);
+  for (let y = registrationPitch / 2; y < modelHeight; y += registrationPitch) {
+    for (let x = registrationPitch / 2; x < modelWidth; x += registrationPitch) protectedPoints.push({ x, y });
+  }
+  preview.feature_collection.features.filter((feature) => feature.properties.layer_index > 0).forEach((feature) => {
+    const peak = featureLabelPoint(preview, feature, modelWidth, modelHeight).point;
+    protectedPoints.push(physicalPoint(preview, modelWidth, modelHeight, peak));
+  });
+
+  const featuresByLayer = new Map<number, FilledLayerFeature[]>();
+  preview.layers.forEach((layer) => featuresByLayer.set(layer.index, preview.feature_collection.features.filter((feature) => feature.properties.layer_index === layer.index)));
+  const features = preview.feature_collection.features.map((feature) => {
+    const coveringFeatures = featuresByLayer.get(feature.properties.layer_index + 1) ?? [];
+    if (!coveringFeatures.length) return feature;
+    const outerPhysical = feature.geometry.coordinates[0].map((point) => physicalPoint(preview, modelWidth, modelHeight, point));
+    const west = Math.min(...outerPhysical.map((point) => point.x));
+    const east = Math.max(...outerPhysical.map((point) => point.x));
+    const north = Math.min(...outerPhysical.map((point) => point.y));
+    const south = Math.max(...outerPhysical.map((point) => point.y));
+    const holes: number[][][] = [];
+    const firstColumn = Math.floor(west / pitch);
+    const lastColumn = Math.ceil(east / pitch);
+    const firstRow = Math.floor(north / pitch);
+    const lastRow = Math.ceil(south / pitch);
+    for (let row = firstRow; row < lastRow; row += 1) {
+      for (let column = firstColumn; column < lastColumn; column += 1) {
+        const left = column * pitch + rib / 2;
+        const top = row * pitch + rib / 2;
+        const right = left + opening;
+        const bottom = top + opening;
+        if (left < 0 || top < 0 || right > modelWidth || bottom > modelHeight) continue;
+        const centre = geographicPoint(preview, modelWidth, modelHeight, (left + right) / 2, (top + bottom) / 2);
+        const covering = coveringFeatures.find((candidate) => pointInFeature(centre, candidate));
+        if (!covering) continue;
+        const overlapsProtectedPoint = protectedPoints.some((point) => {
+          const nearestX = Math.max(left, Math.min(point.x, right));
+          const nearestY = Math.max(top, Math.min(point.y, bottom));
+          if (Math.hypot(point.x - nearestX, point.y - nearestY) >= protectedRadius) return false;
+          const geographic = geographicPoint(preview, modelWidth, modelHeight, point.x, point.y);
+          return pointInFeature(geographic, feature) && pointInFeature(geographic, covering);
+        });
+        if (overlapsProtectedPoint) continue;
+        const divisions = Math.max(3, Math.ceil(opening / 4));
+        let safe = true;
+        for (let sampleRow = 0; sampleRow <= divisions && safe; sampleRow += 1) {
+          for (let sampleColumn = 0; sampleColumn <= divisions; sampleColumn += 1) {
+            const x = left + opening * sampleColumn / divisions;
+            const y = top + opening * sampleRow / divisions;
+            const point = geographicPoint(preview, modelWidth, modelHeight, x, y);
+            if (!pointInFeature(point, feature) || !pointInFeature(point, covering)) { safe = false; break; }
+          }
+        }
+        if (!safe) continue;
+        const clearanceSamples = [
+          [left, top], [right, top], [right, bottom], [left, bottom],
+          [(left + right) / 2, top], [right, (top + bottom) / 2],
+          [(left + right) / 2, bottom], [left, (top + bottom) / 2],
+        ];
+        if (clearanceSamples.some(([x, y]) => {
+          const point = geographicPoint(preview, modelWidth, modelHeight, x, y);
+          return featureClearanceMm(preview, feature, modelWidth, modelHeight, point) < margin
+            || featureClearanceMm(preview, covering, modelWidth, modelHeight, point) < margin;
+        })) continue;
+        holes.push([
+          geographicPoint(preview, modelWidth, modelHeight, left, top),
+          geographicPoint(preview, modelWidth, modelHeight, left, bottom),
+          geographicPoint(preview, modelWidth, modelHeight, right, bottom),
+          geographicPoint(preview, modelWidth, modelHeight, right, top),
+          geographicPoint(preview, modelWidth, modelHeight, left, top),
+        ]);
+      }
+    }
+    if (!holes.length) return feature;
+    return { ...feature, geometry: { ...feature.geometry, coordinates: [...feature.geometry.coordinates, ...holes] } };
+  });
+  const layers = preview.layers.map((layer) => {
+    const layerFeatures = features.filter((feature) => feature.properties.layer_index === layer.index);
+    return { ...layer, hole_count: layerFeatures.reduce((total, feature) => total + Math.max(0, feature.geometry.coordinates.length - 1), 0) };
   });
   return { ...preview, layers, feature_collection: { ...preview.feature_collection, features } };
 }
@@ -1729,12 +1848,18 @@ function buildUndersideIdGroups(placements: SheetPlacement[], partMap: Map<strin
 function buildSheetSvg(projectName: string, sheetIndex: number, rules: SheetRules, allParts: LayoutPart[], allPlacements: SheetPlacement[], holeDiameter: number, includeUndersideIds = true) {
   const placements = allPlacements.filter((placement) => placement.sheetIndex === sheetIndex);
   const partMap = new Map(allParts.map((part) => [part.id, part]));
-  const cuts = placements.map((placement) => {
+  const profileCuts = placements.map((placement) => {
     const part = partMap.get(placement.partId);
     if (!part) return "";
-    const paths = part.rings.map((ring) => `<path d="${layoutRingSvgPath(ring)}" />`).join("\n      ");
     return `<g data-placement-id="${xmlText(placement.id)}" data-part-id="${xmlText(part.id)}" transform="${sheetPlacementTransform(placement, part)}">
-      ${paths}
+      <path d="${layoutRingSvgPath(part.rings[0])}" />
+    </g>`;
+  }).join("\n    ");
+  const internalCuts = placements.map((placement) => {
+    const part = partMap.get(placement.partId);
+    if (!part || part.rings.length < 2) return "";
+    return `<g data-placement-id="${xmlText(placement.id)}" data-part-id="${xmlText(part.id)}" transform="${sheetPlacementTransform(placement, part)}">
+      ${part.rings.slice(1).map((ring) => `<path d="${layoutRingSvgPath(ring)}" />`).join("\n      ")}
     </g>`;
   }).join("\n    ");
   const drills = placements.map((placement) => {
@@ -1761,8 +1886,11 @@ function buildSheetSvg(projectName: string, sheetIndex: number, rules: SheetRule
   <g id="DRILL_HOLES" inkscape:groupmode="layer" inkscape:label="DRILL — THROUGH" data-operation="drill-through" data-depth-mm="${svgNumber(rules.thickness)}" fill="none" stroke="#187c91" stroke-width="0.2">
     ${drills}
   </g>
+  <g id="INTERNAL_OPENINGS" inkscape:groupmode="layer" inkscape:label="CUT — INTERNAL OPENINGS THROUGH (RUN BEFORE PROFILES)" data-operation="internal-cut-through" data-depth-mm="${svgNumber(rules.thickness)}" fill="none" stroke="#a86f20" stroke-width="0.2">
+    ${internalCuts}
+  </g>
   <g id="CUT_OUTLINES" inkscape:groupmode="layer" inkscape:label="CUT — PROFILE THROUGH (RUN LAST)" data-operation="profile-cut" data-depth-mm="${svgNumber(rules.thickness)}" fill="none" stroke="#c9492a" stroke-width="0.2">
-    ${cuts}
+    ${profileCuts}
   </g>
 </svg>`;
   return { svg, partCount: placements.length };
@@ -2314,7 +2442,8 @@ function buildLayerSvgBody(
     return { part, geometry: identifiedPartGeometry(preview, part, modelWidth, modelHeight, identification, partHoles, holeDiameter) };
   });
   const wasteLabels = identification.applied ? [] : findWasteLabels(preview, plan, layerIndex, modelWidth, modelHeight);
-  const cuts = designedParts.map(({ part, geometry }) => `<path data-part-id="${part.id}" data-display-id="${part.displayId}" d="${svgPathForPhysicalRings(geometry.rings)}" />`).join("\n    ");
+  const cuts = designedParts.map(({ part, geometry }) => `<path data-part-id="${part.id}" data-display-id="${part.displayId}" d="${svgPathForPhysicalRings([geometry.rings[0]])}" />`).join("\n    ");
+  const internalCuts = designedParts.filter(({ geometry }) => geometry.rings.length > 1).map(({ part, geometry }) => `<path data-part-id="${part.id}" data-display-id="${part.displayId}" d="${svgPathForPhysicalRings(geometry.rings.slice(1))}" />`).join("\n    ");
   const drills = holes.map((hole) => `<circle data-hole-id="${hole.id}" data-hole-kind="${hole.kind}" cx="${svgNumber(hole.xMm)}" cy="${svgNumber(hole.yMm)}" r="${svgNumber(holeDiameter / 2)}" />`).join("\n    ");
   const engraving = designedParts.filter(({ geometry }) => geometry.machineLabel).map(({ part, geometry }) => {
     const position = geometry.labelPoint;
@@ -2337,6 +2466,9 @@ function buildLayerSvgBody(
   </g>
   <g id="DRILL_HOLES" data-operation="drill" fill="none" stroke="#187c91" stroke-width="0.2">
     ${drills}
+  </g>
+  <g id="INTERNAL_OPENINGS" data-operation="internal-cut" fill="none" stroke="#a86f20" stroke-width="0.2">
+    ${internalCuts}
   </g>
   <g id="ENGRAVE" data-operation="engrave" fill="none" stroke="#214f3d" stroke-width="0.3" font-family="Arial, sans-serif" font-size="4">
     ${engraving}
@@ -2372,7 +2504,7 @@ function buildLayerSvg(
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${svgNumber(modelWidth)}mm" height="${svgNumber(modelHeight)}mm" viewBox="0 0 ${svgNumber(modelWidth)} ${svgNumber(modelHeight)}">
   <title>Topomapper ${layerName} manufacturing geometry</title>
-  <desc>North is at the top. Red paths are profile cuts, blue circles are drilled holes, and green paths are covered engraving.</desc>
+  <desc>North is at the top. Amber paths are internal openings, red paths are final profiles, blue circles are drilled holes, and green paths are covered engraving.</desc>
   <metadata>${xmlText(metadata)}</metadata>
   ${buildLayerSvgBody(preview, plan, layerIndex, modelWidth, modelHeight, holeDiameter, identification)}
 </svg>`;
@@ -2411,6 +2543,48 @@ function buildOverviewSvg(
   <title>Topomapper manufacturing overview</title>
   <desc>All physical layers shown at finished scale. This overview is for checking and assembly reference, not direct cutting.</desc>
   ${layers}
+</svg>`;
+}
+
+function buildGlueAndPaintGuideSvg(
+  preview: FilledLayerPreview,
+  modelWidth: number,
+  modelHeight: number,
+  snowCapMode: SnowCapMode,
+  snowLevelCount: number,
+) {
+  const gap = 16;
+  const heading = 15;
+  const columns = preview.layers.length > 1 ? 2 : 1;
+  const rows = Math.ceil(preview.layers.length / columns);
+  const width = columns * modelWidth + Math.max(0, columns - 1) * gap;
+  const height = rows * (modelHeight + heading) + Math.max(0, rows - 1) * gap;
+  const layerGroups = preview.layers.map((layer) => {
+    const column = layer.index % columns;
+    const row = Math.floor(layer.index / columns);
+    const x = column * (modelWidth + gap);
+    const y = row * (modelHeight + heading + gap);
+    const current = preview.feature_collection.features.filter((feature) => feature.properties.layer_index === layer.index);
+    const covering = preview.feature_collection.features.filter((feature) => feature.properties.layer_index === layer.index + 1);
+    const colour = paintForPhysicalLayer(layer, preview.layers, snowCapMode, snowLevelCount).hex;
+    const clipId = `layer-${layer.index + 1}-material`;
+    return `<g transform="translate(${svgNumber(x)} ${svgNumber(y)})">
+      <text x="0" y="6" font-family="Arial, sans-serif" font-size="5" font-weight="700" fill="#214f3d">L${String(layer.index + 1).padStart(2, "0")} · ${svgNumber(layer.lower_elevation)}–${svgNumber(layer.upper_elevation)} m · North ↑</text>
+      <text x="0" y="12" font-family="Arial, sans-serif" font-size="3.5" fill="#61736a">Colour = paint · hatch = leave bare for glue · white openings = removed material</text>
+      <g transform="translate(0 ${heading})">
+        <defs><clipPath id="${clipId}">${current.map((feature) => `<path d="${svgPathForFeature(preview, feature, modelWidth, modelHeight)}" fill-rule="evenodd" />`).join("")}</clipPath></defs>
+        <rect width="${svgNumber(modelWidth)}" height="${svgNumber(modelHeight)}" fill="#fff" stroke="#9ca89f" stroke-width="0.2" />
+        ${current.map((feature) => `<path d="${svgPathForFeature(preview, feature, modelWidth, modelHeight)}" fill="${colour}" fill-rule="evenodd" stroke="#214f3d" stroke-width="0.2" />`).join("\n        ")}
+        <g clip-path="url(#${clipId})">${covering.map((feature) => `<path d="${svgPathForFeature(preview, feature, modelWidth, modelHeight)}" fill="url(#glue-hatch)" fill-rule="evenodd" stroke="#9a681f" stroke-width="0.15" />`).join("\n        ")}</g>
+      </g>
+    </g>`;
+  }).join("\n  ");
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${svgNumber(width)}mm" height="${svgNumber(height)}mm" viewBox="0 0 ${svgNumber(width)} ${svgNumber(height)}">
+  <title>Topomapper glue and paint guide</title>
+  <desc>Non-machining layer guide. Painted exposed areas use their assigned colour; hatched covered areas remain bare for gluing.</desc>
+  <defs><pattern id="glue-hatch" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="4" height="4" fill="#efd59f" fill-opacity="0.42" /><line x1="0" y1="0" x2="0" y2="4" stroke="#9a681f" stroke-opacity="0.62" stroke-width="0.7" /></pattern></defs>
+  ${layerGroups}
 </svg>`;
 }
 
@@ -2736,6 +2910,19 @@ function AssemblyPreviewCanvas({
       };
       const layer = preview.layers[layerIndex];
       const parts = plan.parts.filter((part) => part.layerIndex === layerIndex);
+      const coveringFeatures = preview.feature_collection.features.filter((feature) => feature.properties.layer_index === layerIndex + 1);
+
+      const traceFeature = (feature: FilledLayerFeature) => {
+        context.beginPath();
+        feature.geometry.coordinates.forEach((ring) => {
+          ring.forEach((point, index) => {
+            const projected = projectGeo(point);
+            if (index === 0) context.moveTo(projected.x, projected.y);
+            else context.lineTo(projected.x, projected.y);
+          });
+          context.closePath();
+        });
+      };
 
       context.fillStyle = "rgba(255,255,255,.62)";
       context.fillRect(offsetX, offsetY, modelWidth * scale, modelHeight * scale);
@@ -2744,20 +2931,35 @@ function AssemblyPreviewCanvas({
       context.strokeRect(offsetX, offsetY, modelWidth * scale, modelHeight * scale);
 
       parts.forEach((part) => {
-        context.beginPath();
-        part.feature.geometry.coordinates.forEach((ring) => {
-          ring.forEach((point, index) => {
-            const projected = projectGeo(point);
-            if (index === 0) context.moveTo(projected.x, projected.y);
-            else context.lineTo(projected.x, projected.y);
-          });
-          context.closePath();
-        });
+        traceFeature(part.feature);
         context.fillStyle = paintForPhysicalLayer(layer, preview.layers, snowCapMode, snowLevelCount).hex;
         context.fill("evenodd");
         context.strokeStyle = "rgba(28,49,40,.72)";
         context.lineWidth = 1;
         context.stroke();
+
+        if (coveringFeatures.length) {
+          context.save();
+          traceFeature(part.feature);
+          context.clip("evenodd");
+          coveringFeatures.forEach((covering) => {
+            context.save();
+            traceFeature(covering);
+            context.clip("evenodd");
+            context.fillStyle = "rgba(231,168,63,.18)";
+            context.fillRect(offsetX, offsetY, modelWidth * scale, modelHeight * scale);
+            context.strokeStyle = "rgba(135,91,25,.32)";
+            context.lineWidth = .7;
+            for (let diagonal = -rectangle.height; diagonal < rectangle.width + rectangle.height; diagonal += 10) {
+              context.beginPath();
+              context.moveTo(diagonal, rectangle.height);
+              context.lineTo(diagonal + rectangle.height, 0);
+              context.stroke();
+            }
+            context.restore();
+          });
+          context.restore();
+        }
 
         const label = projectGeo(part.labelPoint);
         context.fillStyle = "rgba(20,34,28,.9)";
@@ -3180,6 +3382,8 @@ export function MapWorkspace() {
   const [appliedSmoothingLevels, setAppliedSmoothingLevels] = useState<Record<number, number>>({});
   const [smoothingCalculating, setSmoothingCalculating] = useState(false);
   const [smoothingZoom, setSmoothingZoom] = useState(1);
+  const [lightweighting, setLightweighting] = useState<LightweightingSettings>(DEFAULT_LIGHTWEIGHTING);
+  const [lightweightingDraft, setLightweightingDraft] = useState<LightweightingSettings>(DEFAULT_LIGHTWEIGHTING);
   const [partIdentification, setPartIdentification] = useState<PartIdentificationSettings>(DEFAULT_PART_IDENTIFICATION);
   const [partIdentificationDraft, setPartIdentificationDraft] = useState({ addIdsToUnderside: true, useFlagsForSmallParts: true });
   const [partIdStageOpen, setPartIdStageOpen] = useState(false);
@@ -3219,6 +3423,7 @@ export function MapWorkspace() {
   const [layerStageOpen, setLayerStageOpen] = useState(true);
   const [filledStageOpen, setFilledStageOpen] = useState(false);
   const [smoothingStageOpen, setSmoothingStageOpen] = useState(false);
+  const [lightweightingStageOpen, setLightweightingStageOpen] = useState(false);
   const [sheetStageOpen, setSheetStageOpen] = useState(false);
   const [idMarkingStageOpen, setIdMarkingStageOpen] = useState(false);
   const [manufacturingPackageStageOpen, setManufacturingPackageStageOpen] = useState(false);
@@ -3285,7 +3490,7 @@ export function MapWorkspace() {
     setOptimizerRunning(false);
     setOptimizerProgress("");
     setOptimizerStatus("Search stopped because the project or nesting rules changed.");
-  }, [projectId, sheetRules.width, sheetRules.height, sheetRules.edgeMargin, sheetRules.partSpacing, rotationStepDeg, smoothingLevels]);
+  }, [projectId, sheetRules.width, sheetRules.height, sheetRules.edgeMargin, sheetRules.partSpacing, rotationStepDeg, smoothingLevels, lightweighting]);
   useEffect(() => {
     const saved = window.localStorage.getItem(SHEET_LAYOUT_KEY);
     if (!saved) return;
@@ -3300,7 +3505,7 @@ export function MapWorkspace() {
     if (!layoutDirtyReadyRef.current) { layoutDirtyReadyRef.current = true; return; }
     if (suppressLayoutDirtyRef.current) { suppressLayoutDirtyRef.current = false; return; }
     setLayoutSaveStatus("Layout has unsaved changes.");
-  }, [sheetPlacements, sheetRules, smoothingLevels, partIdentification, outputFormat, outputOrientation, customWidthMm, customHeightMm]);
+  }, [sheetPlacements, sheetRules, smoothingLevels, lightweighting, partIdentification, outputFormat, outputOrientation, customWidthMm, customHeightMm]);
   useEffect(() => {
     let cancelled = false;
     async function initialiseProjects() {
@@ -3334,7 +3539,7 @@ export function MapWorkspace() {
     setProjectStatus("Changes waiting to autosave…");
     projectAutosaveTimerRef.current = setTimeout(() => { void saveCurrentProject(true); }, 1500);
     return () => { if (projectAutosaveTimerRef.current) clearTimeout(projectAutosaveTimerRef.current); };
-  }, [projectId, projectName, selection, query, analysis, bathymetryAnalysis, bathymetrySourceFilenames, bathymetryEnabled, bathymetryBoundaries, filledLayerPreview, visibleLayerIndices, waterSourceFilenames, outputFormat, outputOrientation, customWidthMm, customHeightMm, materialThicknessMm, layerDistribution, layerCount, layerBoundaries, stackView, stackYaw, stackPitch, showTrueElevation, smoothingLevels, partIdentification, gridPitchMm, dowelDiameterMm, holeDiameterMm, holeEdgeClearanceMm, sheetRules, sheetCount, activeSheetIndex, sheetPlacements, rotationStepDeg, snowCapMode, snowLevelCount, paintNotes, workspaceView, assemblyLayerIndex, smoothingLayerIndex]);
+  }, [projectId, projectName, selection, query, analysis, bathymetryAnalysis, bathymetrySourceFilenames, bathymetryEnabled, bathymetryBoundaries, filledLayerPreview, visibleLayerIndices, waterSourceFilenames, outputFormat, outputOrientation, customWidthMm, customHeightMm, materialThicknessMm, layerDistribution, layerCount, layerBoundaries, stackView, stackYaw, stackPitch, showTrueElevation, smoothingLevels, lightweighting, partIdentification, gridPitchMm, dowelDiameterMm, holeDiameterMm, holeEdgeClearanceMm, sheetRules, sheetCount, activeSheetIndex, sheetPlacements, rotationStepDeg, snowCapMode, snowLevelCount, paintNotes, workspaceView, assemblyLayerIndex, smoothingLayerIndex]);
   const elevationDataComplete = hasUsableElevationAnalysis(analysis, selection);
   const chosenOutput = outputDimensions(outputFormat, outputOrientation, customWidthMm, customHeightMm);
   const selectedFramePreset = chosenOutput
@@ -4200,12 +4405,21 @@ export function MapWorkspace() {
   const physicalStackHeight = (filledLayerPreview?.layers.length ?? physicalLayerCount) * materialThicknessMm;
   const trueScaledHeight = measurements && measurements.width > 0 ? layerMaximum * previewDimensions.width / measurements.width : 0;
   const verticalExaggeration = trueScaledHeight > 0 ? physicalStackHeight / trueScaledHeight : 0;
-  const fabricationPreview = useMemo(() => filledLayerPreview ? applySmoothing(
+  const smoothedPreview = useMemo(() => filledLayerPreview ? applySmoothing(
     filledLayerPreview,
     appliedSmoothingLevels,
     previewDimensions.width,
     previewDimensions.height,
   ) : null, [filledLayerPreview, appliedSmoothingLevels, previewDimensions.width, previewDimensions.height]);
+  const fabricationPreview = useMemo(() => smoothedPreview ? applyLightweighting(
+    smoothedPreview,
+    lightweighting,
+    previewDimensions.width,
+    previewDimensions.height,
+    gridPitchMm,
+    holeDiameterMm,
+    holeEdgeClearanceMm,
+  ) : null, [smoothedPreview, lightweighting, previewDimensions.width, previewDimensions.height, gridPitchMm, holeDiameterMm, holeEdgeClearanceMm]);
   const assemblyPlan = useMemo(() => fabricationPreview ? buildAssemblyPlan(
     fabricationPreview,
     previewDimensions.width,
@@ -4236,18 +4450,18 @@ export function MapWorkspace() {
     partIdentification,
   ) : "", [fabricationPreview, assemblyPlan, selectedAssemblyLayer, assemblyLayerIndex, previewDimensions.width, previewDimensions.height, holeDiameterMm, materialThicknessMm, analysis, partIdentification]);
   const originalSmoothingMetrics = filledLayerPreview ? layerGeometryMetrics(filledLayerPreview, smoothingLayerIndex, previewDimensions.width, previewDimensions.height) : null;
-  const smoothedSmoothingMetrics = fabricationPreview ? layerGeometryMetrics(fabricationPreview, smoothingLayerIndex, previewDimensions.width, previewDimensions.height) : null;
+  const smoothedSmoothingMetrics = smoothedPreview ? layerGeometryMetrics(smoothedPreview, smoothingLayerIndex, previewDimensions.width, previewDimensions.height) : null;
   const selectedSmoothingLayer = filledLayerPreview?.layers.find((layer) => layer.index === smoothingLayerIndex);
   const selectedSmoothingIsSubsea = Boolean(selectedSmoothingLayer && selectedSmoothingLayer.lower_elevation < 0);
   const selectedSmoothingMaximum = selectedSmoothingIsSubsea ? SUBSEA_SMOOTHING_MAX_MM : LAND_SMOOTHING_MAX_MM;
-  const smoothingLayerMetrics = useMemo(() => filledLayerPreview && fabricationPreview
+  const smoothingLayerMetrics = useMemo(() => filledLayerPreview && smoothedPreview
     ? filledLayerPreview.layers.map((layer) => ({
       index: layer.index,
       subsea: layer.lower_elevation < 0,
       before: layerGeometryMetrics(filledLayerPreview, layer.index, previewDimensions.width, previewDimensions.height),
-      after: layerGeometryMetrics(fabricationPreview, layer.index, previewDimensions.width, previewDimensions.height),
+      after: layerGeometryMetrics(smoothedPreview, layer.index, previewDimensions.width, previewDimensions.height),
     }))
-    : [], [filledLayerPreview, fabricationPreview, previewDimensions.width, previewDimensions.height]);
+    : [], [filledLayerPreview, smoothedPreview, previewDimensions.width, previewDimensions.height]);
   const landSmoothingLevel = filledLayerPreview?.layers.filter((layer) => layer.lower_elevation >= 0).reduce((maximum, layer) => Math.max(maximum, smoothingLevels[layer.index] ?? 0), 0) ?? 0;
   const subseaSmoothingLevel = filledLayerPreview?.layers.filter((layer) => layer.lower_elevation < 0).reduce((maximum, layer) => Math.max(maximum, smoothingLevels[layer.index] ?? 0), 0) ?? 0;
   const hasSubseaLayers = Boolean(filledLayerPreview?.layers.some((layer) => layer.lower_elevation < 0));
@@ -4255,7 +4469,18 @@ export function MapWorkspace() {
   const smallestSmoothedPartSize = smoothedPartSizes.length ? Math.min(...smoothedPartSizes) : 0;
   const filledTotalParts = filledLayerPreview?.layers.reduce((total, layer) => total + layer.piece_count, 0) ?? 0;
   const smoothedTotalParts = smoothingLayerMetrics.reduce((total, row) => total + row.after.parts, 0);
+  const lightweightingSettingsMatch = lightweighting.enabled === lightweightingDraft.enabled
+    && lightweighting.gridPitchMm === lightweightingDraft.gridPitchMm
+    && lightweighting.ribWidthMm === lightweightingDraft.ribWidthMm
+    && lightweighting.contourMarginMm === lightweightingDraft.contourMarginMm
+    && lightweighting.minimumOpeningMm === lightweightingDraft.minimumOpeningMm;
+  const lightweightingComplete = Boolean(smoothedPreview && lightweightingSettingsMatch && (!lightweightingDraft.enabled || lightweighting.applied));
+  const smoothedMaterialArea = smoothedPreview?.feature_collection.features.reduce((total, feature) => total + featureAreaMm2(smoothedPreview, feature, previewDimensions.width, previewDimensions.height), 0) ?? 0;
+  const lightweightMaterialArea = fabricationPreview?.feature_collection.features.reduce((total, feature) => total + featureAreaMm2(fabricationPreview, feature, previewDimensions.width, previewDimensions.height), 0) ?? 0;
+  const removedMaterialArea = Math.max(0, smoothedMaterialArea - lightweightMaterialArea);
+  const lightweightOpeningCount = Math.max(0, (fabricationPreview?.layers.reduce((total, layer) => total + layer.hole_count, 0) ?? 0) - (smoothedPreview?.layers.reduce((total, layer) => total + layer.hole_count, 0) ?? 0));
   const partIdentificationComplete = Boolean(filledStageComplete
+    && lightweightingComplete
     && partIdentification.applied
     && partIdentification.addIdsToUnderside === partIdentificationDraft.addIdsToUnderside
     && partIdentification.useFlagsForSmallParts === (partIdentificationDraft.addIdsToUnderside && partIdentificationDraft.useFlagsForSmallParts));
@@ -4339,6 +4564,31 @@ export function MapWorkspace() {
     }));
   }
 
+  function applyLightweightingSettings() {
+    if (!smoothedPreview) return;
+    const gridPitchMm = Math.max(20, Number(lightweightingDraft.gridPitchMm) || DEFAULT_LIGHTWEIGHTING.gridPitchMm);
+    const ribWidthMm = Math.max(3, Math.min(gridPitchMm - 2, Number(lightweightingDraft.ribWidthMm) || DEFAULT_LIGHTWEIGHTING.ribWidthMm));
+    const next: LightweightingSettings = {
+      enabled: lightweightingDraft.enabled,
+      gridPitchMm,
+      ribWidthMm,
+      contourMarginMm: Math.max(0, Number(lightweightingDraft.contourMarginMm) || 0),
+      minimumOpeningMm: Math.max(5, Number(lightweightingDraft.minimumOpeningMm) || DEFAULT_LIGHTWEIGHTING.minimumOpeningMm),
+      applied: true,
+    };
+    setLightweighting(next);
+    setLightweightingDraft(next);
+    setPartIdentification((current) => ({ ...current, applied: false }));
+    setSheetPlacements([]);
+    setSheetCount(1);
+    setActiveSheetIndex(0);
+    setSelectedPlacementId(null);
+    setSelectedViolationIndex(null);
+    setOptimizerStatus(next.enabled
+      ? "Lightweighting changed the internal cuts and available ID areas. Add IDs again, then run Quick Placement."
+      : "Lightweighting was removed. Add IDs again, then run Quick Placement.");
+  }
+
   function applyPartIdentification() {
     if (!fabricationPreview) return;
     const next: PartIdentificationSettings = {
@@ -4369,7 +4619,7 @@ export function MapWorkspace() {
       elevation: { sourceFilenames: [], bathymetrySourceFilenames: [], waterSourceFilenames: [], analysis: null, bathymetryAnalysis: null, filledLayerPreview: null, visibleLayerIndices: [] },
       output: { format: "free", orientation: "landscape", customWidthMm: 600, customHeightMm: 400, materialThicknessMm: 3 },
       layers: { distribution: "log", count: DEFAULT_LAYER_COUNT, boundaries: [], bathymetryEnabled: false, bathymetryBoundaries: DEFAULT_BATHYMETRY_BOUNDARIES },
-      model: { stackView: "three-dimensional", stackYaw: 0, stackPitch: 34, showTrueElevation: true, smoothingLevels: {} },
+      model: { stackView: "three-dimensional", stackYaw: 0, stackPitch: 34, showTrueElevation: true, smoothingLevels: {}, lightweighting: DEFAULT_LIGHTWEIGHTING },
       assembly: { gridPitchMm: 100, dowelDiameterMm: 4, holeDiameterMm: 4.2, holeEdgeClearanceMm: 6 },
       identification: DEFAULT_PART_IDENTIFICATION,
       layout: { sheetRules: DEFAULT_SHEET_RULES, sheetCount: 1, activeSheetIndex: 0, placements: [], rotationStepDeg: 15 },
@@ -4449,7 +4699,7 @@ export function MapWorkspace() {
       },
       output: { format: outputFormat, orientation: outputOrientation, customWidthMm, customHeightMm, materialThicknessMm },
       layers: { distribution: layerDistribution, count: layerCount, boundaries: layerBoundaries, bathymetryEnabled, bathymetryBoundaries },
-      model: { stackView, stackYaw, stackPitch, showTrueElevation, smoothingLevels },
+      model: { stackView, stackYaw, stackPitch, showTrueElevation, smoothingLevels, lightweighting },
       assembly: { gridPitchMm, dowelDiameterMm, holeDiameterMm, holeEdgeClearanceMm },
       identification: partIdentification,
       layout: { sheetRules, sheetCount, activeSheetIndex, placements: sheetPlacements, rotationStepDeg },
@@ -4536,6 +4786,9 @@ export function MapWorkspace() {
     setShowTrueElevation(project.model.showTrueElevation);
     setSmoothingLevels(project.model.smoothingLevels);
     setAppliedSmoothingLevels(project.model.smoothingLevels);
+    const restoredLightweighting = { ...DEFAULT_LIGHTWEIGHTING, ...(project.model.lightweighting ?? {}) };
+    setLightweighting(restoredLightweighting);
+    setLightweightingDraft(restoredLightweighting);
     setGridPitchMm(project.assembly.gridPitchMm);
     setDowelDiameterMm(project.assembly.dowelDiameterMm);
     setHoleDiameterMm(project.assembly.holeDiameterMm);
@@ -4643,6 +4896,7 @@ export function MapWorkspace() {
       activeSheetIndex,
       sheetPlacements,
       smoothingLevels,
+      lightweighting,
       partIdentification,
       output: { outputFormat, outputOrientation, customWidthMm, customHeightMm },
       assembly: { gridPitchMm, dowelDiameterMm, holeDiameterMm, holeEdgeClearanceMm },
@@ -4659,6 +4913,7 @@ export function MapWorkspace() {
       activeSheetIndex?: number;
       sheetPlacements?: SheetPlacement[];
       smoothingLevels?: Record<number, number>;
+      lightweighting?: LightweightingSettings;
       partIdentification?: PartIdentificationSettings;
       output?: { outputFormat?: OutputFormat; outputOrientation?: OutputOrientation; customWidthMm?: number; customHeightMm?: number };
       assembly?: { gridPitchMm?: number; dowelDiameterMm?: number; holeDiameterMm?: number; holeEdgeClearanceMm?: number };
@@ -4676,6 +4931,9 @@ export function MapWorkspace() {
     setSheetPlacements(data.sheetPlacements);
     setSmoothingLevels(data.smoothingLevels ?? {});
     setAppliedSmoothingLevels(data.smoothingLevels ?? {});
+    const restoredLightweighting = { ...DEFAULT_LIGHTWEIGHTING, ...(data.lightweighting ?? {}) };
+    setLightweighting(restoredLightweighting);
+    setLightweightingDraft(restoredLightweighting);
     if (data.partIdentification) {
       const restored = { ...DEFAULT_PART_IDENTIFICATION, ...data.partIdentification };
       setPartIdentification(restored);
@@ -4926,6 +5184,7 @@ export function MapWorkspace() {
         "",
         `Stock: ${sheetRules.width} x ${sheetRules.height} x ${sheetRules.thickness} mm`,
         "CUT_OUTLINES: profile through the material",
+        "INTERNAL_OPENINGS: cut through before releasing the external profiles",
         "DRILL_HOLES: drill through the material",
         "SHEET_REFERENCE: visual reference only — do not machine",
         "SIDE_1_UNDERSIDE_IDS: optional V-cutter IDs; engrave before the long-axis board flip.",
@@ -5159,6 +5418,13 @@ export function MapWorkspace() {
         `Undersea layers: ${fabricationPreview.layers.filter((layer) => layer.lower_elevation < 0).length}`,
         `Bathymetry source: ${fabricationPreview.bathymetry?.source_filenames.join(", ") || "none"}`,
         "Bathymetry is model-making data and must not be used for navigation.",
+        `Lightweighting: ${lightweighting.enabled && lightweighting.applied ? "enabled" : "disabled"}`,
+        ...(lightweighting.enabled && lightweighting.applied ? [
+          `Lightweight grid: ${lightweighting.gridPitchMm.toFixed(1)} mm pitch, ${lightweighting.ribWidthMm.toFixed(1)} mm ribs`,
+          `Lightweight contour margin: ${lightweighting.contourMarginMm.toFixed(1)} mm`,
+          `Weight-reduction openings: ${lightweightOpeningCount}`,
+          `Estimated stack material-area reduction: ${smoothedMaterialArea > 0 ? (removedMaterialArea / smoothedMaterialArea * 100).toFixed(1) : "0.0"}%`,
+        ] : []),
         `Material sheets: ${populatedSheets.length}`,
         "",
         "STOCK AND TOOL",
@@ -5187,7 +5453,8 @@ export function MapWorkspace() {
       files.push({ name: "Machining Info.txt", contents: machiningInfo });
       files.push({ name: "Assembly Guide.pdf", contents: assemblyPdf });
       files.push({ name: "Painting Guide.pdf", contents: paintPdf });
-      manifestFiles.push("Machining Info.txt — stock, tool, border, spacing and face-flip instructions", "Assembly Guide.pdf — sheet placement, part IDs, rotations and north orientation", "Painting Guide.pdf — paint buying and layer schedule");
+      files.push({ name: "Glue and Paint Guide.svg", contents: buildGlueAndPaintGuideSvg(fabricationPreview, previewDimensions.width, previewDimensions.height, snowCapMode, snowLevelCount) });
+      manifestFiles.push("Machining Info.txt — stock, tool, border, spacing and face-flip instructions", "Assembly Guide.pdf — sheet placement, part IDs, rotations and north orientation", "Painting Guide.pdf — paint buying and layer schedule", "Glue and Paint Guide.svg — non-machining per-layer paint, bare-glue and lightweight-opening map");
       files.push({
         name: "MANIFEST.txt",
         contents: [
@@ -5255,6 +5522,7 @@ export function MapWorkspace() {
         "",
         "SVG GROUPS",
         "CUT_OUTLINES = red profile paths",
+        "INTERNAL_OPENINGS = amber through-cuts completed before external profiles",
         "DRILL_HOLES = blue volcano-vent and buried-grid circles",
         "ENGRAVE = green covered part IDs and north arrows",
         "WASTE_LABELS = grey small-part IDs and leaders engraved in surrounding waste",
@@ -5727,9 +5995,36 @@ export function MapWorkspace() {
           </div>
         </details>
 
+        <details className="workflow-stage lightweighting-stage" open={lightweightingStageOpen} onToggle={(event) => setLightweightingStageOpen(event.currentTarget.open)}>
+          <summary className="workflow-stage-summary">
+            <span><strong>7) Lightweighting</strong></span>
+            <em>{lightweightingComplete ? "Complete" : "Incomplete"}</em>
+            <i className={`stage-status-led ${lightweightingComplete ? "complete" : "incomplete"}`} aria-hidden="true" />
+            <b aria-hidden="true">{lightweightingStageOpen ? "−" : "+"}</b>
+          </summary>
+          <div className="workflow-stage-body lightweighting-settings">
+            <label className="layer-distribution-toggle">
+              <span>Remove buried weight</span>
+              <input type="checkbox" checked={lightweightingDraft.enabled} disabled={!smoothedPreview} onChange={(event) => setLightweightingDraft((current) => ({ ...current, enabled: event.target.checked }))} />
+              <i aria-hidden="true"><b /></i>
+            </label>
+            <label><span>Grid spacing</span><strong><input type="number" min="20" step="5" value={lightweightingDraft.gridPitchMm} disabled={!lightweightingDraft.enabled} onChange={(event) => setLightweightingDraft((current) => ({ ...current, gridPitchMm: Number(event.target.value) }))} /><em>mm</em></strong></label>
+            <label><span>Rib width</span><strong><input type="number" min="3" step="1" value={lightweightingDraft.ribWidthMm} disabled={!lightweightingDraft.enabled} onChange={(event) => setLightweightingDraft((current) => ({ ...current, ribWidthMm: Number(event.target.value) }))} /><em>mm</em></strong></label>
+            <label><span>Contour margin</span><strong><input type="number" min="0" step="1" value={lightweightingDraft.contourMarginMm} disabled={!lightweightingDraft.enabled} onChange={(event) => setLightweightingDraft((current) => ({ ...current, contourMarginMm: Number(event.target.value) }))} /><em>mm</em></strong></label>
+            <label><span>Minimum opening</span><strong><input type="number" min="5" step="5" value={lightweightingDraft.minimumOpeningMm} disabled={!lightweightingDraft.enabled} onChange={(event) => setLightweightingDraft((current) => ({ ...current, minimumOpeningMm: Number(event.target.value) }))} /><em>mm</em></strong></label>
+            <button disabled={!smoothedPreview || lightweightingSettingsMatch && lightweightingComplete} onClick={applyLightweightingSettings}>{lightweightingDraft.enabled ? "Apply lightweighting" : "Continue without lightweighting"}</button>
+            <p>The area covered by the next layer is the bare glue zone. Openings are placed only inside it; retained ribs and contour margins provide the bonding surface.</p>
+            {lightweighting.applied && lightweighting.enabled && lightweightingSettingsMatch && <dl className="plain-smoothing-stats">
+              <div><dt>Weight-reduction openings:</dt><dd>{lightweightOpeningCount}</dd></div>
+              <div><dt>Material area removed:</dt><dd>{Math.round(removedMaterialArea).toLocaleString("en-NZ")} mm²</dd></div>
+              <div><dt>Stack material reduction:</dt><dd>{smoothedMaterialArea > 0 ? `${(removedMaterialArea / smoothedMaterialArea * 100).toFixed(1)}%` : "0%"}</dd></div>
+            </dl>}
+          </div>
+        </details>
+
         <details className="workflow-stage part-id-stage" open={partIdStageOpen} onToggle={(event) => setPartIdStageOpen(event.currentTarget.open)}>
           <summary className="workflow-stage-summary">
-            <span><strong>7) Part ID</strong></span>
+            <span><strong>8) Part ID</strong></span>
             <em>{partIdentificationComplete ? "Complete" : "Incomplete"}</em>
             <i className={`stage-status-led ${partIdentificationComplete ? "complete" : "incomplete"}`} aria-hidden="true" />
             <b aria-hidden="true">{partIdStageOpen ? "−" : "+"}</b>
@@ -5745,7 +6040,7 @@ export function MapWorkspace() {
 
         <details className="workflow-stage sheet-stage" open={sheetStageOpen} onToggle={(event) => setSheetStageOpen(event.currentTarget.open)}>
           <summary className="workflow-stage-summary">
-            <span><strong>8) Sheet Layout</strong></span>
+            <span><strong>9) Sheet Layout</strong></span>
             <em>{sheetLayoutStatus}</em>
             <i className={`stage-status-led ${sheetLayoutStatusClass}`} aria-hidden="true" />
             <b aria-hidden="true">{sheetStageOpen ? "−" : "+"}</b>
@@ -5784,7 +6079,7 @@ export function MapWorkspace() {
 
         <details className="workflow-stage id-marking-stage" open={idMarkingStageOpen} onToggle={(event) => setIdMarkingStageOpen(event.currentTarget.open)}>
           <summary className="workflow-stage-summary">
-            <span><strong>9) ID Marking</strong></span>
+            <span><strong>10) ID Marking</strong></span>
             <em>{idMarkingStatusLabel}</em>
             <i className={`stage-status-led ${idMarkingStatusClass}`} aria-hidden="true" />
             <b aria-hidden="true">{idMarkingStageOpen ? "−" : "+"}</b>
@@ -5801,7 +6096,7 @@ export function MapWorkspace() {
 
         <details className="workflow-stage manufacturing-package-stage" open={manufacturingPackageStageOpen} onToggle={(event) => setManufacturingPackageStageOpen(event.currentTarget.open)}>
           <summary className="workflow-stage-summary">
-            <span><strong>10) Manufacturing Package</strong></span>
+            <span><strong>11) Manufacturing Package</strong></span>
             <em>{manufacturingPackageReady ? "Complete" : "Incomplete"}</em>
             <i className={`stage-status-led ${manufacturingPackageReady ? "complete" : "incomplete"}`} aria-hidden="true" />
             <b aria-hidden="true">{manufacturingPackageStageOpen ? "−" : "+"}</b>
@@ -5873,7 +6168,7 @@ export function MapWorkspace() {
         <section className="assembly-preview" aria-labelledby="assembly-preview-heading">
           <div className="assembly-preview-heading">
             <div>
-              <span className="section-label">STEP 8 · PARTS &amp; REGISTRATION</span>
+              <span className="section-label">STEP 9 · PARTS &amp; REGISTRATION</span>
               <strong id="assembly-preview-heading">Assembly machining plan</strong>
             </div>
             <span className={assemblyPlan.ventComplete ? "ready" : "warning"}>{assemblyPlan.ventComplete ? "Peak vents ready" : "Peak vents need attention"}</span>
@@ -5905,7 +6200,7 @@ export function MapWorkspace() {
                 snowCapMode={snowCapMode}
                 snowLevelCount={snowLevelCount}
               />
-              <div className="assembly-legend"><span><i className="grid-hole" /> Buried grid hole</span><span><i className="vent-hole" /> Peak-to-base vent</span><span><b>↑N</b> covered engraving</span></div>
+              <div className="assembly-legend"><span><i className="glue-zone" /> Bare / glue zone</span><span><i className="grid-hole" /> Buried grid hole</span><span><i className="vent-hole" /> Peak-to-base vent</span><span><b>↑N</b> covered engraving</span></div>
             </div>
 
             <aside className="assembly-details">
@@ -5914,7 +6209,7 @@ export function MapWorkspace() {
                 <span><small>Parts</small><strong>{selectedAssemblyParts.length}</strong></span>
                 <span><small>Drill holes</small><strong>{selectedAssemblyHoles.length}</strong></span>
               </div>
-              <p>Orange peak vents pass through every supporting layer to the base and stop beneath a solid cap. White grid holes provide extra alignment where terrain permits.</p>
+              <p>Hatched areas are covered by the next layer: leave their retained ribs and margins bare for glue. Orange peak vents pass through every supporting layer; white holes provide extra alignment.</p>
               <ol className="assembly-part-list">
                 {selectedAssemblyParts.map((part) => {
                   const partHoles = assemblyPlan.holes.filter((hole) => hole.partIds.includes(part.id)).length;
@@ -6104,7 +6399,7 @@ export function MapWorkspace() {
         <section className="manufacturing-preview" aria-labelledby="manufacturing-preview-heading">
           <div className="manufacturing-preview-heading">
             <div>
-              <span className="section-label">STEP 10 · MANUFACTURING GEOMETRY</span>
+              <span className="section-label">STEP 11 · MANUFACTURING GEOMETRY</span>
               <strong id="manufacturing-preview-heading">Finished-size SVG files</strong>
             </div>
             <span className="ready">Scale verified in millimetres</span>

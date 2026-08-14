@@ -6,6 +6,10 @@ still change their project or manufacturing formats.
 
 ## [Unreleased]
 
+- Added an optional Lightweighting stage between Smoothing and Part ID. It cuts
+  grid openings only from areas covered by the next layer, preserves contour
+  margins and registration supports, reports material-area reduction, and
+  marks retained covered material as the bare/glue zone in Assembly.
 - Closed tidal gaps between the 8 m land DEM and coarse national bathymetry;
   water polygons now cut visible land while retaining blue subsea support.
 - Fixed nationwide bathymetry rasters that cross the international date line

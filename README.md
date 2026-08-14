@@ -241,6 +241,15 @@ The flag is manufacturing
 geometry, so it is included in DRC, SVGnest proxies, sheet SVGs and layout
 documentation, and is cut off only during assembly. Applying changed ID options
 clears an obsolete sheet placement because the part outlines may have changed.
+
+An optional Lightweighting stage now sits between Smoothing and Part ID.
+Topomapper identifies material fully covered by the layer above, keeps a solid
+contour margin and a configurable structural grid, protects alignment-grid and
+peak-vent locations, and adds only safe rectangular internal cut-outs. The
+Assembly view hatches the retained covered material as a bare/glue zone, while
+the openings remain transparent. Applied settings and the resulting downstream
+manufacturing state are saved in the named project.
+
 Flag placement evaluates a continuous 3 mm coastline section rather than an
 individual source segment. It favours a nearly straight, north-facing section
 with supporting land behind it and rejects sharply turning ridge tips, keeping

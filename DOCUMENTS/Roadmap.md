@@ -206,6 +206,16 @@ paper outlines align when stacked.
 Kerf compensation should normally remain a CAM operation unless testing proves
 that topomapper must own it.
 
+### Lightweighting and glue zones — implemented
+
+- Optional buried-material removal after smoothing and before Part ID.
+- Configurable grid pitch, rib width, contour margin and minimum opening.
+- Openings require complete coverage by the next physical layer and preserve
+  material around the alignment grid and likely peak-vent locations.
+- Assembly preview hatches retained covered surfaces as bare/glue zones.
+- Internal openings propagate into exact manufacturing paths while nesting
+  continues to use only the external part outline.
+
 ### Acceptance Test
 
 Topomapper identifies deliberately troublesome small features, frame edges stay

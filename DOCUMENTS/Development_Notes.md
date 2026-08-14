@@ -535,9 +535,11 @@
 
 ### Water-feature manufacturing decision
 
-- A retained lake, lagoon, or significant river is a true hole through every
-  terrain layer in which it appears, intended to receive a separately cut and
-  blue-painted insert.
+- A retained lake, lagoon, or significant river is a true hole through the
+  visible land layers in which it appears, intended to receive a separately cut
+  and blue-painted insert. When subsea modelling is enabled, blue supporting
+  layers remain beneath these openings so tidal polygons do not become holes
+  through the whole stack.
 - Water holes use the same scale-aware smoothing and minimum-feature controls as
   small peaks and islands. Tiny water features may therefore disappear, but
   significant features and land islands enclosed by them must be preserved.
@@ -948,8 +950,9 @@
   the applicable −200, −100, −50, −20, −10 and 0 m boundaries. It does not alter
   the land Log/Linear setting or land layer count.
 - Merged the rasters conservatively: valid 8 m land values remain authoritative;
-  negative bathymetry fills only missing marine cells. This prevents a coarse
-  seabed product from replacing the detailed land surface.
+  bathymetry fills missing marine cells and coarse positive tidal interpolation
+  is capped at sea level. This prevents the seabed product from replacing land
+  while avoiding physical gaps at the shoreline.
 - Extended filled-layer generation, project save/restore, 2D/3D/assembly views,
   smoothing, part IDs, sheet layout and workshop exports to treat seabed bands
   as ordinary physical layers below the land stack.
@@ -963,3 +966,24 @@
   outline-smoothing passes. The full-screen per-layer control applies its value
   only to layers of the same land/subsea kind, preventing an aggressive seabed
   setting from erasing small summits or islands.
+
+### Lightweighting and glue zones
+
+- Added optional Setup Section 7 after Smoothing and before Part ID.
+- Default controls are 75 mm grid spacing, 12 mm ribs, 15 mm contour margin and
+  30 mm minimum opening. Settings are explicitly applied and persist in both
+  named projects and standalone sheet-layout backups.
+- A candidate opening is accepted only when dense physical-space samples remain
+  inside one current part and one covering part on the next layer. Clearance is
+  measured from both contours and their existing holes.
+- The globally aligned grid preserves predictable ribs. Candidate openings are
+  also rejected around the assembly registration grid and probable peak-vent
+  label points so dowels and vents retain solid support.
+- Lightweight openings become ordinary inner manufacturing rings and therefore
+  flow through 3D, Assembly, Part ID safety checks, exact sheet SVG and the
+  manufacturing package. SVGnest still receives the exterior outline only.
+- Applying or removing lightweighting clears downstream ID/layout state because
+  available engraving areas may have changed.
+- Assembly now hatches retained material covered by the next layer as the bare
+  glue zone. The actual openings remain transparent; glue belongs on the ribs
+  and contour margins, not in the removed areas.

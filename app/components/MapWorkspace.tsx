@@ -325,6 +325,8 @@ const PROJECT_STORE_NAME = "projects";
 const ACTIVE_PROJECT_KEY = "topomapper:active-project";
 const DEFAULT_LAYER_COUNT = 10;
 const DEFAULT_BATHYMETRY_BOUNDARIES = [-200, -100, -50, -20, -10, 0];
+const LAND_SMOOTHING_MAX_MM = 12;
+const SUBSEA_SMOOTHING_MAX_MM = 40;
 const MIN_LAYER_COUNT = 5;
 const MAX_LAYER_COUNT = 26;
 const DEFAULT_SNOW_LAYERS = 1;
@@ -743,7 +745,8 @@ function applySmoothing(
   const features = preview.feature_collection.features.flatMap((feature) => {
     const level = levels[feature.properties.layer_index] ?? 0;
     if (level <= 0) return [feature];
-    const iterations = Math.max(1, Math.min(6, Math.round(level / pixelSize)));
+    const maximumIterations = feature.properties.lower_elevation < 0 ? 18 : 6;
+    const iterations = Math.max(1, Math.min(maximumIterations, Math.round(level / pixelSize)));
     const coordinates = feature.geometry.coordinates.map((ring) => smoothRing(ring, preview.selection, iterations));
     const candidate: FilledLayerFeature = { ...feature, geometry: { ...feature.geometry, coordinates } };
     const minimumArea = Math.PI * (level / 2) ** 2;
@@ -4233,14 +4236,20 @@ export function MapWorkspace() {
   ) : "", [fabricationPreview, assemblyPlan, selectedAssemblyLayer, assemblyLayerIndex, previewDimensions.width, previewDimensions.height, holeDiameterMm, materialThicknessMm, analysis, partIdentification]);
   const originalSmoothingMetrics = filledLayerPreview ? layerGeometryMetrics(filledLayerPreview, smoothingLayerIndex, previewDimensions.width, previewDimensions.height) : null;
   const smoothedSmoothingMetrics = fabricationPreview ? layerGeometryMetrics(fabricationPreview, smoothingLayerIndex, previewDimensions.width, previewDimensions.height) : null;
+  const selectedSmoothingLayer = filledLayerPreview?.layers.find((layer) => layer.index === smoothingLayerIndex);
+  const selectedSmoothingIsSubsea = Boolean(selectedSmoothingLayer && selectedSmoothingLayer.lower_elevation < 0);
+  const selectedSmoothingMaximum = selectedSmoothingIsSubsea ? SUBSEA_SMOOTHING_MAX_MM : LAND_SMOOTHING_MAX_MM;
   const smoothingLayerMetrics = useMemo(() => filledLayerPreview && fabricationPreview
     ? filledLayerPreview.layers.map((layer) => ({
       index: layer.index,
+      subsea: layer.lower_elevation < 0,
       before: layerGeometryMetrics(filledLayerPreview, layer.index, previewDimensions.width, previewDimensions.height),
       after: layerGeometryMetrics(fabricationPreview, layer.index, previewDimensions.width, previewDimensions.height),
     }))
     : [], [filledLayerPreview, fabricationPreview, previewDimensions.width, previewDimensions.height]);
-  const overallSmoothingLevel = filledLayerPreview?.layers.reduce((maximum, layer) => Math.max(maximum, smoothingLevels[layer.index] ?? 0), 0) ?? 0;
+  const landSmoothingLevel = filledLayerPreview?.layers.filter((layer) => layer.lower_elevation >= 0).reduce((maximum, layer) => Math.max(maximum, smoothingLevels[layer.index] ?? 0), 0) ?? 0;
+  const subseaSmoothingLevel = filledLayerPreview?.layers.filter((layer) => layer.lower_elevation < 0).reduce((maximum, layer) => Math.max(maximum, smoothingLevels[layer.index] ?? 0), 0) ?? 0;
+  const hasSubseaLayers = Boolean(filledLayerPreview?.layers.some((layer) => layer.lower_elevation < 0));
   const smoothedPartSizes = smoothingLayerMetrics.filter((row) => row.after.parts > 0).map((row) => row.after.smallestPartSize);
   const smallestSmoothedPartSize = smoothedPartSizes.length ? Math.min(...smoothedPartSizes) : 0;
   const filledTotalParts = filledLayerPreview?.layers.reduce((total, layer) => total + layer.piece_count, 0) ?? 0;
@@ -4303,19 +4312,30 @@ export function MapWorkspace() {
   }
 
   function setLayerSmoothing(value: number) {
-    setSmoothingLevels((current) => ({ ...current, [smoothingLayerIndex]: Math.max(0, Math.min(12, value)) }));
+    const layer = filledLayerPreview?.layers.find((candidate) => candidate.index === smoothingLayerIndex);
+    const maximum = layer?.lower_elevation !== undefined && layer.lower_elevation < 0 ? SUBSEA_SMOOTHING_MAX_MM : LAND_SMOOTHING_MAX_MM;
+    setSmoothingLevels((current) => ({ ...current, [smoothingLayerIndex]: Math.max(0, Math.min(maximum, value)) }));
   }
 
-  function setOverallSmoothing(value: number) {
+  function setGroupedSmoothing(kind: "land" | "subsea", value: number) {
     if (!filledLayerPreview || !Number.isFinite(value)) return;
-    const level = Math.max(0, Math.min(12, value));
-    setSmoothingLevels(Object.fromEntries(filledLayerPreview.layers.map((layer) => [layer.index, level])));
+    const maximum = kind === "subsea" ? SUBSEA_SMOOTHING_MAX_MM : LAND_SMOOTHING_MAX_MM;
+    const level = Math.max(0, Math.min(maximum, value));
+    setSmoothingLevels((current) => ({
+      ...current,
+      ...Object.fromEntries(filledLayerPreview.layers.filter((layer) => kind === "subsea" ? layer.lower_elevation < 0 : layer.lower_elevation >= 0).map((layer) => [layer.index, level])),
+    }));
   }
 
   function applySmoothingToAll() {
     if (!filledLayerPreview) return;
     const value = smoothingLevels[smoothingLayerIndex] ?? 0;
-    setSmoothingLevels(Object.fromEntries(filledLayerPreview.layers.map((layer) => [layer.index, value])));
+    const selected = filledLayerPreview.layers.find((layer) => layer.index === smoothingLayerIndex);
+    const subsea = Boolean(selected && selected.lower_elevation < 0);
+    setSmoothingLevels((current) => ({
+      ...current,
+      ...Object.fromEntries(filledLayerPreview.layers.filter((layer) => (layer.lower_elevation < 0) === subsea).map((layer) => [layer.index, value])),
+    }));
   }
 
   function applyPartIdentification() {
@@ -5677,10 +5697,15 @@ export function MapWorkspace() {
           </summary>
           <div className="workflow-stage-body">
             <label className="drawer-smoothing-range">
-              <span>Smoothing Level</span>
-              <strong>{overallSmoothingLevel.toFixed(1)} mm</strong>
-              <input type="range" min="0" max="12" step="0.5" value={overallSmoothingLevel} disabled={!filledLayerPreview} onChange={(event) => setOverallSmoothing(Number(event.target.value))} />
+              <span>Land Smoothing</span>
+              <strong>{landSmoothingLevel.toFixed(1)} mm</strong>
+              <input type="range" min="0" max={LAND_SMOOTHING_MAX_MM} step="0.5" value={landSmoothingLevel} disabled={!filledLayerPreview} onChange={(event) => setGroupedSmoothing("land", Number(event.target.value))} />
             </label>
+            {hasSubseaLayers && <label className="drawer-smoothing-range subsea-smoothing-range">
+              <span>Subsea Smoothing</span>
+              <strong>{subseaSmoothingLevel.toFixed(1)} mm</strong>
+              <input type="range" min="0" max={SUBSEA_SMOOTHING_MAX_MM} step="1" value={subseaSmoothingLevel} onChange={(event) => setGroupedSmoothing("subsea", Number(event.target.value))} />
+            </label>}
             {smoothingCalculating && filledLayerPreview && <p className="smoothing-calculating" role="status"><i aria-hidden="true" /> Recalculating parts…</p>}
             {filledLayerPreview ? (
               <>
@@ -5688,7 +5713,7 @@ export function MapWorkspace() {
                 <div className="drawer-part-counts smoothing-total"><p><strong>Total</strong><b>{smoothedTotalParts} Parts</b></p></div>
                 <div className="smoothing-count-heading"><span>Part Count</span><b>Before</b><b>After</b></div>
                 <ol className="drawer-smoothing-list">
-                  {[...smoothingLayerMetrics].reverse().map((row) => <li key={row.index}><span>Level {row.index + 1}</span><b>{row.before.parts}</b><b>{row.after.parts}</b></li>)}
+                  {[...smoothingLayerMetrics].reverse().map((row) => <li key={row.index}><span>{row.subsea ? "Seabed" : "Land"} {row.index + 1}</span><b>{row.before.parts}</b><b>{row.after.parts}</b></li>)}
                 </ol>
               </>
             ) : <p className="stage-waiting-note">Generate the filled 2D preview first.</p>}
@@ -5919,9 +5944,9 @@ export function MapWorkspace() {
               </select>
               <button onClick={() => setSmoothingLayerIndex(Math.min(fabricationPreview.layers.length - 1, smoothingLayerIndex + 1))} disabled={smoothingLayerIndex === fabricationPreview.layers.length - 1} aria-label="Next smoothing layer">→</button>
             </div>
-            <label className="smoothing-range">Cleanup size <strong>{(smoothingLevels[smoothingLayerIndex] ?? 0).toFixed(1)} mm</strong><input type="range" min="0" max="12" step="0.5" value={smoothingLevels[smoothingLayerIndex] ?? 0} onChange={(event) => setLayerSmoothing(Number(event.target.value))} /></label>
+            <label className="smoothing-range">{selectedSmoothingIsSubsea ? "Subsea cleanup" : "Land cleanup"} <strong>{(smoothingLevels[smoothingLayerIndex] ?? 0).toFixed(1)} mm</strong><input type="range" min="0" max={selectedSmoothingMaximum} step={selectedSmoothingIsSubsea ? "1" : "0.5"} value={smoothingLevels[smoothingLayerIndex] ?? 0} onChange={(event) => setLayerSmoothing(Number(event.target.value))} /></label>
             <label className="smoothing-zoom">Zoom <select value={smoothingZoom} onChange={(event) => setSmoothingZoom(Number(event.target.value))}><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option><option value="8">8×</option></select></label>
-            <button onClick={applySmoothingToAll}>Apply to all</button>
+            <button onClick={applySmoothingToAll}>Apply to all {selectedSmoothingIsSubsea ? "subsea" : "land"}</button>
             <button onClick={() => setSmoothingLevels({})}>Reset all</button>
             {smoothingCalculating && <span className="smoothing-calculating toolbar-calculating" role="status"><i aria-hidden="true" /> Updating preview…</span>}
           </div>
@@ -5931,7 +5956,7 @@ export function MapWorkspace() {
               <div className="smoothing-legend"><span><i className="original-edge" /> Original raster edge</span><span><i className="clean-edge" /> Smoothed cut edge</span></div>
             </div>
             <aside className="smoothing-details">
-              <p>Frame boundaries remain locked and dead straight. Increasing cleanup rounds raster steps and removes islands or holes smaller than the selected physical size.</p>
+              <p>Frame boundaries remain locked and dead straight. Increasing cleanup rounds raster steps and removes islands or holes smaller than the selected physical size. Coarse subsea data allows up to {SUBSEA_SMOOTHING_MAX_MM} mm cleanup; land remains limited to {LAND_SMOOTHING_MAX_MM} mm to protect summits and small islands.</p>
               <div className="smoothing-comparison">
                 <span><small>Parts</small><b>{originalSmoothingMetrics.parts}</b><strong>{smoothedSmoothingMetrics.parts}</strong></span>
                 <span><small>Smallest part</small><b>{originalSmoothingMetrics.smallestPart.toFixed(1)} mm²</b><strong>{smoothedSmoothingMetrics.smallestPart.toFixed(1)} mm²</strong></span>

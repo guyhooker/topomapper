@@ -531,6 +531,7 @@ button { color: inherit; }
 .drawer-smoothing-range strong { color: var(--forest); font-size: 10px; font-variant-numeric: tabular-nums; }
 .drawer-smoothing-range input { grid-column: 1 / 3; width: 100%; accent-color: var(--forest); }
 .drawer-smoothing-range input:disabled { opacity: .4; }
+.subsea-smoothing-range { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
 .smoothing-calculating { display: flex; align-items: center; gap: 6px; margin: 7px 0 0; color: #1d6f82; font-size: 9px; font-weight: 700; }
 .smoothing-calculating i { width: 7px; height: 7px; border: 2px solid rgba(29,111,130,.25); border-top-color: #1d6f82; border-radius: 50%; animation: smoothing-spin .75s linear infinite; }
 .toolbar-calculating { margin: 0 0 0 auto; white-space: nowrap; }

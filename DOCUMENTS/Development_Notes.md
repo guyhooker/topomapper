@@ -949,3 +949,8 @@
 - Chose ESNZ/NIWA's 2016 nationwide 250 m raster as the initial source and kept
   the importer compatible with finer regional GeoTIFFs. Automatic cropping is
   deferred until the public image-service download is verified end to end.
+- Split smoothing into land and subsea groups. Land keeps its conservative
+  0–12 mm range while coarse seabed layers can use 0–40 mm cleanup and more
+  outline-smoothing passes. The full-screen per-layer control applies its value
+  only to layers of the same land/subsea kind, preventing an aggressive seabed
+  setting from erasing small summits or islands.

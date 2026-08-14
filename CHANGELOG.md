@@ -12,6 +12,8 @@ still change their project or manufacturing formats.
 - Added manual ESNZ/NIWA bathymetry analysis and an independent deep-base,
   −200/−100/−50/−20/−10/0 m subsea stack with blue paint assignments throughout
   the design and manufacturing workflow.
+- Added independent 0–40 mm subsea smoothing without increasing the conservative
+  0–12 mm land limit.
 
 ## [0.2.0] - 2026-08-14
 

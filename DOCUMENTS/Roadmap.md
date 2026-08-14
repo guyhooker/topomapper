@@ -430,6 +430,8 @@ that identification survives cutting while the tail can be removed cleanly.
 - Explicit land/bathymetry vertical-datum comparison.
 - Glass sea-level plane in the preview.
 - Blue subsea palette and bottom-to-sea-level physical stack. **Implemented.**
+- Independent aggressive subsea smoothing (0–40 mm) while retaining the
+  conservative 0–12 mm land range. **Implemented.**
 
 ### Acceptance Test
 

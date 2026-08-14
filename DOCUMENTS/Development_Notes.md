@@ -977,8 +977,9 @@
   inside one current part and one covering part on the next layer. Clearance is
   measured from both contours and their existing holes.
 - The globally aligned grid preserves predictable ribs. Candidate openings are
-  also rejected around the assembly registration grid and probable peak-vent
-  label points so dowels and vents retain solid support.
+  reduced in size when a full grid opening would approach a contour. Only
+  terminal peak-vent label points are reserved; regular assembly holes are
+  subsequently placed in the retained ribs and contour margins.
 - Lightweight openings become ordinary inner manufacturing rings and therefore
   flow through 3D, Assembly, Part ID safety checks, exact sheet SVG and the
   manufacturing package. SVGnest still receives the exterior outline only.

@@ -789,7 +789,7 @@ function applyLightweighting(
   settings: LightweightingSettings,
   modelWidth: number,
   modelHeight: number,
-  registrationPitchMm: number,
+  _registrationPitchMm: number,
   registrationHoleDiameterMm: number,
   registrationEdgeClearanceMm: number,
 ): FilledLayerPreview {
@@ -802,17 +802,15 @@ function applyLightweighting(
 
   const protectedRadius = registrationHoleDiameterMm / 2 + registrationEdgeClearanceMm;
   const protectedPoints: { x: number; y: number }[] = [];
-  const registrationPitch = Math.max(20, registrationPitchMm);
-  for (let y = registrationPitch / 2; y < modelHeight; y += registrationPitch) {
-    for (let x = registrationPitch / 2; x < modelWidth; x += registrationPitch) protectedPoints.push({ x, y });
-  }
+  const featuresByLayer = new Map<number, FilledLayerFeature[]>();
+  preview.layers.forEach((layer) => featuresByLayer.set(layer.index, preview.feature_collection.features.filter((feature) => feature.properties.layer_index === layer.index)));
   preview.feature_collection.features.filter((feature) => feature.properties.layer_index > 0).forEach((feature) => {
     const peak = featureLabelPoint(preview, feature, modelWidth, modelHeight).point;
+    const nextLayer = featuresByLayer.get(feature.properties.layer_index + 1) ?? [];
+    if (nextLayer.some((candidate) => pointInFeature(peak, candidate))) return;
     protectedPoints.push(physicalPoint(preview, modelWidth, modelHeight, peak));
   });
 
-  const featuresByLayer = new Map<number, FilledLayerFeature[]>();
-  preview.layers.forEach((layer) => featuresByLayer.set(layer.index, preview.feature_collection.features.filter((feature) => feature.properties.layer_index === layer.index)));
   const features = preview.feature_collection.features.map((feature) => {
     const coveringFeatures = featuresByLayer.get(feature.properties.layer_index + 1) ?? [];
     if (!coveringFeatures.length) return feature;
@@ -828,50 +826,58 @@ function applyLightweighting(
     const lastRow = Math.ceil(south / pitch);
     for (let row = firstRow; row < lastRow; row += 1) {
       for (let column = firstColumn; column < lastColumn; column += 1) {
-        const left = column * pitch + rib / 2;
-        const top = row * pitch + rib / 2;
-        const right = left + opening;
-        const bottom = top + opening;
-        if (left < 0 || top < 0 || right > modelWidth || bottom > modelHeight) continue;
-        const centre = geographicPoint(preview, modelWidth, modelHeight, (left + right) / 2, (top + bottom) / 2);
+        const centreX = (column + .5) * pitch;
+        const centreY = (row + .5) * pitch;
+        if (centreX <= 0 || centreY <= 0 || centreX >= modelWidth || centreY >= modelHeight) continue;
+        const centre = geographicPoint(preview, modelWidth, modelHeight, centreX, centreY);
         const covering = coveringFeatures.find((candidate) => pointInFeature(centre, candidate));
         if (!covering) continue;
-        const overlapsProtectedPoint = protectedPoints.some((point) => {
-          const nearestX = Math.max(left, Math.min(point.x, right));
-          const nearestY = Math.max(top, Math.min(point.y, bottom));
-          if (Math.hypot(point.x - nearestX, point.y - nearestY) >= protectedRadius) return false;
-          const geographic = geographicPoint(preview, modelWidth, modelHeight, point.x, point.y);
-          return pointInFeature(geographic, feature) && pointInFeature(geographic, covering);
-        });
-        if (overlapsProtectedPoint) continue;
-        const divisions = Math.max(3, Math.ceil(opening / 4));
-        let safe = true;
-        for (let sampleRow = 0; sampleRow <= divisions && safe; sampleRow += 1) {
-          for (let sampleColumn = 0; sampleColumn <= divisions; sampleColumn += 1) {
-            const x = left + opening * sampleColumn / divisions;
-            const y = top + opening * sampleRow / divisions;
-            const point = geographicPoint(preview, modelWidth, modelHeight, x, y);
-            if (!pointInFeature(point, feature) || !pointInFeature(point, covering)) { safe = false; break; }
+        const minimumOpening = Math.max(5, settings.minimumOpeningMm);
+        const sizeStep = Math.max(2, Math.min(5, rib / 2));
+        for (let candidateSize = opening; candidateSize >= minimumOpening; candidateSize -= sizeStep) {
+          const left = centreX - candidateSize / 2;
+          const top = centreY - candidateSize / 2;
+          const right = centreX + candidateSize / 2;
+          const bottom = centreY + candidateSize / 2;
+          if (left < 0 || top < 0 || right > modelWidth || bottom > modelHeight) continue;
+          const overlapsProtectedPoint = protectedPoints.some((point) => {
+            const nearestX = Math.max(left, Math.min(point.x, right));
+            const nearestY = Math.max(top, Math.min(point.y, bottom));
+            if (Math.hypot(point.x - nearestX, point.y - nearestY) >= protectedRadius) return false;
+            const geographic = geographicPoint(preview, modelWidth, modelHeight, point.x, point.y);
+            return pointInFeature(geographic, feature) && pointInFeature(geographic, covering);
+          });
+          if (overlapsProtectedPoint) continue;
+          const divisions = Math.max(3, Math.ceil(candidateSize / 4));
+          let safe = true;
+          for (let sampleRow = 0; sampleRow <= divisions && safe; sampleRow += 1) {
+            for (let sampleColumn = 0; sampleColumn <= divisions; sampleColumn += 1) {
+              const x = left + candidateSize * sampleColumn / divisions;
+              const y = top + candidateSize * sampleRow / divisions;
+              const point = geographicPoint(preview, modelWidth, modelHeight, x, y);
+              if (!pointInFeature(point, feature) || !pointInFeature(point, covering)) { safe = false; break; }
+            }
           }
+          if (!safe) continue;
+          const clearanceSamples = [
+            [left, top], [right, top], [right, bottom], [left, bottom],
+            [(left + right) / 2, top], [right, (top + bottom) / 2],
+            [(left + right) / 2, bottom], [left, (top + bottom) / 2],
+          ];
+          if (clearanceSamples.some(([x, y]) => {
+            const point = geographicPoint(preview, modelWidth, modelHeight, x, y);
+            return featureClearanceMm(preview, feature, modelWidth, modelHeight, point) < margin
+              || featureClearanceMm(preview, covering, modelWidth, modelHeight, point) < margin;
+          })) continue;
+          holes.push([
+            geographicPoint(preview, modelWidth, modelHeight, left, top),
+            geographicPoint(preview, modelWidth, modelHeight, left, bottom),
+            geographicPoint(preview, modelWidth, modelHeight, right, bottom),
+            geographicPoint(preview, modelWidth, modelHeight, right, top),
+            geographicPoint(preview, modelWidth, modelHeight, left, top),
+          ]);
+          break;
         }
-        if (!safe) continue;
-        const clearanceSamples = [
-          [left, top], [right, top], [right, bottom], [left, bottom],
-          [(left + right) / 2, top], [right, (top + bottom) / 2],
-          [(left + right) / 2, bottom], [left, (top + bottom) / 2],
-        ];
-        if (clearanceSamples.some(([x, y]) => {
-          const point = geographicPoint(preview, modelWidth, modelHeight, x, y);
-          return featureClearanceMm(preview, feature, modelWidth, modelHeight, point) < margin
-            || featureClearanceMm(preview, covering, modelWidth, modelHeight, point) < margin;
-        })) continue;
-        holes.push([
-          geographicPoint(preview, modelWidth, modelHeight, left, top),
-          geographicPoint(preview, modelWidth, modelHeight, left, bottom),
-          geographicPoint(preview, modelWidth, modelHeight, right, bottom),
-          geographicPoint(preview, modelWidth, modelHeight, right, top),
-          geographicPoint(preview, modelWidth, modelHeight, left, top),
-        ]);
       }
     }
     if (!holes.length) return feature;
@@ -6287,6 +6293,7 @@ export function MapWorkspace() {
           </div>
           <div className="sheet-layout-workspace">
             <div className="sheet-canvas-wrap">
+              {!sheetPlacements.length && <div className="sheet-empty-notice" role="status"><strong>No parts have been placed yet</strong><span>Open Setup → 9) Sheet Layout and press Quick Placement.</span></div>}
               <SheetLayoutCanvas
                 rules={sheetRules}
                 parts={layoutParts}

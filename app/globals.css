@@ -771,6 +771,8 @@ button { color: inherit; }
 .sheet-layout-workspace { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 10px; flex: 1; min-height: 0; }
 .sheet-canvas-wrap { position: relative; min-height: 300px; overflow: hidden; border: 1px solid var(--line); border-radius: 0 11px 11px 11px; background: radial-gradient(circle at 50% 42%, #fff, #e7ebe7 78%); }
 .sheet-canvas-wrap canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: move; }
+.sheet-empty-notice { position: absolute; z-index: 3; left: 50%; top: 50%; transform: translate(-50%, -50%); display: grid; gap: .35rem; max-width: 24rem; padding: 1rem 1.25rem; border: 1px solid rgba(67, 95, 80, .28); border-radius: .75rem; background: rgba(250, 250, 246, .94); color: #294b3d; text-align: center; box-shadow: 0 .5rem 1.5rem rgba(35, 57, 47, .12); pointer-events: none; }
+.sheet-empty-notice span { color: #53665d; font-size: .86rem; }
 .sheet-scale-note { position: absolute; left: 8px; bottom: 7px; padding: 4px 6px; border-radius: 5px; background: rgba(250,248,242,.9); color: var(--muted); font-size: 7px; pointer-events: none; }
 .sheet-layout-details { min-height: 0; overflow: auto; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: rgba(252,250,244,.84); }
 .sheet-layout-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }

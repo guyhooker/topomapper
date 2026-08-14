@@ -276,6 +276,10 @@ controller/postprocessor are specified.
 - Extend the 3 mm bridge as a parallel-sided stalk normal to the selected part
   edge before it meets the upright flag. Avoid acute re-entrant corners and
   require the resulting outline to remain machinable with the selected cutter.
+- After a DRC-clear nest, export a separate Side 1 V-cutter marking SVG for each
+  populated sheet. Put A1–Z99 on the back of a flag when present; otherwise put
+  the ID and a north arrow on the back of the part. Mirror the marks for the
+  long-axis sheet flip and omit waste-board labels for now.
 
 ## Quality and Safety
 

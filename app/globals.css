@@ -410,7 +410,7 @@ button { color: inherit; }
 .dataset-name { margin: 7px 2px 0; overflow: hidden; color: var(--muted); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
 
 .layer-editor { margin-top: 19px; padding-top: 17px; border-top: 1px solid var(--line); }
-.workflow-stage.layer-editor, .workflow-stage.filled-layer-section, .workflow-stage.smoothing-stage, .workflow-stage.part-id-stage, .workflow-stage.sheet-stage { margin-top: 0; padding-top: 0; border-top: 0; }
+.workflow-stage.layer-editor, .workflow-stage.filled-layer-section, .workflow-stage.smoothing-stage, .workflow-stage.part-id-stage, .workflow-stage.sheet-stage, .workflow-stage.id-marking-stage { margin-top: 0; padding-top: 0; border-top: 0; }
 
 .part-id-settings { display: grid; gap: 9px; }
 .part-id-settings > label { display: flex; align-items: center; gap: 8px; color: var(--ink); font-size: 10px; font-weight: 700; }

@@ -1557,6 +1557,25 @@ function findSheetWasteLabels(placements: SheetPlacement[], parts: LayoutPart[],
   return { labels, missing };
 }
 
+function buildUndersideIdGroups(placements: SheetPlacement[], partMap: Map<string, LayoutPart>) {
+  return placements.map((placement) => {
+    const part = partMap.get(placement.partId);
+    if (!part || !part.machineLabel) return "";
+    const label = part.labelPoint;
+    if (part.hasIdFlag) {
+      const text = vectorTextPath(part.displayId, 0, 0, 4);
+      return `<g data-placement-id="${xmlText(placement.id)}" data-part-id="${xmlText(part.id)}" data-display-id="${xmlText(part.displayId)}" data-mark-location="flag" transform="${sheetPlacementTransform(placement, part)}">
+        <g transform="translate(${svgNumber(label.x)} ${svgNumber(label.y)}) rotate(90)"><path d="${text}" /></g>
+      </g>`;
+    }
+    const text = vectorTextPath(part.displayId, label.x, label.y + 1.3, 4.5);
+    const north = `M${svgNumber(label.x)} ${svgNumber(label.y - 1.5)} L${svgNumber(label.x)} ${svgNumber(label.y - 5.5)} M${svgNumber(label.x)} ${svgNumber(label.y - 5.5)} L${svgNumber(label.x - 1.4)} ${svgNumber(label.y - 3.7)} M${svgNumber(label.x)} ${svgNumber(label.y - 5.5)} L${svgNumber(label.x + 1.4)} ${svgNumber(label.y - 3.7)}`;
+    return `<g data-placement-id="${xmlText(placement.id)}" data-part-id="${xmlText(part.id)}" data-display-id="${xmlText(part.displayId)}" data-mark-location="part" transform="${sheetPlacementTransform(placement, part)}">
+      <path d="${text} ${north}" />
+    </g>`;
+  }).join("\n      ");
+}
+
 function buildSheetSvg(projectName: string, sheetIndex: number, rules: SheetRules, allParts: LayoutPart[], allPlacements: SheetPlacement[], holeDiameter: number) {
   const placements = allPlacements.filter((placement) => placement.sheetIndex === sheetIndex);
   const partMap = new Map(allParts.map((part) => [part.id, part]));
@@ -1575,22 +1594,7 @@ function buildSheetSvg(projectName: string, sheetIndex: number, rules: SheetRule
       ${part.holes.map((hole) => `<circle data-hole-kind="${hole.kind}" cx="${svgNumber(hole.x)}" cy="${svgNumber(hole.y)}" r="${svgNumber(holeDiameter / 2)}" />`).join("\n      ")}
     </g>`;
   }).join("\n    ");
-  const undersideIds = placements.map((placement) => {
-    const part = partMap.get(placement.partId);
-    if (!part || !part.machineLabel) return "";
-    const label = part.labelPoint;
-    if (part.hasIdFlag) {
-      const text = vectorTextPath(part.displayId, 0, 0, 4);
-      return `<g data-placement-id="${xmlText(placement.id)}" data-part-id="${xmlText(part.id)}" data-display-id="${xmlText(part.displayId)}" transform="${sheetPlacementTransform(placement, part)}">
-        <g transform="translate(${svgNumber(label.x)} ${svgNumber(label.y)}) rotate(90)"><path d="${text}" /></g>
-      </g>`;
-    }
-    const text = vectorTextPath(part.displayId, label.x, label.y + 1.3, 4.5);
-    const north = `M${svgNumber(label.x)} ${svgNumber(label.y - 2)} L${svgNumber(label.x)} ${svgNumber(label.y - 7)} M${svgNumber(label.x)} ${svgNumber(label.y - 7)} L${svgNumber(label.x - 1.5)} ${svgNumber(label.y - 4.7)} M${svgNumber(label.x)} ${svgNumber(label.y - 7)} L${svgNumber(label.x + 1.5)} ${svgNumber(label.y - 4.7)}`;
-    return `<g data-placement-id="${xmlText(placement.id)}" data-part-id="${xmlText(part.id)}" data-display-id="${xmlText(part.displayId)}" transform="${sheetPlacementTransform(placement, part)}">
-      <path d="${text} ${north}" />
-    </g>`;
-  }).join("\n      ");
+  const undersideIds = buildUndersideIdGroups(placements, partMap);
   const metadata = JSON.stringify({ project: projectName, sheet: sheetIndex + 1, sheet_width_mm: rules.width, sheet_height_mm: rules.height, material_thickness_mm: rules.thickness, part_instances: placements.length, labels: "See the separately generated printable layout guide." });
   const svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" width="${svgNumber(rules.width)}mm" height="${svgNumber(rules.height)}mm" viewBox="0 0 ${svgNumber(rules.width)} ${svgNumber(rules.height)}">
@@ -1612,6 +1616,36 @@ function buildSheetSvg(projectName: string, sheetIndex: number, rules: SheetRule
   </g>
 </svg>`;
   return { svg, partCount: placements.length };
+}
+
+function buildIdMarkingSvg(projectName: string, sheetIndex: number, rules: SheetRules, allParts: LayoutPart[], allPlacements: SheetPlacement[]) {
+  const placements = allPlacements.filter((placement) => placement.sheetIndex === sheetIndex);
+  const partMap = new Map(allParts.map((part) => [part.id, part]));
+  const marks = buildUndersideIdGroups(placements, partMap);
+  const markedParts = placements.filter((placement) => partMap.get(placement.partId)?.machineLabel).length;
+  const flagMarks = placements.filter((placement) => partMap.get(placement.partId)?.hasIdFlag).length;
+  const metadata = JSON.stringify({
+    project: projectName,
+    sheet: sheetIndex + 1,
+    operation: "side-1-v-cutter-identification",
+    flip: "long-axis",
+    marked_parts: markedParts,
+    flag_marks: flagMarks,
+    north: "flag point or engraved arrow",
+  });
+  return { svg: `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" width="${svgNumber(rules.width)}mm" height="${svgNumber(rules.height)}mm" viewBox="0 0 ${svgNumber(rules.width)} ${svgNumber(rules.height)}">
+  <title>${xmlText(projectName)} · Sheet ${sheetIndex + 1} · Side 1 ID marking</title>
+  <desc>Engrave these vector paths with a V cutter on the back of the stock before flipping it on its long axis for Side 2 cutting. Pointed flags show north; unflagged parts have an engraved north arrow.</desc>
+  <metadata>${xmlText(metadata)}</metadata>
+  <g id="SHEET_REFERENCE" inkscape:groupmode="layer" inkscape:label="REFERENCE — DO NOT MACHINE" data-operation="reference" fill="none" stroke="#8a8174" stroke-width="0.2" stroke-dasharray="4 3">
+    <rect x="0" y="0" width="${svgNumber(rules.width)}" height="${svgNumber(rules.height)}" />
+    <rect x="${svgNumber(rules.edgeMargin)}" y="${svgNumber(rules.edgeMargin)}" width="${svgNumber(rules.width - rules.edgeMargin * 2)}" height="${svgNumber(rules.height - rules.edgeMargin * 2)}" />
+  </g>
+  <g id="SIDE_1_ID_MARKING" inkscape:groupmode="layer" inkscape:label="SIDE 1 — V-CUTTER ID MARKING" data-operation="v-engrave-underside" data-suggested-depth-mm="0.5" transform="translate(0 ${svgNumber(rules.height)}) scale(1 -1)" fill="none" stroke="#214f3d" stroke-width="0.35" stroke-linecap="round" stroke-linejoin="round">
+    ${marks}
+  </g>
+</svg>`, markedParts, flagMarks, partCount: placements.length };
 }
 
 function simplifyOpenLine(points: { x: number; y: number }[], tolerance: number): { x: number; y: number }[] {
@@ -2934,6 +2968,7 @@ export function MapWorkspace() {
   const [holeEdgeClearanceMm, setHoleEdgeClearanceMm] = useState(6);
   const [exportStatus, setExportStatus] = useState("Manufacturing files are ready to inspect.");
   const [sheetExportStatus, setSheetExportStatus] = useState("Export a finished-size SVG after arranging the parts.");
+  const [idMarkingStatus, setIdMarkingStatus] = useState("Complete a DRC-clear sheet layout before exporting underside marks.");
   const [colourChartStatus, setColourChartStatus] = useState("Download a workshop-ready PDF or print this chart from the browser.");
   const [smoothingLayerIndex, setSmoothingLayerIndex] = useState(0);
   const [smoothingLevels, setSmoothingLevels] = useState<Record<number, number>>({});
@@ -2979,6 +3014,7 @@ export function MapWorkspace() {
   const [filledStageOpen, setFilledStageOpen] = useState(false);
   const [smoothingStageOpen, setSmoothingStageOpen] = useState(false);
   const [sheetStageOpen, setSheetStageOpen] = useState(false);
+  const [idMarkingStageOpen, setIdMarkingStageOpen] = useState(false);
   const workflowDrawerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const smoothingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sheetRulesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -3985,6 +4021,10 @@ export function MapWorkspace() {
   const sheetLayoutComplete = allLayoutPartsPlaced && layoutViolations.length === 0;
   const sheetLayoutStatus = sheetLayoutComplete ? "Complete" : allLayoutPartsPlaced ? "Warnings" : "Incomplete";
   const sheetLayoutStatusClass = sheetLayoutComplete ? "complete" : allLayoutPartsPlaced ? "warning" : "incomplete";
+  const unmarkedPartCount = layoutParts.filter((part) => !part.machineLabel).length;
+  const idMarkingReady = sheetLayoutComplete
+    && partIdentification.addIdsToUnderside
+    && unmarkedPartCount === 0;
   const highlightedPlacementIds = selectedViolationIndex !== null ? (layoutViolations[selectedViolationIndex]?.placementIds ?? []) : [];
   const selectedPlacement = sheetPlacements.find((placement) => placement.id === selectedPlacementId) ?? null;
   const placedArea = sheetPlacements.reduce((total, placement) => total + (layoutParts.find((part) => part.id === placement.partId)?.areaMm2 ?? 0), 0);
@@ -4595,7 +4635,7 @@ export function MapWorkspace() {
         "CUT_OUTLINES: profile through the material",
         "DRILL_HOLES: drill through the material",
         "SHEET_REFERENCE: visual reference only — do not machine",
-        "Part engraving is deferred. Use the printable layout guide to identify and orient parts by hand.",
+        "SIDE_1_UNDERSIDE_IDS: optional V-cutter IDs; engrave before the long-axis board flip.",
         "",
         ...results.flatMap(({ sheetIndex, result }) => [
           `Sheet ${sheetIndex + 1}: ${result.partCount} parts`,
@@ -4604,6 +4644,42 @@ export function MapWorkspace() {
     });
     downloadFile(createZipArchive(files), "application/zip", `${stem}-sheets.zip`);
     setSheetExportStatus(`${populatedSheets.length} populated cutting SVG${populatedSheets.length === 1 ? "" : "s"} downloaded as a ZIP.`);
+  }
+
+  function idMarkingSvgExport(sheetIndex: number) {
+    return buildIdMarkingSvg(projectName || "Topomapper project", sheetIndex, sheetRules, layoutParts, sheetPlacements);
+  }
+
+  function downloadActiveIdMarkingSvg() {
+    const result = idMarkingSvgExport(activeSheetIndex);
+    if (!result.partCount) { setIdMarkingStatus(`Sheet ${activeSheetIndex + 1} has no parts to mark.`); return; }
+    const stem = projectFilename(projectName || "topomapper-project").replace(/\.topomapper$/i, "");
+    downloadFile(result.svg, "image/svg+xml;charset=utf-8", `${stem}-sheet-${activeSheetIndex + 1}-side-1-ids.svg`);
+    setIdMarkingStatus(`Sheet ${activeSheetIndex + 1} Side 1 marking SVG downloaded: ${result.markedParts} IDs, including ${result.flagMarks} flag ID${result.flagMarks === 1 ? "" : "s"}.`);
+  }
+
+  function downloadAllIdMarkingSvgs() {
+    const populatedSheets = Array.from({ length: sheetCount }, (_, index) => index).filter((index) => sheetPlacements.some((placement) => placement.sheetIndex === index));
+    if (!populatedSheets.length) { setIdMarkingStatus("There are no placed parts to mark."); return; }
+    const stem = projectFilename(projectName || "topomapper-project").replace(/\.topomapper$/i, "");
+    const results = populatedSheets.map((sheetIndex) => ({ sheetIndex, result: idMarkingSvgExport(sheetIndex) }));
+    const files = results.map(({ sheetIndex, result }) => ({ name: `${stem}-sheet-${sheetIndex + 1}-side-1-ids.svg`, contents: result.svg }));
+    files.push({
+      name: `${stem}-side-1-id-notes.txt`,
+      contents: [
+        `TOPOMAPPER SIDE 1 ID MARKING — ${projectName || "Unnamed project"}`,
+        "",
+        `Stock: ${sheetRules.width} x ${sheetRules.height} x ${sheetRules.thickness} mm`,
+        "Use a V-shaped engraving cutter on the back of each sheet.",
+        "Engrave Side 1 first, then flip the stock on its long axis before Side 2 drilling and profile cutting.",
+        "A pointed flag is the north marker. Parts without flags have a separate engraved north arrow.",
+        "Waste-board labels are intentionally omitted.",
+        "",
+        ...results.map(({ sheetIndex, result }) => `Sheet ${sheetIndex + 1}: ${result.markedParts} IDs (${result.flagMarks} on flags)`),
+      ].join("\n"),
+    });
+    downloadFile(createZipArchive(files), "application/zip", `${stem}-side-1-ids.zip`);
+    setIdMarkingStatus(`${populatedSheets.length} Side 1 marking SVG${populatedSheets.length === 1 ? "" : "s"} downloaded as a ZIP.`);
   }
 
   async function downloadSvgNestJob() {
@@ -4667,7 +4743,7 @@ export function MapWorkspace() {
         const label = rotateLayoutPoint(part.labelPoint, part, placement.rotation);
         const north = rotateLayoutPoint({ x: part.labelPoint.x, y: part.labelPoint.y - 10 }, part, placement.rotation);
         return [{
-          id: part.id,
+          id: part.displayId,
           rotation: placement.rotation,
           rings: placedPartRings(placement, part),
           label_point: { x: label.x + placement.x, y: label.y + placement.y },
@@ -5256,6 +5332,22 @@ export function MapWorkspace() {
               <details><summary>Diagnostic test file</summary><button disabled={!layoutParts.length || !partIdentificationComplete} onClick={downloadSvgNestDiagnosticJob}>Download 20% diagnostic</button></details>
               <p role="status">{sheetExportStatus}</p>
             </div>
+          </div>
+        </details>
+
+        <details className="workflow-stage id-marking-stage" open={idMarkingStageOpen} onToggle={(event) => setIdMarkingStageOpen(event.currentTarget.open)}>
+          <summary className="workflow-stage-summary">
+            <span><strong>9) ID Marking</strong></span>
+            <em>{idMarkingReady ? "Complete" : "Incomplete"}</em>
+            <i className={`stage-status-led ${idMarkingReady ? "complete" : "incomplete"}`} aria-hidden="true" />
+            <b aria-hidden="true">{idMarkingStageOpen ? "−" : "+"}</b>
+          </summary>
+          <div className="workflow-stage-body part-id-settings">
+            <p>Side 1 uses vector strokes for a V-shaped cutter. Flag IDs need no arrow because the pointed flag end is north. IDs engraved directly on parts include a north arrow.</p>
+            <dl className="plain-smoothing-stats"><div><dt>Part IDs:</dt><dd>{engravedPartCount}</dd></div><div><dt>On flags:</dt><dd>{flaggedPartCount}</dd></div><div><dt>Without marks:</dt><dd>{unmarkedPartCount}</dd></div></dl>
+            <button disabled={!idMarkingReady || !sheetPlacements.some((placement) => placement.sheetIndex === activeSheetIndex)} onClick={downloadActiveIdMarkingSvg}>Download Sheet {activeSheetIndex + 1} ID SVG</button>
+            <button disabled={!idMarkingReady} onClick={downloadAllIdMarkingSvgs}>Download all ID SVGs</button>
+            <p role="status">{idMarkingReady ? idMarkingStatus : unmarkedPartCount ? `${unmarkedPartCount} part${unmarkedPartCount === 1 ? " does" : "s do"} not yet have a safe ID location.` : "Complete a DRC-clear sheet layout first."}</p>
           </div>
         </details>
         </aside>

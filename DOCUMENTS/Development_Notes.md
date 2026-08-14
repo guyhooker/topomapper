@@ -878,3 +878,15 @@
   selected coastline chord. Its far end intersects the flat base of the upright
   north-pointing flag, eliminating the acute unmachinable notch seen where a
   vertical flag previously met a sloping ridge edge.
+
+### Side 1 ID marking
+
+- Added Setup Section 9 after Sheet Layout with a red/green readiness LED and
+  active-sheet or all-sheet ID marking downloads.
+- Added dedicated finished-size Side 1 SVGs containing only reference geometry
+  and continuous vector strokes suitable for a V-shaped engraving cutter.
+- Marked flags with their A1–Z99 ID and no redundant arrow. Unflagged parts carry
+  the same ID plus a north arrow. The complete operation is mirrored for the
+  agreed long-axis stock flip and records its operation intent in SVG metadata.
+- Kept waste-board labels out of this stage. Updated printable layout guides to
+  show the compact workshop ID rather than the internal stable part key.

@@ -236,3 +236,11 @@ with supporting land behind it and rejects sharply turning ridge tips, keeping
 the breakaway bridge at least 3 mm wide. A 6 mm-long, parallel-sided stalk now
 leaves that edge perpendicularly before joining the upright pointed flag. This
 removes acute inside corners which a 3 mm cutter could not machine.
+
+Setup Section 9, ID Marking, becomes available after a DRC-clear sheet layout.
+It exports dedicated finished-size Side 1 SVGs for a V-shaped engraving cutter.
+Every mark uses the compact layer-and-part form such as `F23`. Flagged parts are
+marked on the back of the flag, whose pointed end already shows north. Unflagged
+parts are marked on their underside with both the ID and a north arrow. The
+whole marking layer is mirrored for the established long-axis stock flip;
+waste-board labels remain deferred.

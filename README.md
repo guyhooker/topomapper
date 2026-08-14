@@ -1,5 +1,7 @@
 # topomapper
 
+**Current prototype release: v0.2.0 — Manufacturing Layout Prototype**
+
 `topomapper` is a Mac application for turning real-world terrain and seabed
 elevation data into layered shapes suitable for CNC-cut wall maps.
 
@@ -17,6 +19,7 @@ Detailed requirements and the proposed technical foundation are in
 
 Development is divided into visible, testable increments in
 [`DOCUMENTS/Roadmap.md`](DOCUMENTS/Roadmap.md).
+Release changes are recorded in [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Local development
 

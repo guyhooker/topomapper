@@ -459,6 +459,10 @@ Python, a terminal, or a development server.
 
 ## Suggested Release Milestones
 
+- **v0.2.0 — Manufacturing Layout Prototype (2026-08-14):** Named projects,
+  automated NZ terrain/water input, layered model generation, smoothing, part
+  IDs, SVGnest round trip, sheet DRC and Side 1 engraving preparation.
+
 - **Prototype A — Terrain analyser:** Stages 1–4.
 - **Prototype B — Visual land model:** Stages 5–6.
 - **Prototype C — Manufacturing geometry:** Stages 7–9.

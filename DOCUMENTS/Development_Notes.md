@@ -911,3 +911,11 @@
 - Clarified the sheet-face convention: Sheet Layout is viewed from Side 2, the
   transparent purple Side 1 marks are mirrored, and opposite border captions
   show `SIDE 2 · CUT / DRILL` normally and `SIDE 1 · ID ENGRAVING` backwards.
+
+### v0.2.0 release milestone
+
+- Advanced the application package from 0.1.0 to 0.2.0 and named the milestone
+  **Manufacturing Layout Prototype**.
+- Added a root changelog describing the working terrain-to-nested-sheet toolchain
+  and the remaining nesting, machining, physical-test and packaging work before
+  the planned 1.0 release.

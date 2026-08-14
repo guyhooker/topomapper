@@ -75,7 +75,14 @@ class Bounds:
 def _source_bounds(dataset: rasterio.io.DatasetReader) -> Bounds:
     if dataset.crs is None:
         raise AnalysisError("A GeoTIFF has no coordinate reference system.")
-    return Bounds(*transform_bounds(dataset.crs, WGS84, *dataset.bounds, densify_pts=21))
+    west, south, east, north = transform_bounds(dataset.crs, WGS84, *dataset.bounds, densify_pts=21)
+    # Nationwide rasters such as NZ Bathymetry 2016 extend across the date line.
+    # PROJ reports their eastern edge as a negative longitude even though the
+    # raster begins around 157°E. Keep the bounds continuous eastward so ordinary
+    # New Zealand selections (roughly 166–179°E) overlap the source correctly.
+    if east < west:
+        east += 360
+    return Bounds(west, south, east, north)
 
 
 def _clip_window(dataset: rasterio.io.DatasetReader, selection: Bounds) -> Window:

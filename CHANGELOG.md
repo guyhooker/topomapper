@@ -6,6 +6,8 @@ still change their project or manufacturing formats.
 
 ## [Unreleased]
 
+- Fixed nationwide bathymetry rasters that cross the international date line
+  being incorrectly rejected as outside a New Zealand selection.
 - Made Undersea Layers selectable before bathymetry is loaded; enabling it now
   opens the Stage 3 manual-data controls and explains the required analysis.
 - Added a strict design-to-manufacturing handover ZIP containing paired Side 1

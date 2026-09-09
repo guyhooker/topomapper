@@ -122,6 +122,11 @@ type FilledLayerPreview = {
   grid: { width: number; height: number };
   water?: { source_filenames: string[]; polygon_count: number; cell_count: number };
   bathymetry?: { source_filenames: string[]; cell_count: number; minimum_elevation: number };
+  lightweighting?: {
+    primary_opening_count: number;
+    half_pitch_opening_count: number;
+    layers: { index: number; primary_opening_count: number; half_pitch_opening_count: number }[];
+  };
   layers: FilledLayer[];
   feature_collection: { type: "FeatureCollection"; features: FilledLayerFeature[] };
 };
@@ -805,6 +810,7 @@ function applyLightweighting(
 
   const protectedRadius = registrationHoleDiameterMm / 2 + registrationEdgeClearanceMm;
   const protectedPoints: { x: number; y: number }[] = [];
+  const openingCounts = new Map<number, { primary: number; halfPitch: number }>();
   const featuresByLayer = new Map<number, FilledLayerFeature[]>();
   preview.layers.forEach((layer) => featuresByLayer.set(layer.index, preview.feature_collection.features.filter((feature) => feature.properties.layer_index === layer.index)));
   preview.feature_collection.features.filter((feature) => feature.properties.layer_index > 0).forEach((feature) => {
@@ -828,7 +834,7 @@ function applyLightweighting(
     const firstRow = Math.floor(north / pitch);
     const lastRow = Math.ceil(south / pitch);
     const minimumOpening = Math.max(5, settings.minimumOpeningMm);
-    const tryCell = (cellLeft: number, cellTop: number, cellPitch: number): boolean => {
+    const tryCell = (cellLeft: number, cellTop: number, cellPitch: number, depth = 0): boolean => {
       const cellRib = Math.max(3, rib * cellPitch / pitch);
       const candidateSize = cellPitch - cellRib;
       const centreX = cellLeft + cellPitch / 2;
@@ -875,6 +881,10 @@ function applyLightweighting(
               geographicPoint(preview, modelWidth, modelHeight, right, top),
               geographicPoint(preview, modelWidth, modelHeight, left, top),
             ]);
+            const counts = openingCounts.get(feature.properties.layer_index) ?? { primary: 0, halfPitch: 0 };
+            if (depth === 0) counts.primary += 1;
+            else counts.halfPitch += 1;
+            openingCounts.set(feature.properties.layer_index, counts);
             return true;
           }
         }
@@ -885,7 +895,7 @@ function applyLightweighting(
       let placed = false;
       for (let childRow = 0; childRow < 2; childRow += 1) {
         for (let childColumn = 0; childColumn < 2; childColumn += 1) {
-          placed = tryCell(cellLeft + childColumn * halfPitch, cellTop + childRow * halfPitch, halfPitch) || placed;
+          placed = tryCell(cellLeft + childColumn * halfPitch, cellTop + childRow * halfPitch, halfPitch, depth + 1) || placed;
         }
       }
       return placed;
@@ -902,7 +912,20 @@ function applyLightweighting(
     const layerFeatures = features.filter((feature) => feature.properties.layer_index === layer.index);
     return { ...layer, hole_count: layerFeatures.reduce((total, feature) => total + Math.max(0, feature.geometry.coordinates.length - 1), 0) };
   });
-  return { ...preview, layers, feature_collection: { ...preview.feature_collection, features } };
+  const lightweightingLayers = layers.map((layer) => {
+    const counts = openingCounts.get(layer.index) ?? { primary: 0, halfPitch: 0 };
+    return { index: layer.index, primary_opening_count: counts.primary, half_pitch_opening_count: counts.halfPitch };
+  });
+  return {
+    ...preview,
+    lightweighting: {
+      primary_opening_count: lightweightingLayers.reduce((total, layer) => total + layer.primary_opening_count, 0),
+      half_pitch_opening_count: lightweightingLayers.reduce((total, layer) => total + layer.half_pitch_opening_count, 0),
+      layers: lightweightingLayers,
+    },
+    layers,
+    feature_collection: { ...preview.feature_collection, features },
+  };
 }
 
 function layerGeometryMetrics(preview: FilledLayerPreview, layerIndex: number, modelWidth: number, modelHeight: number) {
@@ -4568,6 +4591,8 @@ export function MapWorkspace() {
   const lightweightMaterialArea = fabricationPreview?.feature_collection.features.reduce((total, feature) => total + featureAreaMm2(fabricationPreview, feature, previewDimensions.width, previewDimensions.height), 0) ?? 0;
   const removedMaterialArea = Math.max(0, smoothedMaterialArea - lightweightMaterialArea);
   const lightweightOpeningCount = Math.max(0, (fabricationPreview?.layers.reduce((total, layer) => total + layer.hole_count, 0) ?? 0) - (smoothedPreview?.layers.reduce((total, layer) => total + layer.hole_count, 0) ?? 0));
+  const primaryLightweightOpeningCount = fabricationPreview?.lightweighting?.primary_opening_count ?? 0;
+  const halfPitchLightweightOpeningCount = fabricationPreview?.lightweighting?.half_pitch_opening_count ?? 0;
   const partIdentificationComplete = Boolean(filledStageComplete
     && lightweightingComplete
     && partIdentification.applied
@@ -6101,9 +6126,11 @@ export function MapWorkspace() {
             <label><span>Contour margin</span><strong><input type="number" min="0" step="1" value={lightweightingDraft.contourMarginMm} disabled={!lightweightingDraft.enabled} onChange={(event) => setLightweightingDraft((current) => ({ ...current, contourMarginMm: Number(event.target.value) }))} /><em>mm</em></strong></label>
             <label><span>Minimum opening</span><strong><input type="number" min="5" step="5" value={lightweightingDraft.minimumOpeningMm} disabled={!lightweightingDraft.enabled} onChange={(event) => setLightweightingDraft((current) => ({ ...current, minimumOpeningMm: Number(event.target.value) }))} /><em>mm</em></strong></label>
             <button disabled={!smoothedPreview || lightweightingSettingsMatch && lightweightingComplete} onClick={applyLightweightingSettings}>{lightweightingDraft.enabled ? "Apply lightweighting" : "Continue without lightweighting"}</button>
-            <p>The area covered by the next layer is the bare glue zone. Topomapper retains the contour margin and a regular lattice, then removes the buried cells. Narrow regions automatically use a half-pitch lattice. Alignment drilling is omitted while lightweighting is active.</p>
+            <p>The area covered by the next layer is the bare glue zone. Topomapper retains the contour margin and a regular lattice, then removes the buried cells. Any full-pitch opening that does not fit is retried as four half-pitch openings. Alignment drilling is omitted while lightweighting is active.</p>
             {lightweighting.applied && lightweighting.enabled && lightweightingSettingsMatch && <dl className="plain-smoothing-stats">
               <div><dt>Weight-reduction openings:</dt><dd>{lightweightOpeningCount}</dd></div>
+              <div><dt>Full-pitch openings:</dt><dd>{primaryLightweightOpeningCount}</dd></div>
+              <div><dt>Half-pitch openings:</dt><dd>{halfPitchLightweightOpeningCount}</dd></div>
               <div><dt>Material area removed:</dt><dd>{Math.round(removedMaterialArea).toLocaleString("en-NZ")} mm²</dd></div>
               <div><dt>Stack material reduction:</dt><dd>{smoothedMaterialArea > 0 ? `${(removedMaterialArea / smoothedMaterialArea * 100).toFixed(1)}%` : "0%"}</dd></div>
             </dl>}

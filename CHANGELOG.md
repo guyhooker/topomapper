@@ -9,8 +9,8 @@ still change their project or manufacturing formats.
 - Added an optional Lightweighting stage between Smoothing and Part ID. It cuts
   full- and half-pitch grid openings only from areas covered by the next layer,
   preserves contour glue margins, replaces separate alignment drilling,
-  reports material-area reduction, and marks retained covered material as the
-  bare/glue zone in Assembly.
+  reports full- and half-pitch opening counts plus material-area reduction, and
+  marks retained covered material as the bare/glue zone in Assembly.
 - Added configurable CNC holding tabs to sheet SVGs: closed profiles cut to tab
   height followed by open full-depth segments with evenly spaced bridges.
 - Closed tidal gaps between the 8 m land DEM and coarse national bathymetry;

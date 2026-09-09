@@ -974,12 +974,12 @@
 - Default controls are 75 mm grid spacing, 6 mm ribs, 15 mm contour margin and
   30 mm minimum opening. Settings are explicitly applied and persist in both
   named projects and standalone sheet-layout backups.
-- A candidate opening is accepted only when dense physical-space samples remain
-  inside one current part and one covering part on the next layer. Clearance is
-  measured from both contours and their existing holes.
-- The globally aligned grid preserves predictable ribs. If a full-pitch cell
-  cannot fit, it is divided into four half-pitch cells; this removes buried
-  material from narrower shapes while retaining the same rib width.
+- A conservative 2 mm physical-space mask identifies the area inside the
+  current part and a covering part on the next layer, inset from both contours
+  and their existing holes by the requested glue margin.
+- A globally aligned, constant-pitch grid preserves predictable ribs. Complete
+  openings remain rectangular; boundary openings are clipped to the inset mask
+  and small or topologically unsafe fragments are discarded.
 - Separate alignment holes and peak vents are omitted while lightweighting is
   active because the repeated lattice itself supplies visible alignment.
 - Lightweight openings become ordinary inner manufacturing rings and therefore

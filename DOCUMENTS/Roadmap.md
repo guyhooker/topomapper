@@ -210,8 +210,9 @@ that topomapper must own it.
 
 - Optional buried-material removal after smoothing and before Part ID.
 - Configurable grid pitch, rib width, contour margin and minimum opening.
-- Openings require complete coverage by the next physical layer. Full-pitch
-  cells are tried first and half-pitch cells fill narrower buried regions.
+- Openings require coverage by the next physical layer. A constant-pitch grid
+  is intersected with the inset buried area so useful partial boundary openings
+  are retained without introducing a second, smaller lattice pitch.
 - The retained lattice replaces separate alignment holes while lightweighting
   is enabled.
 - Assembly preview hatches retained covered surfaces as bare/glue zones.

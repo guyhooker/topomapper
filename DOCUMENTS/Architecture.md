@@ -88,10 +88,11 @@ original source files remain external and are only needed for regeneration.
 - Optional lightweighting is a deterministic transformation after smoothing
   and before part identification. A globally aligned grid adds internal
   openings only where the next physical layer covers the current part. Contour
-  margins and grid ribs are retained as structural and gluing material.
-  Half-pitch cells fill buried areas that cannot accept the primary grid. The
-  lattice replaces registration drilling while active; the resulting inner
-  rings flow through part IDs, DRC, SVG and manufacturing outputs.
+  margins and grid ribs are retained as structural and gluing material. Edge
+  openings are conservatively clipped to the inset buried-area contour instead
+  of changing to a smaller grid pitch. The lattice replaces registration
+  drilling while active; the resulting inner rings flow through part IDs, DRC,
+  SVG and manufacturing outputs.
 - Sheet SVG profile geometry is divided into a closed cut to tab height and
   open full-depth segments. Evenly spaced omitted segments form configurable
   holding bridges that keep every part attached to the stock.

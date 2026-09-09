@@ -123,9 +123,9 @@ type FilledLayerPreview = {
   water?: { source_filenames: string[]; polygon_count: number; cell_count: number };
   bathymetry?: { source_filenames: string[]; cell_count: number; minimum_elevation: number };
   lightweighting?: {
-    primary_opening_count: number;
-    half_pitch_opening_count: number;
-    layers: { index: number; primary_opening_count: number; half_pitch_opening_count: number }[];
+    full_opening_count: number;
+    clipped_opening_count: number;
+    layers: { index: number; full_opening_count: number; clipped_opening_count: number }[];
   };
   layers: FilledLayer[];
   feature_collection: { type: "FeatureCollection"; features: FilledLayerFeature[] };
@@ -210,6 +210,7 @@ const ID_FLAG_WIDTH_MM = 8;
 const ID_FLAG_LENGTH_MM = 12;
 const ID_FLAG_NECK_MM = 3;
 const ID_FLAG_STALK_MM = 6;
+const LIGHTWEIGHT_MASK_RESOLUTION_MM = 2;
 const TOPOMAPPER_VERSION = "0.2.0";
 
 type SheetPlacement = {
@@ -810,7 +811,7 @@ function applyLightweighting(
 
   const protectedRadius = registrationHoleDiameterMm / 2 + registrationEdgeClearanceMm;
   const protectedPoints: { x: number; y: number }[] = [];
-  const openingCounts = new Map<number, { primary: number; halfPitch: number }>();
+  const openingCounts = new Map<number, { full: number; clipped: number }>();
   const featuresByLayer = new Map<number, FilledLayerFeature[]>();
   preview.layers.forEach((layer) => featuresByLayer.set(layer.index, preview.feature_collection.features.filter((feature) => feature.properties.layer_index === layer.index)));
   preview.feature_collection.features.filter((feature) => feature.properties.layer_index > 0).forEach((feature) => {
@@ -834,75 +835,133 @@ function applyLightweighting(
     const firstRow = Math.floor(north / pitch);
     const lastRow = Math.ceil(south / pitch);
     const minimumOpening = Math.max(5, settings.minimumOpeningMm);
-    const tryCell = (cellLeft: number, cellTop: number, cellPitch: number, depth = 0): boolean => {
-      const cellRib = Math.max(3, rib * cellPitch / pitch);
-      const candidateSize = cellPitch - cellRib;
-      const centreX = cellLeft + cellPitch / 2;
-      const centreY = cellTop + cellPitch / 2;
-      if (candidateSize >= minimumOpening && centreX > 0 && centreY > 0 && centreX < modelWidth && centreY < modelHeight) {
-        const left = centreX - candidateSize / 2;
-        const top = centreY - candidateSize / 2;
-        const right = centreX + candidateSize / 2;
-        const bottom = centreY + candidateSize / 2;
-        const centre = geographicPoint(preview, modelWidth, modelHeight, centreX, centreY);
-        const covering = coveringFeatures.find((candidate) => pointInFeature(centre, candidate));
-        if (covering && left >= 0 && top >= 0 && right <= modelWidth && bottom <= modelHeight) {
-          const overlapsProtectedPoint = protectedPoints.some((point) => {
-            const nearestX = Math.max(left, Math.min(point.x, right));
-            const nearestY = Math.max(top, Math.min(point.y, bottom));
-            if (Math.hypot(point.x - nearestX, point.y - nearestY) >= protectedRadius) return false;
-            const geographic = geographicPoint(preview, modelWidth, modelHeight, point.x, point.y);
-            return pointInFeature(geographic, feature) && pointInFeature(geographic, covering);
-          });
-          const divisions = Math.max(3, Math.ceil(candidateSize / 4));
-          let safe = !overlapsProtectedPoint;
-          for (let sampleRow = 0; sampleRow <= divisions && safe; sampleRow += 1) {
-            for (let sampleColumn = 0; sampleColumn <= divisions; sampleColumn += 1) {
-              const x = left + candidateSize * sampleColumn / divisions;
-              const y = top + candidateSize * sampleRow / divisions;
-              const point = geographicPoint(preview, modelWidth, modelHeight, x, y);
-              if (!pointInFeature(point, feature) || !pointInFeature(point, covering)) { safe = false; break; }
-            }
-          }
-          const clearanceSamples = [
-            [left, top], [right, top], [right, bottom], [left, bottom],
-            [(left + right) / 2, top], [right, (top + bottom) / 2],
-            [(left + right) / 2, bottom], [left, (top + bottom) / 2],
-          ];
-          if (safe && clearanceSamples.every(([x, y]) => {
-            const point = geographicPoint(preview, modelWidth, modelHeight, x, y);
-            return featureClearanceMm(preview, feature, modelWidth, modelHeight, point) >= margin
-              && featureClearanceMm(preview, covering, modelWidth, modelHeight, point) >= margin;
-          })) {
-            holes.push([
-              geographicPoint(preview, modelWidth, modelHeight, left, top),
-              geographicPoint(preview, modelWidth, modelHeight, left, bottom),
-              geographicPoint(preview, modelWidth, modelHeight, right, bottom),
-              geographicPoint(preview, modelWidth, modelHeight, right, top),
-              geographicPoint(preview, modelWidth, modelHeight, left, top),
-            ]);
-            const counts = openingCounts.get(feature.properties.layer_index) ?? { primary: 0, halfPitch: 0 };
-            if (depth === 0) counts.primary += 1;
-            else counts.halfPitch += 1;
-            openingCounts.set(feature.properties.layer_index, counts);
-            return true;
-          }
+    const physicalRings = feature.geometry.coordinates.map((ring) => ring.map((point) => physicalPoint(preview, modelWidth, modelHeight, point)));
+    const physicalCoverings = coveringFeatures.map((covering) => covering.geometry.coordinates.map((ring) => ring.map((point) => physicalPoint(preview, modelWidth, modelHeight, point))));
+    const containsRing = (point: { x: number; y: number }, ring: { x: number; y: number }[]) => {
+      let inside = false;
+      for (let index = 0, previous = ring.length - 1; index < ring.length; previous = index, index += 1) {
+        const current = ring[index];
+        const prior = ring[previous];
+        if ((current.y > point.y) !== (prior.y > point.y)
+          && point.x < (prior.x - current.x) * (point.y - current.y) / (prior.y - current.y) + current.x) inside = !inside;
+      }
+      return inside;
+    };
+    const containsFeature = (point: { x: number; y: number }, rings: { x: number; y: number }[][]) => containsRing(point, rings[0]) && !rings.slice(1).some((ring) => containsRing(point, ring));
+    const clearance = (point: { x: number; y: number }, rings: { x: number; y: number }[][]) => rings.reduce((minimum, ring) => ring.slice(1).reduce((ringMinimum, end, index) => Math.min(ringMinimum, distanceToSegment(point, ring[index], end)), minimum), Number.POSITIVE_INFINITY);
+    const traceMask = (mask: Uint8Array, columns: number, rows: number, left: number, top: number, cellWidth: number, cellHeight: number) => {
+      const outgoing = new Map<string, { x: number; y: number }[]>();
+      const filled = (column: number, row: number) => column >= 0 && column < columns && row >= 0 && row < rows && mask[row * columns + column] === 1;
+      const addEdge = (startX: number, startY: number, endX: number, endY: number) => {
+        const key = `${startX}:${startY}`;
+        const entries = outgoing.get(key);
+        if (entries) entries.push({ x: endX, y: endY }); else outgoing.set(key, [{ x: endX, y: endY }]);
+      };
+      for (let row = 0; row < rows; row += 1) {
+        for (let column = 0; column < columns; column += 1) {
+          if (!filled(column, row)) continue;
+          if (!filled(column, row - 1)) addEdge(column, row, column + 1, row);
+          if (!filled(column + 1, row)) addEdge(column + 1, row, column + 1, row + 1);
+          if (!filled(column, row + 1)) addEdge(column + 1, row + 1, column, row + 1);
+          if (!filled(column - 1, row)) addEdge(column, row + 1, column, row);
         }
       }
-      const halfPitch = cellPitch / 2;
-      const halfRib = Math.max(3, rib * halfPitch / pitch);
-      if (halfPitch - halfRib < minimumOpening) return false;
-      let placed = false;
-      for (let childRow = 0; childRow < 2; childRow += 1) {
-        for (let childColumn = 0; childColumn < 2; childColumn += 1) {
-          placed = tryCell(cellLeft + childColumn * halfPitch, cellTop + childRow * halfPitch, halfPitch, depth + 1) || placed;
+      const loops: { x: number; y: number }[][] = [];
+      while (outgoing.size) {
+        const first = outgoing.entries().next().value as [string, { x: number; y: number }[]] | undefined;
+        if (!first) break;
+        const [startKey, firstEnds] = first;
+        const [startX, startY] = startKey.split(":").map(Number);
+        let current = { x: startX, y: startY };
+        let previousDirection = -1;
+        const loop = [current];
+        for (let guard = 0; guard < mask.length * 4 + 4; guard += 1) {
+          const key = `${current.x}:${current.y}`;
+          const ends = outgoing.get(key) ?? (key === startKey ? firstEnds : []);
+          if (!ends.length) break;
+          const direction = (end: { x: number; y: number }) => end.x > current.x ? 0 : end.y > current.y ? 1 : end.x < current.x ? 2 : 3;
+          const rank = (end: { x: number; y: number }) => {
+            if (previousDirection < 0) return 0;
+            const turn = (direction(end) - previousDirection + 4) % 4;
+            return turn === 1 ? 0 : turn === 0 ? 1 : turn === 3 ? 2 : 3;
+          };
+          let selected = 0;
+          for (let index = 1; index < ends.length; index += 1) if (rank(ends[index]) < rank(ends[selected])) selected = index;
+          const [next] = ends.splice(selected, 1);
+          if (!ends.length) outgoing.delete(key);
+          previousDirection = direction(next);
+          current = next;
+          loop.push(current);
+          if (current.x === startX && current.y === startY) break;
+        }
+        if (loop.length < 5 || loop[loop.length - 1].x !== startX || loop[loop.length - 1].y !== startY) continue;
+        const physical = loop.map((point) => ({ x: left + point.x * cellWidth, y: top + point.y * cellHeight }));
+        const simplified = physical.filter((point, index) => {
+          if (index === 0 || index === physical.length - 1) return true;
+          const before = physical[index - 1];
+          const after = physical[index + 1];
+          return Math.abs((point.x - before.x) * (after.y - point.y) - (point.y - before.y) * (after.x - point.x)) > 1e-8;
+        });
+        loops.push(simplified);
+      }
+      return loops;
+    };
+    const tryCell = (column: number, row: number) => {
+      const centreX = (column + .5) * pitch;
+      const centreY = (row + .5) * pitch;
+      const left = Math.max(0, centreX - opening / 2);
+      const top = Math.max(0, centreY - opening / 2);
+      const right = Math.min(modelWidth, centreX + opening / 2);
+      const bottom = Math.min(modelHeight, centreY + opening / 2);
+      if (right - left < 5 || bottom - top < 5) return;
+      if (protectedPoints.some((point) => {
+        const nearestX = Math.max(left, Math.min(point.x, right));
+        const nearestY = Math.max(top, Math.min(point.y, bottom));
+        return Math.hypot(point.x - nearestX, point.y - nearestY) < protectedRadius;
+      })) return;
+      const resolution = LIGHTWEIGHT_MASK_RESOLUTION_MM;
+      const columns = Math.max(1, Math.ceil((right - left) / resolution));
+      const rows = Math.max(1, Math.ceil((bottom - top) / resolution));
+      const cellWidth = (right - left) / columns;
+      const cellHeight = (bottom - top) / rows;
+      const conservativeMargin = margin + Math.hypot(cellWidth, cellHeight) / 2;
+      const mask = new Uint8Array(columns * rows);
+      let safeCells = 0;
+      for (let maskRow = 0; maskRow < rows; maskRow += 1) {
+        for (let maskColumn = 0; maskColumn < columns; maskColumn += 1) {
+          const point = { x: left + (maskColumn + .5) * cellWidth, y: top + (maskRow + .5) * cellHeight };
+          if (!containsFeature(point, physicalRings) || clearance(point, physicalRings) < conservativeMargin) continue;
+          const covering = physicalCoverings.find((candidate) => containsFeature(point, candidate) && clearance(point, candidate) >= conservativeMargin);
+          if (!covering) continue;
+          mask[maskRow * columns + maskColumn] = 1;
+          safeCells += 1;
         }
       }
-      return placed;
+      if (!safeCells) return;
+      const loops = traceMask(mask, columns, rows, left, top, cellWidth, cellHeight);
+      const signedArea = (ring: { x: number; y: number }[]) => ring.slice(0, -1).reduce((total, point, index) => {
+        const next = ring[index + 1] ?? ring[0];
+        return total + point.x * next.y - next.x * point.y;
+      }, 0) / 2;
+      // A retained island inside a proposed opening cannot be represented by a
+      // GeoJSON Polygon hole. Reject that cell instead of cutting its support.
+      if (loops.some((ring) => signedArea(ring) < 0)) return;
+      const accepted = loops.filter((ring) => {
+        const width = Math.max(...ring.map((point) => point.x)) - Math.min(...ring.map((point) => point.x));
+        const height = Math.max(...ring.map((point) => point.y)) - Math.min(...ring.map((point) => point.y));
+        return width >= minimumOpening && height >= minimumOpening && signedArea(ring) >= minimumOpening ** 2 / 2;
+      });
+      if (!accepted.length) return;
+      accepted.forEach((ring) => holes.push(ring.map((point) => geographicPoint(preview, modelWidth, modelHeight, point.x, point.y))));
+      const counts = openingCounts.get(feature.properties.layer_index) ?? { full: 0, clipped: 0 };
+      const complete = safeCells === mask.length && accepted.length === 1;
+      if (complete) counts.full += 1;
+      else counts.clipped += accepted.length;
+      openingCounts.set(feature.properties.layer_index, counts);
     };
     for (let row = firstRow; row < lastRow; row += 1) {
       for (let column = firstColumn; column < lastColumn; column += 1) {
-        tryCell(column * pitch, row * pitch, pitch);
+        tryCell(column, row);
       }
     }
     if (!holes.length) return feature;
@@ -913,14 +972,14 @@ function applyLightweighting(
     return { ...layer, hole_count: layerFeatures.reduce((total, feature) => total + Math.max(0, feature.geometry.coordinates.length - 1), 0) };
   });
   const lightweightingLayers = layers.map((layer) => {
-    const counts = openingCounts.get(layer.index) ?? { primary: 0, halfPitch: 0 };
-    return { index: layer.index, primary_opening_count: counts.primary, half_pitch_opening_count: counts.halfPitch };
+    const counts = openingCounts.get(layer.index) ?? { full: 0, clipped: 0 };
+    return { index: layer.index, full_opening_count: counts.full, clipped_opening_count: counts.clipped };
   });
   return {
     ...preview,
     lightweighting: {
-      primary_opening_count: lightweightingLayers.reduce((total, layer) => total + layer.primary_opening_count, 0),
-      half_pitch_opening_count: lightweightingLayers.reduce((total, layer) => total + layer.half_pitch_opening_count, 0),
+      full_opening_count: lightweightingLayers.reduce((total, layer) => total + layer.full_opening_count, 0),
+      clipped_opening_count: lightweightingLayers.reduce((total, layer) => total + layer.clipped_opening_count, 0),
       layers: lightweightingLayers,
     },
     layers,
@@ -4591,8 +4650,8 @@ export function MapWorkspace() {
   const lightweightMaterialArea = fabricationPreview?.feature_collection.features.reduce((total, feature) => total + featureAreaMm2(fabricationPreview, feature, previewDimensions.width, previewDimensions.height), 0) ?? 0;
   const removedMaterialArea = Math.max(0, smoothedMaterialArea - lightweightMaterialArea);
   const lightweightOpeningCount = Math.max(0, (fabricationPreview?.layers.reduce((total, layer) => total + layer.hole_count, 0) ?? 0) - (smoothedPreview?.layers.reduce((total, layer) => total + layer.hole_count, 0) ?? 0));
-  const primaryLightweightOpeningCount = fabricationPreview?.lightweighting?.primary_opening_count ?? 0;
-  const halfPitchLightweightOpeningCount = fabricationPreview?.lightweighting?.half_pitch_opening_count ?? 0;
+  const fullLightweightOpeningCount = fabricationPreview?.lightweighting?.full_opening_count ?? 0;
+  const clippedLightweightOpeningCount = fabricationPreview?.lightweighting?.clipped_opening_count ?? 0;
   const partIdentificationComplete = Boolean(filledStageComplete
     && lightweightingComplete
     && partIdentification.applied
@@ -6126,11 +6185,11 @@ export function MapWorkspace() {
             <label><span>Contour margin</span><strong><input type="number" min="0" step="1" value={lightweightingDraft.contourMarginMm} disabled={!lightweightingDraft.enabled} onChange={(event) => setLightweightingDraft((current) => ({ ...current, contourMarginMm: Number(event.target.value) }))} /><em>mm</em></strong></label>
             <label><span>Minimum opening</span><strong><input type="number" min="5" step="5" value={lightweightingDraft.minimumOpeningMm} disabled={!lightweightingDraft.enabled} onChange={(event) => setLightweightingDraft((current) => ({ ...current, minimumOpeningMm: Number(event.target.value) }))} /><em>mm</em></strong></label>
             <button disabled={!smoothedPreview || lightweightingSettingsMatch && lightweightingComplete} onClick={applyLightweightingSettings}>{lightweightingDraft.enabled ? "Apply lightweighting" : "Continue without lightweighting"}</button>
-            <p>The area covered by the next layer is the bare glue zone. Topomapper retains the contour margin and a regular lattice, then removes the buried cells. Any full-pitch opening that does not fit is retried as four half-pitch openings. Alignment drilling is omitted while lightweighting is active.</p>
+            <p>The area covered by the next layer is the bare glue zone. Topomapper insets that area by the contour margin, overlays one regular lattice, and clips its edge openings to the inset contour. Alignment drilling is omitted while lightweighting is active.</p>
             {lightweighting.applied && lightweighting.enabled && lightweightingSettingsMatch && <dl className="plain-smoothing-stats">
               <div><dt>Weight-reduction openings:</dt><dd>{lightweightOpeningCount}</dd></div>
-              <div><dt>Full-pitch openings:</dt><dd>{primaryLightweightOpeningCount}</dd></div>
-              <div><dt>Half-pitch openings:</dt><dd>{halfPitchLightweightOpeningCount}</dd></div>
+              <div><dt>Complete lattice cells:</dt><dd>{fullLightweightOpeningCount}</dd></div>
+              <div><dt>Clipped edge openings:</dt><dd>{clippedLightweightOpeningCount}</dd></div>
               <div><dt>Material area removed:</dt><dd>{Math.round(removedMaterialArea).toLocaleString("en-NZ")} mm²</dd></div>
               <div><dt>Stack material reduction:</dt><dd>{smoothedMaterialArea > 0 ? `${(removedMaterialArea / smoothedMaterialArea * 100).toFixed(1)}%` : "0%"}</dd></div>
             </dl>}

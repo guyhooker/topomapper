@@ -243,11 +243,11 @@ documentation, and is cut off only during assembly. Applying changed ID options
 clears an obsolete sheet placement because the part outlines may have changed.
 
 An optional Lightweighting stage now sits between Smoothing and Part ID.
-Topomapper identifies material fully covered by the layer above, keeps a solid
-contour margin and a configurable structural grid, and adds safe rectangular
-internal cut-outs. Full-pitch cells are used first; narrower buried regions
-automatically use a half-pitch lattice. The lattice replaces separate alignment
-drilling while lightweighting is active. The
+Topomapper identifies material fully covered by the layer above, insets it by a
+solid contour margin, overlays a configurable constant-pitch structural grid,
+and clips edge openings to the inset contour. This retains useful partial
+openings around irregular boundaries without changing to a smaller grid. The
+lattice replaces separate alignment drilling while lightweighting is active. The
 Assembly view hatches the retained covered material as a bare/glue zone, while
 the openings remain transparent. Applied settings and the resulting downstream
 manufacturing state are saved in the named project.

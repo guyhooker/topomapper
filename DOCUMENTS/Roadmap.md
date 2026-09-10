@@ -213,6 +213,8 @@ that topomapper must own it.
 - Openings require coverage by the next physical layer. A constant-pitch grid
   is intersected with the inset buried area so useful partial boundary openings
   are retained without introducing a second, smaller lattice pitch.
+- The support lattice can be omitted to expose the complete inset buried-area
+  calculation and create maximum-area internal openings.
 - The retained lattice replaces separate alignment holes while lightweighting
   is enabled.
 - Assembly preview hatches retained covered surfaces as bare/glue zones.

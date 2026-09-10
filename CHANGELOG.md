@@ -9,7 +9,8 @@ still change their project or manufacturing formats.
 - Added an optional Lightweighting stage between Smoothing and Part ID. It
   insets areas covered by the next layer to preserve a contour glue margin,
   overlays a constant-pitch lattice, clips boundary openings to that inset,
-  replaces separate alignment drilling, reports complete and clipped opening
+  can omit the support lattice to expose the entire inset buried area, replaces
+  separate alignment drilling, reports complete and clipped opening
   counts plus material-area reduction, and marks retained covered material as
   the bare/glue zone in Assembly.
 - Added configurable CNC holding tabs to sheet SVGs: closed profiles cut to tab

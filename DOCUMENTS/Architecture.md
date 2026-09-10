@@ -90,7 +90,8 @@ original source files remain external and are only needed for regeneration.
   openings only where the next physical layer covers the current part. Contour
   margins and grid ribs are retained as structural and gluing material. Edge
   openings are conservatively clipped to the inset buried-area contour instead
-  of changing to a smaller grid pitch. The lattice replaces registration
+  of changing to a smaller grid pitch. An optional no-lattice mode emits the
+  complete safely inset buried region. The lattice replaces registration
   drilling while active; the resulting inner rings flow through part IDs, DRC,
   SVG and manufacturing outputs.
 - Sheet SVG profile geometry is divided into a closed cut to tab height and

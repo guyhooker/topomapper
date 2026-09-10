@@ -125,7 +125,8 @@ type FilledLayerPreview = {
   lightweighting?: {
     full_opening_count: number;
     clipped_opening_count: number;
-    layers: { index: number; full_opening_count: number; clipped_opening_count: number }[];
+    unlatticed_opening_count: number;
+    layers: { index: number; full_opening_count: number; clipped_opening_count: number; unlatticed_opening_count: number }[];
   };
   layers: FilledLayer[];
   feature_collection: { type: "FeatureCollection"; features: FilledLayerFeature[] };
@@ -185,6 +186,7 @@ type PartIdentificationSettings = {
 
 type LightweightingSettings = {
   enabled: boolean;
+  addLattice: boolean;
   gridPitchMm: number;
   ribWidthMm: number;
   contourMarginMm: number;
@@ -194,6 +196,7 @@ type LightweightingSettings = {
 
 const DEFAULT_LIGHTWEIGHTING: LightweightingSettings = {
   enabled: false,
+  addLattice: true,
   gridPitchMm: 75,
   ribWidthMm: 6,
   contourMarginMm: 15,
@@ -807,11 +810,11 @@ function applyLightweighting(
   const rib = Math.max(3, Math.min(pitch - 2, settings.ribWidthMm));
   const opening = pitch - rib;
   const margin = Math.max(0, settings.contourMarginMm);
-  if (opening < Math.max(5, settings.minimumOpeningMm)) return preview;
+  if (settings.addLattice && opening < Math.max(5, settings.minimumOpeningMm)) return preview;
 
   const protectedRadius = registrationHoleDiameterMm / 2 + registrationEdgeClearanceMm;
   const protectedPoints: { x: number; y: number }[] = [];
-  const openingCounts = new Map<number, { full: number; clipped: number }>();
+  const openingCounts = new Map<number, { full: number; clipped: number; unlatticed: number }>();
   const featuresByLayer = new Map<number, FilledLayerFeature[]>();
   preview.layers.forEach((layer) => featuresByLayer.set(layer.index, preview.feature_collection.features.filter((feature) => feature.properties.layer_index === layer.index)));
   preview.feature_collection.features.filter((feature) => feature.properties.layer_index > 0).forEach((feature) => {
@@ -906,20 +909,21 @@ function applyLightweighting(
       }
       return loops;
     };
-    const tryCell = (column: number, row: number) => {
-      const centreX = (column + .5) * pitch;
-      const centreY = (row + .5) * pitch;
-      const left = Math.max(0, centreX - opening / 2);
-      const top = Math.max(0, centreY - opening / 2);
-      const right = Math.min(modelWidth, centreX + opening / 2);
-      const bottom = Math.min(modelHeight, centreY + opening / 2);
+    const tryRegion = (
+      left: number,
+      top: number,
+      right: number,
+      bottom: number,
+      regionCoverings: { x: number; y: number }[][][],
+      latticeCell: boolean,
+    ) => {
       if (right - left < 5 || bottom - top < 5) return;
-      if (protectedPoints.some((point) => {
+      if (latticeCell && protectedPoints.some((point) => {
         const nearestX = Math.max(left, Math.min(point.x, right));
         const nearestY = Math.max(top, Math.min(point.y, bottom));
         if (Math.hypot(point.x - nearestX, point.y - nearestY) >= protectedRadius) return false;
         return containsFeature(point, physicalRings)
-          && physicalCoverings.some((covering) => containsFeature(point, covering));
+          && regionCoverings.some((covering) => containsFeature(point, covering));
       })) return;
       const resolution = LIGHTWEIGHT_MASK_RESOLUTION_MM;
       const columns = Math.max(1, Math.ceil((right - left) / resolution));
@@ -933,18 +937,33 @@ function applyLightweighting(
         for (let maskColumn = 0; maskColumn < columns; maskColumn += 1) {
           const point = { x: left + (maskColumn + .5) * cellWidth, y: top + (maskRow + .5) * cellHeight };
           if (!containsFeature(point, physicalRings) || clearance(point, physicalRings) < conservativeMargin) continue;
-          const covering = physicalCoverings.find((candidate) => containsFeature(point, candidate) && clearance(point, candidate) >= conservativeMargin);
+          const covering = regionCoverings.find((candidate) => containsFeature(point, candidate) && clearance(point, candidate) >= conservativeMargin);
           if (!covering) continue;
           mask[maskRow * columns + maskColumn] = 1;
           safeCells += 1;
         }
       }
       if (!safeCells) return;
-      const loops = traceMask(mask, columns, rows, left, top, cellWidth, cellHeight);
       const signedArea = (ring: { x: number; y: number }[]) => ring.slice(0, -1).reduce((total, point, index) => {
         const next = ring[index + 1] ?? ring[0];
         return total + point.x * next.y - next.x * point.y;
       }, 0) / 2;
+      let loops = traceMask(mask, columns, rows, left, top, cellWidth, cellHeight);
+      if (!latticeCell) {
+        // A large unlatticed opening can surround a valley or an existing
+        // internal hole. Join each retained island to the surrounding material
+        // with one short rib so every emitted cut remains a simple safe ring.
+        const bridgeHalfRows = Math.max(1, Math.ceil(Math.max(3, rib) / cellHeight / 2));
+        loops.filter((ring) => signedArea(ring) < 0).forEach((island) => {
+          const anchor = island.reduce((leftmost, point) => point.x < leftmost.x ? point : leftmost, island[0]);
+          const anchorColumn = Math.max(0, Math.min(columns - 1, Math.floor((anchor.x - left) / cellWidth)));
+          const anchorRow = Math.max(0, Math.min(rows - 1, Math.floor((anchor.y - top) / cellHeight)));
+          for (let row = Math.max(0, anchorRow - bridgeHalfRows); row <= Math.min(rows - 1, anchorRow + bridgeHalfRows); row += 1) {
+            for (let column = 0; column <= anchorColumn; column += 1) mask[row * columns + column] = 0;
+          }
+        });
+        loops = traceMask(mask, columns, rows, left, top, cellWidth, cellHeight);
+      }
       // A retained island inside a proposed opening cannot be represented by a
       // GeoJSON Polygon hole. Reject that cell instead of cutting its support.
       if (loops.some((ring) => signedArea(ring) < 0)) return;
@@ -955,16 +974,39 @@ function applyLightweighting(
       });
       if (!accepted.length) return;
       accepted.forEach((ring) => holes.push(ring.map((point) => geographicPoint(preview, modelWidth, modelHeight, point.x, point.y))));
-      const counts = openingCounts.get(feature.properties.layer_index) ?? { full: 0, clipped: 0 };
-      const complete = safeCells === mask.length && accepted.length === 1;
-      if (complete) counts.full += 1;
+      const counts = openingCounts.get(feature.properties.layer_index) ?? { full: 0, clipped: 0, unlatticed: 0 };
+      if (!latticeCell) counts.unlatticed += accepted.length;
+      else if (safeCells === mask.length && accepted.length === 1) counts.full += 1;
       else counts.clipped += accepted.length;
       openingCounts.set(feature.properties.layer_index, counts);
     };
-    for (let row = firstRow; row < lastRow; row += 1) {
-      for (let column = firstColumn; column < lastColumn; column += 1) {
-        tryCell(column, row);
+    if (settings.addLattice) {
+      for (let row = firstRow; row < lastRow; row += 1) {
+        for (let column = firstColumn; column < lastColumn; column += 1) {
+          const centreX = (column + .5) * pitch;
+          const centreY = (row + .5) * pitch;
+          tryRegion(
+            Math.max(0, centreX - opening / 2),
+            Math.max(0, centreY - opening / 2),
+            Math.min(modelWidth, centreX + opening / 2),
+            Math.min(modelHeight, centreY + opening / 2),
+            physicalCoverings,
+            true,
+          );
+        }
       }
+    } else {
+      physicalCoverings.forEach((covering) => {
+        const coveringOuter = covering[0];
+        tryRegion(
+          Math.max(0, Math.min(...coveringOuter.map((point) => point.x))),
+          Math.max(0, Math.min(...coveringOuter.map((point) => point.y))),
+          Math.min(modelWidth, Math.max(...coveringOuter.map((point) => point.x))),
+          Math.min(modelHeight, Math.max(...coveringOuter.map((point) => point.y))),
+          [covering],
+          false,
+        );
+      });
     }
     if (!holes.length) return feature;
     return { ...feature, geometry: { ...feature.geometry, coordinates: [...feature.geometry.coordinates, ...holes] } };
@@ -974,14 +1016,15 @@ function applyLightweighting(
     return { ...layer, hole_count: layerFeatures.reduce((total, feature) => total + Math.max(0, feature.geometry.coordinates.length - 1), 0) };
   });
   const lightweightingLayers = layers.map((layer) => {
-    const counts = openingCounts.get(layer.index) ?? { full: 0, clipped: 0 };
-    return { index: layer.index, full_opening_count: counts.full, clipped_opening_count: counts.clipped };
+    const counts = openingCounts.get(layer.index) ?? { full: 0, clipped: 0, unlatticed: 0 };
+    return { index: layer.index, full_opening_count: counts.full, clipped_opening_count: counts.clipped, unlatticed_opening_count: counts.unlatticed };
   });
   return {
     ...preview,
     lightweighting: {
       full_opening_count: lightweightingLayers.reduce((total, layer) => total + layer.full_opening_count, 0),
       clipped_opening_count: lightweightingLayers.reduce((total, layer) => total + layer.clipped_opening_count, 0),
+      unlatticed_opening_count: lightweightingLayers.reduce((total, layer) => total + layer.unlatticed_opening_count, 0),
       layers: lightweightingLayers,
     },
     layers,
@@ -4643,6 +4686,7 @@ export function MapWorkspace() {
   const filledTotalParts = filledLayerPreview?.layers.reduce((total, layer) => total + layer.piece_count, 0) ?? 0;
   const smoothedTotalParts = smoothingLayerMetrics.reduce((total, row) => total + row.after.parts, 0);
   const lightweightingSettingsMatch = lightweighting.enabled === lightweightingDraft.enabled
+    && lightweighting.addLattice === lightweightingDraft.addLattice
     && lightweighting.gridPitchMm === lightweightingDraft.gridPitchMm
     && lightweighting.ribWidthMm === lightweightingDraft.ribWidthMm
     && lightweighting.contourMarginMm === lightweightingDraft.contourMarginMm
@@ -4654,6 +4698,7 @@ export function MapWorkspace() {
   const lightweightOpeningCount = Math.max(0, (fabricationPreview?.layers.reduce((total, layer) => total + layer.hole_count, 0) ?? 0) - (smoothedPreview?.layers.reduce((total, layer) => total + layer.hole_count, 0) ?? 0));
   const fullLightweightOpeningCount = fabricationPreview?.lightweighting?.full_opening_count ?? 0;
   const clippedLightweightOpeningCount = fabricationPreview?.lightweighting?.clipped_opening_count ?? 0;
+  const unlatticedLightweightOpeningCount = fabricationPreview?.lightweighting?.unlatticed_opening_count ?? 0;
   const partIdentificationComplete = Boolean(filledStageComplete
     && lightweightingComplete
     && partIdentification.applied
@@ -4745,6 +4790,7 @@ export function MapWorkspace() {
     const ribWidthMm = Math.max(3, Math.min(gridPitchMm - 2, Number(lightweightingDraft.ribWidthMm) || DEFAULT_LIGHTWEIGHTING.ribWidthMm));
     const next: LightweightingSettings = {
       enabled: lightweightingDraft.enabled,
+      addLattice: lightweightingDraft.addLattice,
       gridPitchMm,
       ribWidthMm,
       contourMarginMm: Math.max(0, Number(lightweightingDraft.contourMarginMm) || 0),
@@ -5591,7 +5637,7 @@ export function MapWorkspace() {
         "Bathymetry is model-making data and must not be used for navigation.",
         `Lightweighting: ${lightweighting.enabled && lightweighting.applied ? "enabled" : "disabled"}`,
         ...(lightweighting.enabled && lightweighting.applied ? [
-          `Lightweight grid: ${lightweighting.gridPitchMm.toFixed(1)} mm pitch, ${lightweighting.ribWidthMm.toFixed(1)} mm ribs`,
+          `Support lattice: ${lightweighting.addLattice ? `${lightweighting.gridPitchMm.toFixed(1)} mm pitch, ${lightweighting.ribWidthMm.toFixed(1)} mm ribs` : "omitted"}`,
           `Lightweight contour margin: ${lightweighting.contourMarginMm.toFixed(1)} mm`,
           `Weight-reduction openings: ${lightweightOpeningCount}`,
           `Estimated stack material-area reduction: ${smoothedMaterialArea > 0 ? (removedMaterialArea / smoothedMaterialArea * 100).toFixed(1) : "0.0"}%`,
@@ -6182,16 +6228,23 @@ export function MapWorkspace() {
               <input type="checkbox" checked={lightweightingDraft.enabled} disabled={!smoothedPreview} onChange={(event) => setLightweightingDraft((current) => ({ ...current, enabled: event.target.checked }))} />
               <i aria-hidden="true"><b /></i>
             </label>
-            <label><span>Grid spacing</span><strong><input type="number" min="20" step="5" value={lightweightingDraft.gridPitchMm} disabled={!lightweightingDraft.enabled} onChange={(event) => setLightweightingDraft((current) => ({ ...current, gridPitchMm: Number(event.target.value) }))} /><em>mm</em></strong></label>
-            <label><span>Rib width</span><strong><input type="number" min="3" step="1" value={lightweightingDraft.ribWidthMm} disabled={!lightweightingDraft.enabled} onChange={(event) => setLightweightingDraft((current) => ({ ...current, ribWidthMm: Number(event.target.value) }))} /><em>mm</em></strong></label>
+            <label className="layer-distribution-toggle">
+              <span>Add support lattice</span>
+              <input type="checkbox" checked={lightweightingDraft.addLattice} disabled={!lightweightingDraft.enabled} onChange={(event) => setLightweightingDraft((current) => ({ ...current, addLattice: event.target.checked }))} />
+              <i aria-hidden="true"><b /></i>
+            </label>
+            <label><span>Grid spacing</span><strong><input type="number" min="20" step="5" value={lightweightingDraft.gridPitchMm} disabled={!lightweightingDraft.enabled || !lightweightingDraft.addLattice} onChange={(event) => setLightweightingDraft((current) => ({ ...current, gridPitchMm: Number(event.target.value) }))} /><em>mm</em></strong></label>
+            <label><span>Rib width</span><strong><input type="number" min="3" step="1" value={lightweightingDraft.ribWidthMm} disabled={!lightweightingDraft.enabled || !lightweightingDraft.addLattice} onChange={(event) => setLightweightingDraft((current) => ({ ...current, ribWidthMm: Number(event.target.value) }))} /><em>mm</em></strong></label>
             <label><span>Contour margin</span><strong><input type="number" min="0" step="1" value={lightweightingDraft.contourMarginMm} disabled={!lightweightingDraft.enabled} onChange={(event) => setLightweightingDraft((current) => ({ ...current, contourMarginMm: Number(event.target.value) }))} /><em>mm</em></strong></label>
             <label><span>Minimum opening</span><strong><input type="number" min="5" step="5" value={lightweightingDraft.minimumOpeningMm} disabled={!lightweightingDraft.enabled} onChange={(event) => setLightweightingDraft((current) => ({ ...current, minimumOpeningMm: Number(event.target.value) }))} /><em>mm</em></strong></label>
             <button disabled={!smoothedPreview || lightweightingSettingsMatch && lightweightingComplete} onClick={applyLightweightingSettings}>{lightweightingDraft.enabled ? "Apply lightweighting" : "Continue without lightweighting"}</button>
-            <p>The area covered by the next layer is the bare glue zone. Topomapper insets that area by the contour margin, overlays one regular lattice, and clips its edge openings to the inset contour. Alignment drilling is omitted while lightweighting is active.</p>
+            <p>The area covered by the next layer is the bare glue zone. Topomapper insets that area by the contour margin. Add support lattice overlays the regular structural grid; switch it off to remove the whole safe buried interior and inspect the underlying weight-reduction area.</p>
             {lightweighting.applied && lightweighting.enabled && lightweightingSettingsMatch && <dl className="plain-smoothing-stats">
               <div><dt>Weight-reduction openings:</dt><dd>{lightweightOpeningCount}</dd></div>
-              <div><dt>Complete lattice cells:</dt><dd>{fullLightweightOpeningCount}</dd></div>
-              <div><dt>Clipped edge openings:</dt><dd>{clippedLightweightOpeningCount}</dd></div>
+              {lightweighting.addLattice ? <>
+                <div><dt>Complete lattice cells:</dt><dd>{fullLightweightOpeningCount}</dd></div>
+                <div><dt>Clipped edge openings:</dt><dd>{clippedLightweightOpeningCount}</dd></div>
+              </> : <div><dt>Unlatticed openings:</dt><dd>{unlatticedLightweightOpeningCount}</dd></div>}
               <div><dt>Material area removed:</dt><dd>{Math.round(removedMaterialArea).toLocaleString("en-NZ")} mm²</dd></div>
               <div><dt>Stack material reduction:</dt><dd>{smoothedMaterialArea > 0 ? `${(removedMaterialArea / smoothedMaterialArea * 100).toFixed(1)}%` : "0%"}</dd></div>
             </dl>}
@@ -6388,7 +6441,7 @@ export function MapWorkspace() {
                 <span><small>Parts</small><strong>{selectedAssemblyParts.length}</strong></span>
                 <span><small>Drill holes</small><strong>{selectedAssemblyHoles.length}</strong></span>
               </div>
-              <p>{lightweighting.enabled ? "Hatched areas are covered by the next layer: leave their retained lattice ribs and margins bare for glue. The repeated lattice replaces separate alignment drilling." : "Hatched areas are covered by the next layer: leave them bare for glue. Orange peak vents pass through every supporting layer; white holes provide extra alignment."}</p>
+              <p>{lightweighting.enabled ? (lightweighting.addLattice ? "Hatched areas are covered by the next layer: leave their retained lattice ribs and margins bare for glue. The repeated lattice replaces separate alignment drilling." : "Hatched areas are covered by the next layer. No support lattice is being retained; leave the contour margin bare for glue.") : "Hatched areas are covered by the next layer: leave them bare for glue. Orange peak vents pass through every supporting layer; white holes provide extra alignment."}</p>
               <ol className="assembly-part-list">
                 {selectedAssemblyParts.map((part) => {
                   const partHoles = assemblyPlan.holes.filter((hole) => hole.partIds.includes(part.id)).length;
@@ -6397,7 +6450,7 @@ export function MapWorkspace() {
               </ol>
               <div className="assembly-plan-summary">
                 <span><strong>{assemblyPlan.parts.length}</strong> named parts</span>
-                {lightweighting.enabled ? <span><strong>{lightweightOpeningCount}</strong> lattice openings</span> : <><span><strong>{assemblyPlan.holes.filter((hole) => hole.kind === "grid").length}</strong> buried grid holes</span><span><strong>{assemblyPlan.holes.filter((hole) => hole.kind === "vent").length}</strong> peak-to-base vents</span></>}
+                {lightweighting.enabled ? <span><strong>{lightweightOpeningCount}</strong> {lightweighting.addLattice ? "lattice" : "unlatticed"} openings</span> : <><span><strong>{assemblyPlan.holes.filter((hole) => hole.kind === "grid").length}</strong> buried grid holes</span><span><strong>{assemblyPlan.holes.filter((hole) => hole.kind === "vent").length}</strong> peak-to-base vents</span></>}
               </div>
               {(holeDiameterMm <= dowelDiameterMm || assemblyPlan.warnings.length > 0) && (
                 <div className="assembly-warnings" role="status">

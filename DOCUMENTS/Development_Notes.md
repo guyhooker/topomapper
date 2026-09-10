@@ -983,6 +983,9 @@
 - Lightweighting does not reserve additional cells around legacy peak/vent
   points. Every covering part already retains its contour glue rim, while the
   regular ribs provide the intended interior support.
+- A valley, old volcanic cone or pre-existing hole enclosed by an opening is
+  connected to the nearest cell edge with a rib of approximately the selected
+  lattice width. This preserves the island without forfeiting the whole cell.
 - `Add support lattice` is enabled by default. Switching it off converts each
   safely inset covered region into one or more large openings; this is useful
   both as a lightweight construction choice and for diagnosing the buried-area

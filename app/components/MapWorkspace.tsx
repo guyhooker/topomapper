@@ -934,17 +934,40 @@ function applyLightweighting(
         return total + point.x * next.y - next.x * point.y;
       }, 0) / 2;
       let loops = traceMask(mask, columns, rows, left, top, cellWidth, cellHeight);
-      if (!latticeCell) {
-        // A large unlatticed opening can surround a valley or an existing
-        // internal hole. Join each retained island to the surrounding material
-        // with one short rib so every emitted cut remains a simple safe ring.
-        const bridgeHalfRows = Math.max(1, Math.ceil(Math.max(3, rib) / cellHeight / 2));
-        loops.filter((ring) => signedArea(ring) < 0).forEach((island) => {
-          const anchor = island.reduce((leftmost, point) => point.x < leftmost.x ? point : leftmost, island[0]);
-          const anchorColumn = Math.max(0, Math.min(columns - 1, Math.floor((anchor.x - left) / cellWidth)));
-          const anchorRow = Math.max(0, Math.min(rows - 1, Math.floor((anchor.y - top) / cellHeight)));
-          for (let row = Math.max(0, anchorRow - bridgeHalfRows); row <= Math.min(rows - 1, anchorRow + bridgeHalfRows); row += 1) {
-            for (let column = 0; column <= anchorColumn; column += 1) mask[row * columns + column] = 0;
+      const retainedIslands = loops.filter((ring) => signedArea(ring) < 0);
+      if (retainedIslands.length) {
+        // A proposed opening can surround an old volcanic cone, a valley, or
+        // an existing internal hole. Join each retained island to its nearest
+        // lattice rib (or the outer margin in no-lattice mode) instead of
+        // rejecting the entire opening.
+        const bridgeHalfRows = Math.max(1, Math.floor(Math.max(3, rib) / cellHeight / 2));
+        const bridgeHalfColumns = Math.max(1, Math.floor(Math.max(3, rib) / cellWidth / 2));
+        retainedIslands.forEach((island) => {
+          const leftAnchor = island.reduce((best, point) => point.x < best.x ? point : best, island[0]);
+          const rightAnchor = island.reduce((best, point) => point.x > best.x ? point : best, island[0]);
+          const topAnchor = island.reduce((best, point) => point.y < best.y ? point : best, island[0]);
+          const bottomAnchor = island.reduce((best, point) => point.y > best.y ? point : best, island[0]);
+          const routes = [
+            { edge: "left", anchor: leftAnchor, distance: leftAnchor.x - left },
+            { edge: "right", anchor: rightAnchor, distance: right - rightAnchor.x },
+            { edge: "top", anchor: topAnchor, distance: topAnchor.y - top },
+            { edge: "bottom", anchor: bottomAnchor, distance: bottom - bottomAnchor.y },
+          ].sort((first, second) => first.distance - second.distance);
+          const route = routes[0];
+          const anchorColumn = Math.max(0, Math.min(columns - 1, Math.floor((route.anchor.x - left) / cellWidth)));
+          const anchorRow = Math.max(0, Math.min(rows - 1, Math.floor((route.anchor.y - top) / cellHeight)));
+          if (route.edge === "left" || route.edge === "right") {
+            const firstColumn = route.edge === "left" ? 0 : anchorColumn;
+            const lastColumn = route.edge === "left" ? anchorColumn : columns - 1;
+            for (let row = Math.max(0, anchorRow - bridgeHalfRows); row <= Math.min(rows - 1, anchorRow + bridgeHalfRows); row += 1) {
+              for (let column = firstColumn; column <= lastColumn; column += 1) mask[row * columns + column] = 0;
+            }
+          } else {
+            const firstRow = route.edge === "top" ? 0 : anchorRow;
+            const lastRow = route.edge === "top" ? anchorRow : rows - 1;
+            for (let row = firstRow; row <= lastRow; row += 1) {
+              for (let column = Math.max(0, anchorColumn - bridgeHalfColumns); column <= Math.min(columns - 1, anchorColumn + bridgeHalfColumns); column += 1) mask[row * columns + column] = 0;
+            }
           }
         });
         loops = traceMask(mask, columns, rows, left, top, cellWidth, cellHeight);

@@ -15,6 +15,8 @@ still change their project or manufacturing formats.
   the bare/glue zone in Assembly.
 - Fixed lattice cells being suppressed by obsolete peak/support reservations;
   contour glue rims and the lattice itself now provide the intended support.
+- Preserved old volcanic cones and other retained islands by joining them to
+  the nearest lattice rib, rather than rejecting their entire opening cell.
 - Added configurable CNC holding tabs to sheet SVGs: closed profiles cut to tab
   height followed by open full-depth segments with evenly spaced bridges.
 - Closed tidal gaps between the 8 m land DEM and coarse national bathymetry;

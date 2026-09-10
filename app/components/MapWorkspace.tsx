@@ -917,7 +917,9 @@ function applyLightweighting(
       if (protectedPoints.some((point) => {
         const nearestX = Math.max(left, Math.min(point.x, right));
         const nearestY = Math.max(top, Math.min(point.y, bottom));
-        return Math.hypot(point.x - nearestX, point.y - nearestY) < protectedRadius;
+        if (Math.hypot(point.x - nearestX, point.y - nearestY) >= protectedRadius) return false;
+        return containsFeature(point, physicalRings)
+          && physicalCoverings.some((covering) => containsFeature(point, covering));
       })) return;
       const resolution = LIGHTWEIGHT_MASK_RESOLUTION_MM;
       const columns = Math.max(1, Math.ceil((right - left) / resolution));

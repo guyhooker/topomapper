@@ -1418,6 +1418,21 @@ function identifiedPartGeometry(
   const ordinaryLabel = physicalPoint(preview, modelWidth, modelHeight, part.idPoint ?? part.labelPoint);
   if (!identification.applied || !identification.addIdsToUnderside) return { rings, labelPoint: ordinaryLabel, machineLabel: false, hasIdFlag: false };
 
+  // A label engraved on the body can disappear when buried material is cut
+  // away.  Once lightweighting has created openings, give every part its own
+  // north-pointing flag before considering a body label.  The flag is added to
+  // the manufacturable outline after lightweighting, so it remains solid and
+  // travels with the part through placement, nesting and cutting.
+  const hasLightweightOpenings = Boolean(preview.lightweighting && (
+    preview.lightweighting.full_opening_count
+    + preview.lightweighting.clipped_opening_count
+    + preview.lightweighting.unlatticed_opening_count > 0
+  ));
+  if (identification.useFlagsForSmallParts && hasLightweightOpenings) {
+    const flagged = appendNorthIdFlag(rings[0]);
+    if (flagged) return { rings: [flagged.ring, ...rings.slice(1)], labelPoint: flagged.labelPoint, machineLabel: true, hasIdFlag: true };
+  }
+
   const outer = rings[0];
   const west = Math.min(...outer.map((point) => point.x));
   const east = Math.max(...outer.map((point) => point.x));
@@ -4826,7 +4841,7 @@ export function MapWorkspace() {
     setActiveSheetIndex(0);
     setSelectedPlacementId(null);
     setSelectedViolationIndex(null);
-    setOptimizerStatus("Part identification changed the manufacturable outlines. Run Quick Placement before nesting.");
+    setOptimizerStatus("Part IDs are ready. Continue to 9) Sheet Layout and run Quick Placement.");
   }
 
   function blankProjectDocument(name: string): TopomapperProject {
@@ -6268,9 +6283,9 @@ export function MapWorkspace() {
           </summary>
           <div className="workflow-stage-body part-id-settings">
             <label><input type="checkbox" checked={partIdentificationDraft.addIdsToUnderside} disabled={!fabricationPreview} onChange={(event) => setPartIdentificationDraft((current) => ({ ...current, addIdsToUnderside: event.target.checked }))} /> Add IDs to underside</label>
-            <label><input type="checkbox" checked={partIdentificationDraft.useFlagsForSmallParts} disabled={!fabricationPreview || !partIdentificationDraft.addIdsToUnderside} onChange={(event) => setPartIdentificationDraft((current) => ({ ...current, useFlagsForSmallParts: event.target.checked }))} /> Use flags for small parts</label>
+            <label><input type="checkbox" checked={partIdentificationDraft.useFlagsForSmallParts} disabled={!fabricationPreview || !partIdentificationDraft.addIdsToUnderside} onChange={(event) => setPartIdentificationDraft((current) => ({ ...current, useFlagsForSmallParts: event.target.checked }))} /> Use ID flags</label>
             <button disabled={!fabricationPreview} onClick={applyPartIdentification}>Add IDs</button>
-            <p>IDs use A–Z for layers and 1–99 for parts. Any part without a clear 8 × 12 mm engraving area receives an 8 × 12 mm flag whose pointed end shows geographic north.</p>
+            <p>IDs use A–Z for layers and 1–99 for parts. With lightweighting, every part receives a durable 8 × 12 mm flag so its ID cannot be removed by an internal cut. Without lightweighting, flags are added only where a clear body engraving area does not fit. The pointed end shows geographic north.</p>
             {partIdentification.applied && <dl className="plain-smoothing-stats"><div><dt>Underside IDs:</dt><dd>{engravedPartCount}</dd></div><div><dt>North ID flags:</dt><dd>{flaggedPartCount}</dd></div></dl>}
           </div>
         </details>
@@ -6531,7 +6546,7 @@ export function MapWorkspace() {
           </div>
           <div className="sheet-layout-workspace">
             <div className="sheet-canvas-wrap">
-              {!sheetPlacements.length && <div className="sheet-empty-notice" role="status"><strong>No parts have been placed yet</strong><span>Open Setup → 9) Sheet Layout and press Quick Placement.</span></div>}
+              {!sheetPlacements.length && <div className="sheet-empty-notice" role="status"><strong>{partIdentificationComplete ? "Part IDs are ready" : "No parts have been placed yet"}</strong><span>{partIdentificationComplete ? "Continue with Setup → 9) Sheet Layout and press Quick Placement." : "Complete 8) Part ID before sheet placement."}</span></div>}
               <SheetLayoutCanvas
                 rules={sheetRules}
                 parts={layoutParts}

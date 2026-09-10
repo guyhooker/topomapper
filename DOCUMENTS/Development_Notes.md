@@ -980,6 +980,9 @@
 - A globally aligned, constant-pitch grid preserves predictable ribs. Complete
   openings remain rectangular; boundary openings are clipped to the inset mask
   and small or topologically unsafe fragments are discarded.
+- Lightweighting does not reserve additional cells around legacy peak/vent
+  points. Every covering part already retains its contour glue rim, while the
+  regular ribs provide the intended interior support.
 - `Add support lattice` is enabled by default. Switching it off converts each
   safely inset covered region into one or more large openings; this is useful
   both as a lightweight construction choice and for diagnosing the buried-area

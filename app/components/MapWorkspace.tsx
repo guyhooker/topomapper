@@ -802,8 +802,8 @@ function applyLightweighting(
   modelWidth: number,
   modelHeight: number,
   _registrationPitchMm: number,
-  registrationHoleDiameterMm: number,
-  registrationEdgeClearanceMm: number,
+  _registrationHoleDiameterMm: number,
+  _registrationEdgeClearanceMm: number,
 ): FilledLayerPreview {
   if (!settings.enabled || !settings.applied) return preview;
   const pitch = Math.max(20, settings.gridPitchMm);
@@ -812,17 +812,9 @@ function applyLightweighting(
   const margin = Math.max(0, settings.contourMarginMm);
   if (settings.addLattice && opening < Math.max(5, settings.minimumOpeningMm)) return preview;
 
-  const protectedRadius = registrationHoleDiameterMm / 2 + registrationEdgeClearanceMm;
-  const protectedPoints: { x: number; y: number }[] = [];
   const openingCounts = new Map<number, { full: number; clipped: number; unlatticed: number }>();
   const featuresByLayer = new Map<number, FilledLayerFeature[]>();
   preview.layers.forEach((layer) => featuresByLayer.set(layer.index, preview.feature_collection.features.filter((feature) => feature.properties.layer_index === layer.index)));
-  preview.feature_collection.features.filter((feature) => feature.properties.layer_index > 0).forEach((feature) => {
-    const peak = featureLabelPoint(preview, feature, modelWidth, modelHeight).point;
-    const nextLayer = featuresByLayer.get(feature.properties.layer_index + 1) ?? [];
-    if (nextLayer.some((candidate) => pointInFeature(peak, candidate))) return;
-    protectedPoints.push(physicalPoint(preview, modelWidth, modelHeight, peak));
-  });
 
   const features = preview.feature_collection.features.map((feature) => {
     const coveringFeatures = featuresByLayer.get(feature.properties.layer_index + 1) ?? [];
@@ -918,13 +910,6 @@ function applyLightweighting(
       latticeCell: boolean,
     ) => {
       if (right - left < 5 || bottom - top < 5) return;
-      if (latticeCell && protectedPoints.some((point) => {
-        const nearestX = Math.max(left, Math.min(point.x, right));
-        const nearestY = Math.max(top, Math.min(point.y, bottom));
-        if (Math.hypot(point.x - nearestX, point.y - nearestY) >= protectedRadius) return false;
-        return containsFeature(point, physicalRings)
-          && regionCoverings.some((covering) => containsFeature(point, covering));
-      })) return;
       const resolution = LIGHTWEIGHT_MASK_RESOLUTION_MM;
       const columns = Math.max(1, Math.ceil((right - left) / resolution));
       const rows = Math.max(1, Math.ceil((bottom - top) / resolution));

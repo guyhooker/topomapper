@@ -13,6 +13,8 @@ still change their project or manufacturing formats.
   separate alignment drilling, reports complete and clipped opening
   counts plus material-area reduction, and marks retained covered material as
   the bare/glue zone in Assembly.
+- Fixed lattice cells being suppressed by obsolete peak/support reservations;
+  contour glue rims and the lattice itself now provide the intended support.
 - Added configurable CNC holding tabs to sheet SVGs: closed profiles cut to tab
   height followed by open full-depth segments with evenly spaced bridges.
 - Closed tidal gaps between the 8 m land DEM and coarse national bathymetry;

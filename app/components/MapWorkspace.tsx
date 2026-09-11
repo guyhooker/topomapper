@@ -4798,6 +4798,7 @@ export function MapWorkspace() {
   function setLayerSmoothing(value: number) {
     const layer = filledLayerPreview?.layers.find((candidate) => candidate.index === smoothingLayerIndex);
     const maximum = layer?.lower_elevation !== undefined && layer.lower_elevation < 0 ? SUBSEA_SMOOTHING_MAX_MM : LAND_SMOOTHING_MAX_MM;
+    setWorkspaceView("smoothing");
     setSmoothingLevels((current) => ({ ...current, [smoothingLayerIndex]: Math.max(0, Math.min(maximum, value)) }));
   }
 
@@ -4805,6 +4806,7 @@ export function MapWorkspace() {
     if (!filledLayerPreview || !Number.isFinite(value)) return;
     const maximum = kind === "subsea" ? SUBSEA_SMOOTHING_MAX_MM : LAND_SMOOTHING_MAX_MM;
     const level = Math.max(0, Math.min(maximum, value));
+    setWorkspaceView("smoothing");
     setSmoothingLevels((current) => ({
       ...current,
       ...Object.fromEntries(filledLayerPreview.layers.filter((layer) => kind === "subsea" ? layer.lower_elevation < 0 : layer.lower_elevation >= 0).map((layer) => [layer.index, level])),
@@ -4813,6 +4815,7 @@ export function MapWorkspace() {
 
   function applySmoothingToAll() {
     if (!filledLayerPreview) return;
+    setWorkspaceView("smoothing");
     const value = smoothingLevels[smoothingLayerIndex] ?? 0;
     const selected = filledLayerPreview.layers.find((layer) => layer.index === smoothingLayerIndex);
     const subsea = Boolean(selected && selected.lower_elevation < 0);
@@ -6221,7 +6224,11 @@ export function MapWorkspace() {
           </details>
         )}
 
-        <details className="workflow-stage smoothing-stage" open={smoothingStageOpen} onToggle={(event) => setSmoothingStageOpen(event.currentTarget.open)}>
+        <details className="workflow-stage smoothing-stage" open={smoothingStageOpen} onToggle={(event) => {
+          const open = event.currentTarget.open;
+          setSmoothingStageOpen(open);
+          if (open && filledLayerPreview) setWorkspaceView("smoothing");
+        }}>
           <summary className="workflow-stage-summary">
             <span><strong>6) Smoothing</strong></span>
             <em>{filledStageComplete ? "Complete" : "Incomplete"}</em>
@@ -6229,6 +6236,7 @@ export function MapWorkspace() {
             <b aria-hidden="true">{smoothingStageOpen ? "−" : "+"}</b>
           </summary>
           <div className="workflow-stage-body">
+            <button disabled={!filledLayerPreview} onClick={() => setWorkspaceView("smoothing")}>View smoothing map</button>
             <label className="drawer-smoothing-range">
               <span>Land Smoothing</span>
               <strong>{landSmoothingLevel.toFixed(1)} mm</strong>

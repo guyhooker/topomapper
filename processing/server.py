@@ -13,6 +13,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from analyse import AnalysisError, analyse_geotiffs, generate_filled_layers
+from bathymetry_cache import BathymetryCacheError, cache_bathymetry_file, cached_bathymetry_file
 from colour_guide import ColourGuideError, generate_colour_guide
 from layout_guide import LayoutGuideError, generate_layout_guide
 from linz_download import (
@@ -154,6 +155,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             boundaries = None
             water_inputs: list[tuple[bytes, str]] = []
             bathymetry_uploads = []
+            cached_bathymetry_names: list[str] = []
             if request_path == "/layers":
                 boundaries_field = form["boundaries"] if "boundaries" in form else None
                 if boundaries_field is None:
@@ -177,6 +179,13 @@ class RequestHandler(BaseHTTPRequestHandler):
                 bathymetry_uploads = bathymetry_value if isinstance(bathymetry_value, list) else [bathymetry_value] if bathymetry_value is not None else []
                 if len(bathymetry_uploads) > 12:
                     raise AnalysisError("Choose no more than 12 bathymetry GeoTIFFs at once.")
+                cached_bathymetry_field = form["bathymetry_cached"] if "bathymetry_cached" in form else None
+                if cached_bathymetry_field is not None:
+                    cached_bathymetry_names = json.loads(cached_bathymetry_field.value)
+                    if not isinstance(cached_bathymetry_names, list) or not all(isinstance(name, str) for name in cached_bathymetry_names):
+                        raise AnalysisError("The saved bathymetry file list is not valid.")
+                    if len(cached_bathymetry_names) > 12:
+                        raise AnalysisError("Choose no more than 12 bathymetry GeoTIFFs at once.")
             inputs: list[tuple[Path, str]] = []
             bathymetry_inputs: list[tuple[Path, str]] = []
             for upload in uploads:
@@ -199,10 +208,16 @@ class RequestHandler(BaseHTTPRequestHandler):
                     temporary_paths.append(temporary_path)
                     shutil.copyfileobj(upload.file, target, length=1024 * 1024)
                 bathymetry_inputs.append((temporary_path, filename))
+            for filename in cached_bathymetry_names:
+                bathymetry_inputs.append((cached_bathymetry_file(filename), filename))
             result = (generate_filled_layers(inputs, bounds, boundaries, water_inputs, bathymetry_inputs)
                       if request_path == "/layers" else analyse_geotiffs(inputs, bounds))
+            cache_field = form["cache_bathymetry"] if "cache_bathymetry" in form else None
+            if request_path == "/analyze" and cache_field is not None and cache_field.value == "true":
+                for path, filename in inputs:
+                    cache_bathymetry_file(path, filename)
             self._send_json(200, result)
-        except AnalysisError as error:
+        except (AnalysisError, BathymetryCacheError) as error:
             self._send_json(422, {"error": str(error)})
         except json.JSONDecodeError:
             self._send_json(400, {"error": "The selected map bounds or layer boundaries could not be read."})

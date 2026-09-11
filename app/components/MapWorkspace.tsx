@@ -4431,6 +4431,7 @@ export function MapWorkspace() {
     const form = new FormData();
     bathymetryFiles.forEach((file) => form.append("geotiff", file));
     form.append("bounds", JSON.stringify(selection));
+    form.append("cache_bathymetry", "true");
     try {
       const response = await fetch(`${PROCESSOR_ENDPOINT}/analyze`, { method: "POST", body: form });
       const payload = await response.json() as ElevationAnalysis | { error?: string };
@@ -4582,7 +4583,10 @@ export function MapWorkspace() {
       }
       const form = new FormData();
       terrain.forEach((file) => form.append("geotiff", file));
-      if (bathymetryEnabled) bathymetryFiles.forEach((file) => form.append("bathymetry", file));
+      if (bathymetryEnabled) {
+        if (bathymetryFiles.length) bathymetryFiles.forEach((file) => form.append("bathymetry", file));
+        else form.append("bathymetry_cached", JSON.stringify(bathymetrySourceFilenames));
+      }
       water.forEach((file) => form.append("water", file));
       form.append("bounds", JSON.stringify(selection));
       form.append("boundaries", JSON.stringify(physicalBoundaryValues));
@@ -4621,6 +4625,7 @@ export function MapWorkspace() {
   const layerMaximum = analysis?.maximum.elevation ?? 0;
   const layerValidation = analysis && layerBoundaries.length ? validateLayerBoundaries(layerBoundaries, layerMaximum) : "";
   const bathymetryDataComplete = hasUsableElevationAnalysis(bathymetryAnalysis, selection);
+  const bathymetrySourceAvailable = bathymetryFiles.length > 0 || bathymetrySourceFilenames.length > 0;
   const activeBathymetryBoundaries = bathymetryEnabled && bathymetryAnalysis
     ? [
       Math.floor(bathymetryAnalysis.minimum.elevation),
@@ -4634,6 +4639,11 @@ export function MapWorkspace() {
   const bathymetryLayerCount = bathymetryEnabled ? activeBathymetryBoundaries.length - 1 : 0;
   const physicalLayerCount = layerCount + bathymetryLayerCount;
   const layerPlanComplete = Boolean(analysis && layerBoundaries.length === layerCount + 1 && !layerValidation && (!bathymetryEnabled || bathymetryDataComplete));
+  const layerBuildBlocker = layerValidation
+    || (processorStatus !== "ready" ? "The local terrain processor is still starting."
+      : bathymetryEnabled && !bathymetryDataComplete ? "Analyse bathymetry in Stage 3 before building undersea layers."
+        : bathymetryEnabled && !bathymetrySourceAvailable ? "Choose a bathymetry GeoTIFF in Stage 3 before building undersea layers."
+          : "");
   const filledStageComplete = Boolean(filledLayerPreview && filledLayerPreview.layers.length === physicalLayerCount);
   const previewDimensions = chosenOutput ?? {
     width: 600,
@@ -4991,7 +5001,7 @@ export function MapWorkspace() {
     setBathymetryAnalysis(restoredBathymetry);
     setBathymetrySourceFilenames(restoredBathymetryNames);
     setBathymetryStatus(restoredBathymetry
-      ? `Saved bathymetry restored (${formatElevation(restoredBathymetry.minimum.elevation)} minimum). Reload ${restoredBathymetryNames.join(", ")} only to regenerate layers.`
+      ? `Saved bathymetry restored (${formatElevation(restoredBathymetry.minimum.elevation)} minimum). Topomapper will restore ${restoredBathymetryNames.join(", ")} automatically when layers are regenerated.`
       : "Optional: add an ESNZ/NIWA bathymetry GeoTIFF for undersea layers.");
     setAnalysisStatus(restoredAnalysis
       ? "Saved elevation data and map preview restored. Reload the named GeoTIFF files only if you need to regenerate layers."
@@ -6189,13 +6199,13 @@ export function MapWorkspace() {
             <div className="workflow-stage-body single-action-stage">
             <button
               className="generate-layers-button"
-              title={layerGenerationStatus}
+              title={layerBuildBlocker || layerGenerationStatus}
               onClick={generateFilledLayerPreview}
-              disabled={Boolean(layerValidation) || generatingLayers || processorStatus !== "ready" || (bathymetryEnabled && (!bathymetryDataComplete || !bathymetryFiles.length))}
+              disabled={Boolean(layerBuildBlocker) || generatingLayers}
             >
               {generatingLayers ? "Generating filled polygons…" : filledLayerPreview ? "Regenerate 2D preview" : `Generate ${physicalLayerCount} filled layers`}
             </button>
-            <p className={`drawer-generation-status ${layerGenerationStatus.includes("could not") || layerGenerationStatus.includes("first") ? "warning" : ""}`} role="status">{layerGenerationStatus}</p>
+            <p className={`drawer-generation-status ${layerBuildBlocker || layerGenerationStatus.includes("could not") || layerGenerationStatus.includes("first") ? "warning" : ""}`} role="status">{layerBuildBlocker || layerGenerationStatus}</p>
             {filledLayerPreview && !generatingLayers && (
               <div className="drawer-part-counts">
                 <p><strong>Total</strong><b>{filledTotalParts} Parts</b></p>

@@ -3695,6 +3695,10 @@ export function MapWorkspace() {
     };
   }, [smoothingLevels]);
   useEffect(() => {
+    const finalLayerIndex = Math.max(0, (filledLayerPreview?.layers.length ?? 1) - 1);
+    setSmoothingLayerIndex((current) => current >= 0 && current <= finalLayerIndex ? current : 0);
+  }, [filledLayerPreview?.layers.length]);
+  useEffect(() => {
     const unchanged = sheetRuleDraft.width === sheetRules.width
       && sheetRuleDraft.height === sheetRules.height
       && sheetRuleDraft.edgeMargin === sheetRules.edgeMargin
@@ -4602,6 +4606,7 @@ export function MapWorkspace() {
       setFilledLayerPreview(payload);
       setVisibleLayerIndices(visible);
       setAssemblyLayerIndex(0);
+      setSmoothingLayerIndex(0);
       showFilledLayerOverlay(payload, visible);
       const pieces = payload.layers.reduce((total, layer) => total + layer.piece_count, 0);
       const holes = payload.layers.reduce((total, layer) => total + layer.hole_count, 0);
@@ -6496,7 +6501,7 @@ export function MapWorkspace() {
         </section>
       )}
 
-      {filledLayerPreview && fabricationPreview && originalSmoothingMetrics && smoothedSmoothingMetrics && workspaceView === "smoothing" && (
+      {filledLayerPreview && smoothedPreview && originalSmoothingMetrics && smoothedSmoothingMetrics && workspaceView === "smoothing" && (
         <section className="smoothing-preview" aria-labelledby="smoothing-preview-heading">
           <div className="smoothing-preview-heading">
             <div><span className="section-label">SECTION 6 · CUTTER-SCALE CLEANUP</span><strong id="smoothing-preview-heading">Smooth manufacturing outlines</strong></div>
@@ -6506,9 +6511,9 @@ export function MapWorkspace() {
             <div className="assembly-layer-control">
               <button onClick={() => setSmoothingLayerIndex(Math.max(0, smoothingLayerIndex - 1))} disabled={smoothingLayerIndex === 0} aria-label="Previous smoothing layer">←</button>
               <select value={smoothingLayerIndex} onChange={(event) => setSmoothingLayerIndex(Number(event.target.value))} aria-label="Layer to smooth">
-                {fabricationPreview.layers.map((layer) => <option key={layer.index} value={layer.index}>L{String(layer.index + 1).padStart(2, "0")} · {formatBoundaryValue(layer.lower_elevation)}–{formatBoundaryValue(layer.upper_elevation)} m</option>)}
+                {smoothedPreview.layers.map((layer) => <option key={layer.index} value={layer.index}>L{String(layer.index + 1).padStart(2, "0")} · {formatBoundaryValue(layer.lower_elevation)}–{formatBoundaryValue(layer.upper_elevation)} m</option>)}
               </select>
-              <button onClick={() => setSmoothingLayerIndex(Math.min(fabricationPreview.layers.length - 1, smoothingLayerIndex + 1))} disabled={smoothingLayerIndex === fabricationPreview.layers.length - 1} aria-label="Next smoothing layer">→</button>
+              <button onClick={() => setSmoothingLayerIndex(Math.min(smoothedPreview.layers.length - 1, smoothingLayerIndex + 1))} disabled={smoothingLayerIndex === smoothedPreview.layers.length - 1} aria-label="Next smoothing layer">→</button>
             </div>
             <label className="smoothing-range">{selectedSmoothingIsSubsea ? "Subsea cleanup" : "Land cleanup"} <strong>{(smoothingLevels[smoothingLayerIndex] ?? 0).toFixed(1)} mm</strong><input type="range" min="0" max={selectedSmoothingMaximum} step={selectedSmoothingIsSubsea ? "1" : "0.5"} value={smoothingLevels[smoothingLayerIndex] ?? 0} onChange={(event) => setLayerSmoothing(Number(event.target.value))} /></label>
             <label className="smoothing-zoom">Zoom <select value={smoothingZoom} onChange={(event) => setSmoothingZoom(Number(event.target.value))}><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option><option value="8">8×</option></select></label>
@@ -6518,7 +6523,7 @@ export function MapWorkspace() {
           </div>
           <div className="smoothing-workspace">
             <div className="smoothing-canvas-wrap">
-              <SmoothingPreviewCanvas original={filledLayerPreview} smoothed={fabricationPreview} layerIndex={smoothingLayerIndex} modelWidth={previewDimensions.width} modelHeight={previewDimensions.height} zoom={smoothingZoom} />
+              <SmoothingPreviewCanvas original={filledLayerPreview} smoothed={smoothedPreview} layerIndex={smoothingLayerIndex} modelWidth={previewDimensions.width} modelHeight={previewDimensions.height} zoom={smoothingZoom} />
               <div className="smoothing-legend"><span><i className="original-edge" /> Original raster edge</span><span><i className="clean-edge" /> Smoothed cut edge</span></div>
             </div>
             <aside className="smoothing-details">
@@ -6531,8 +6536,8 @@ export function MapWorkspace() {
               </div>
               <div className="comparison-key"><span>Original</span><strong>After cleanup</strong></div>
               <ol className="smoothing-layer-list">
-                {fabricationPreview.layers.map((layer) => {
-                  const metrics = layerGeometryMetrics(fabricationPreview, layer.index, previewDimensions.width, previewDimensions.height);
+                {smoothedPreview.layers.map((layer) => {
+                  const metrics = layerGeometryMetrics(smoothedPreview, layer.index, previewDimensions.width, previewDimensions.height);
                   return <li key={layer.index} className={layer.index === smoothingLayerIndex ? "active" : ""}><button onClick={() => setSmoothingLayerIndex(layer.index)}><strong>L{String(layer.index + 1).padStart(2, "0")}</strong><span>{(smoothingLevels[layer.index] ?? 0).toFixed(1)} mm</span><small>{metrics.parts} parts · {metrics.holes} holes</small></button></li>;
                 })}
               </ol>
